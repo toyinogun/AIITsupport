@@ -25,7 +25,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 
 | # | Feature | Phase | Status |
 |---|---------|-------|--------|
-| 1 | Discovery doc | Foundation | planned |
+| 1 | Discovery doc | Foundation | done |
 | 2 | Build journal | Foundation | in-progress |
 | 3 | Stack & architecture | Foundation | planned |
 | 4 | Coding standards & tooling | Foundation | planned |
@@ -53,10 +53,11 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 
 ## Foundations
 
-### 1. Discovery doc
+### 1. Discovery doc · done
 The one page brief written as if sales just handed you the account: who Noord is, what hurts, what success means. Everything else is measured against it.
 **Done when:** one page covers the client profile, the five pain points, the five success criteria, in scope, and out of scope (hardware, admin tier changes, mailbox and SharePoint permissions).
-- [ ] Write it: `/develop discovery doc`
+- [x] Write it: `/develop discovery doc`
+code in `docs/discovery.md`
 
 ### 2. Build journal · in-progress
 A running log of everything that breaks, written the moment it happens: symptom, root cause, fix, time lost, and the clip that shows it. This is the spine of the post and the video.
