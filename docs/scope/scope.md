@@ -29,7 +29,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 2 | Build journal | Foundation | in-progress |
 | 3 | Stack & architecture | Foundation | in-progress |
 | 4 | Coding standards & tooling | Foundation | done |
-| 5 | Data model | Foundation | planned |
+| 5 | Data model | Foundation | done |
 | 6 | Noord directory & seeded mess | Client environment | planned |
 | 7 | Entra tenant & sync (timeboxed) | Client environment | planned |
 | 8 | Ticketing, knowledge base & Slack workspace | Client environment | planned |
@@ -86,10 +86,20 @@ Capture conventions from the real scaffold, then install lint, format, pre commi
 - [x] Check it runs clean: `/test`
 spec [0002](../specs/0002-coding-standards-tooling/index.md) · code in `tools.mod`, `.golangci.yml`, `lefthook.yml`, `.gitleaks.toml`, `.github/`, `.claude/hooks/format-go.py`, `cmd/agent/boundary_test.go`
 
-### 5. Data model · needs a decision · GA
+### 5. Data model · done · GA
 The records the agent owns: the append only audit log, pending approvals, eval runs and results, and tickets if you use the Postgres fallback.
 **Done when:** every tool call can be recorded with requester, action, target, approver, and result; audit rows cannot be updated or deleted by the app; eval runs are stored so v1 and final can be compared.
-- [ ] Design it (spec): `/architect data model`
+- [x] Design it (spec): `/architect data model`
+- [x] Build it: `/develop data model`
+  - [x] Roles, per binary DB settings, the migration, and the test helper with the CI change (AC-1, AC-13, AC-14)
+  - [x] Audit strand: `internal/audit` recorder plus the grant and trigger tests (AC-2 to AC-7, AC-15)
+  - [x] Approvals with guarded transitions and their audit pairs (AC-8)
+  - [x] Conversations, messages, usage, Slack event dedup, and eval queries (AC-9 to AC-12)
+- [x] Verify it: `/check verify data model`
+- [x] Test it: `/test data model`
+- [x] Review it (fresh model): `/check review data model`
+- [x] Document it: `/document data model`
+spec [0003](../specs/0003-data-model/index.md) · code in `db/`, `internal/audit/`, `internal/db/`, `internal/config/`
 
 ## Client environment (Noord Logistics)
 

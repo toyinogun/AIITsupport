@@ -2,9 +2,10 @@ package db
 
 import (
 	"net"
-	"os"
 	"strings"
 	"testing"
+
+	"github.com/toyinogun/AIITsupport/internal/db/dbtest"
 )
 
 func TestOpenRejectsMalformedURL(t *testing.T) {
@@ -38,16 +39,13 @@ func TestOpenFailsFastWhenDatabaseIsUnreachable(t *testing.T) {
 	}
 }
 
-// covers: SD-1. Runs only when TEST_DATABASE_URL points at a live Postgres,
-// for example the `make db-up` one:
+// covers: SD-1, AC-1 (spec 0003). Runs only when TEST_DATABASE_URL is a
+// superuser connection URL, for example the `make db-up` one:
 // TEST_DATABASE_URL=postgres://noord:noord-dev@localhost:55432/noord?sslmode=disable
 func TestOpenPingsALiveDatabase(t *testing.T) {
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("set TEST_DATABASE_URL to run against a live Postgres")
-	}
+	tdb := dbtest.New(t)
 
-	pool, err := Open(t.Context(), url)
+	pool, err := Open(t.Context(), tdb.URL(dbtest.RoleOwner))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -57,7 +55,7 @@ func TestOpenPingsALiveDatabase(t *testing.T) {
 	if err := pool.QueryRow(t.Context(), "select max(version_id) from goose_db_version").Scan(&applied); err != nil {
 		t.Fatalf("read goose_db_version: %v", err)
 	}
-	if applied < 1 {
-		t.Errorf("goose version = %d, want at least 1 (migrations applied)", applied)
+	if applied < 2 {
+		t.Errorf("goose version = %d, want at least 2 (the data model migration)", applied)
 	}
 }

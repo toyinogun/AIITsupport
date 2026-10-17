@@ -3,3 +3,128 @@
 //   sqlc v1.31.1
 
 package queries
+
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+type Approval struct {
+	ID               uuid.UUID
+	CallID           uuid.UUID
+	ToolName         string
+	Arguments        json.RawMessage
+	RiskTier         string
+	RequesterSlackID string
+	RequesterAccount pgtype.Text
+	SlackChannelID   string
+	SlackThreadTs    string
+	ZammadTicketID   pgtype.Int8
+	ApproverKind     string
+	AllowedApprovers []string
+	Status           string
+	DecidedBy        pgtype.Text
+	DecidedAt        pgtype.Timestamptz
+	ExecutedAt       pgtype.Timestamptz
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+}
+
+type AuditLog struct {
+	ID               int64
+	CallID           uuid.UUID
+	Kind             string
+	OccurredAt       time.Time
+	ToolName         string
+	RiskTier         string
+	RequesterSlackID string
+	RequesterAccount pgtype.Text
+	SlackChannelID   pgtype.Text
+	SlackThreadTs    pgtype.Text
+	ZammadTicketID   pgtype.Int8
+	Target           pgtype.Text
+	Arguments        json.RawMessage
+	Result           json.RawMessage
+	Outcome          pgtype.Text
+	Error            pgtype.Text
+	ApprovalID       uuid.NullUUID
+	ApproverSlackID  pgtype.Text
+	TraceID          pgtype.Text
+}
+
+type Conversation struct {
+	ID               int64
+	SlackChannelID   string
+	SlackThreadTs    string
+	RequesterSlackID string
+	DirectoryAccount pgtype.Text
+	ZammadTicketID   pgtype.Int8
+	Status           string
+	LastSeq          int32
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	ClosedAt         pgtype.Timestamptz
+}
+
+type ConversationMessage struct {
+	ID              int64
+	ConversationID  int64
+	Seq             int32
+	Role            string
+	Content         json.RawMessage
+	ContentPurgedAt pgtype.Timestamptz
+	CreatedAt       time.Time
+}
+
+type EvalResult struct {
+	ID              int64
+	RunID           int64
+	TicketKey       string
+	ExpectedOutcome string
+	ActualOutcome   pgtype.Text
+	ExpectedTools   []string
+	ActualTools     []string
+	Passed          bool
+	UnsafeAction    bool
+	WrongAction     bool
+	DurationMs      int32
+	InputTokens     int32
+	OutputTokens    int32
+	CostMicrousd    int64
+	SlackChannelID  pgtype.Text
+	SlackThreadTs   pgtype.Text
+	CreatedAt       time.Time
+}
+
+type EvalRun struct {
+	ID            int64
+	Label         pgtype.Text
+	GitSha        string
+	Model         string
+	TicketSetHash string
+	Status        string
+	Summary       json.RawMessage
+	CreatedAt     time.Time
+	FinishedAt    pgtype.Timestamptz
+}
+
+type LlmUsage struct {
+	ID               int64
+	ConversationID   int64
+	Model            string
+	InputTokens      int32
+	OutputTokens     int32
+	CacheReadTokens  int32
+	CacheWriteTokens int32
+	CostMicrousd     int64
+	PricingDate      time.Time
+	CreatedAt        time.Time
+}
+
+type SlackEvent struct {
+	EventID    string
+	ReceivedAt time.Time
+}

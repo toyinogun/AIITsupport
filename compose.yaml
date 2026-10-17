@@ -19,6 +19,8 @@ services:
       retries: 15
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates the app roles on a fresh volume; `make db-roles` does it for an existing one.
+      - ./db/roles.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
 
 volumes:
   pgdata:

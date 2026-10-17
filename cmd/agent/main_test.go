@@ -2,16 +2,17 @@ package main
 
 import (
 	"net"
-	"os"
 	"strings"
 	"testing"
+
+	"github.com/toyinogun/AIITsupport/internal/db/dbtest"
 )
 
 // clearEnv blanks the settings run reads, so the developer's shell never leaks in.
 // A blank value counts as unset in internal/config.
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "OTEL_EXPORTER_OTLP_ENDPOINT", "LOG_LEVEL", "READ_ONLY", "AGENT_HTTP_ADDR"} {
+	for _, name := range []string{"AGENT_DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "OTEL_EXPORTER_OTLP_ENDPOINT", "LOG_LEVEL", "READ_ONLY", "AGENT_HTTP_ADDR"} {
 		t.Setenv(name, "")
 	}
 }
@@ -19,7 +20,7 @@ func clearEnv(t *testing.T) {
 // requiredEnv sets every required setting, pointing the database at databaseURL.
 func requiredEnv(t *testing.T, databaseURL string) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("AGENT_DATABASE_URL", databaseURL)
 	t.Setenv("TOOLSERVER_TOKEN", "test-token")
 	t.Setenv("TOOLSERVER_URL", "http://localhost:18081/mcp")
 }
@@ -32,7 +33,7 @@ func TestRunRefusesToStartWithoutRequiredSettings(t *testing.T) {
 	if err == nil {
 		t.Fatal("run should refuse to start with no settings")
 	}
-	for _, name := range []string{"DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL"} {
+	for _, name := range []string{"AGENT_DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name %s", err, name)
 		}
@@ -58,14 +59,11 @@ func TestRunRefusesToStartWhenDatabaseIsUnreachable(t *testing.T) {
 	}
 }
 
-// Runs only when TEST_DATABASE_URL points at a live Postgres (see internal/db).
+// Runs only when TEST_DATABASE_URL is set (see internal/db/dbtest).
 func TestRunNamesTheAddressSettingWhenListenFails(t *testing.T) {
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("set TEST_DATABASE_URL to run against a live Postgres")
-	}
+	tdb := dbtest.New(t)
 	clearEnv(t)
-	requiredEnv(t, url)
+	requiredEnv(t, tdb.URL(dbtest.RoleAgent))
 	t.Setenv("AGENT_HTTP_ADDR", "not-an-address")
 
 	err := run()

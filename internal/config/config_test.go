@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -20,16 +21,16 @@ func envFrom(m map[string]string) func(string) (string, bool) {
 
 func minimalAgentEnv() map[string]string {
 	return map[string]string{
-		"DATABASE_URL":     "postgres://u:p@localhost:5432/noord",
-		"TOOLSERVER_URL":   "http://localhost:8080/mcp",
-		"TOOLSERVER_TOKEN": "test-token",
+		"AGENT_DATABASE_URL": "postgres://u:p@localhost:5432/noord",
+		"TOOLSERVER_URL":     "http://localhost:8080/mcp",
+		"TOOLSERVER_TOKEN":   "test-token",
 	}
 }
 
 func minimalToolServerEnv() map[string]string {
 	return map[string]string{
-		"DATABASE_URL":     "postgres://u:p@localhost:5432/noord",
-		"TOOLSERVER_TOKEN": "test-token",
+		"TOOLSERVER_DATABASE_URL": "postgres://u:p@localhost:5432/noord",
+		"TOOLSERVER_TOKEN":        "test-token",
 	}
 }
 
@@ -79,7 +80,7 @@ func TestLoadAgentReportsEveryMissingSetting(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for missing required settings")
 	}
-	for _, name := range []string{"DATABASE_URL", "TOOLSERVER_URL", "TOOLSERVER_TOKEN"} {
+	for _, name := range []string{"AGENT_DATABASE_URL", "TOOLSERVER_URL", "TOOLSERVER_TOKEN"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name missing setting %s", err, name)
 		}
@@ -97,10 +98,10 @@ func TestLoadToolServerReportsMissingSetting(t *testing.T) {
 
 func TestEmptyValueCountsAsMissing(t *testing.T) {
 	env := minimalAgentEnv()
-	env["DATABASE_URL"] = "   "
+	env["AGENT_DATABASE_URL"] = "   "
 	_, err := LoadAgent(envFrom(env))
-	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") {
-		t.Fatalf("expected a blank DATABASE_URL to be rejected, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "AGENT_DATABASE_URL") {
+		t.Fatalf("expected a blank AGENT_DATABASE_URL to be rejected, got %v", err)
 	}
 }
 
@@ -204,7 +205,7 @@ func TestLoadAgentJoinsMissingAndInvalidSettings(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	for _, want := range []string{"DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "AGENT_MAX_TURNS"} {
+	for _, want := range []string{"AGENT_DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "AGENT_MAX_TURNS"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not name %s", err, want)
 		}
@@ -217,7 +218,7 @@ func TestLoadToolServerReportsEveryMissingSetting(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for missing required settings")
 	}
-	for _, name := range []string{"DATABASE_URL", "TOOLSERVER_TOKEN"} {
+	for _, name := range []string{"TOOLSERVER_DATABASE_URL", "TOOLSERVER_TOKEN"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name missing setting %s", err, name)
 		}
@@ -266,7 +267,7 @@ func TestBlankOptionalValueFallsBackToDefault(t *testing.T) {
 
 func TestValuesAreTrimmed(t *testing.T) {
 	env := minimalAgentEnv()
-	env["DATABASE_URL"] = "  postgres://u:p@db:5432/noord  "
+	env["AGENT_DATABASE_URL"] = "  postgres://u:p@db:5432/noord  "
 	cfg, err := LoadAgent(envFrom(env))
 	if err != nil {
 		t.Fatalf("LoadAgent: %v", err)
@@ -349,7 +350,7 @@ func TestNamesAreSortedUniqueAndComplete(t *testing.T) {
 	if len(slices.Compact(slices.Clone(names))) != len(names) {
 		t.Errorf("Names() has duplicates: %v", names)
 	}
-	for _, want := range []string{"DATABASE_URL", "AGENT_MAX_TURNS", "TOOLSERVER_URL", "READ_ONLY", "LDAP_BIND_PASSWORD"} {
+	for _, want := range []string{"AGENT_DATABASE_URL", "TOOLSERVER_DATABASE_URL", "MIGRATE_DATABASE_URL", "AGENT_MAX_TURNS", "TOOLSERVER_URL", "READ_ONLY", "LDAP_BIND_PASSWORD"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("Names() is missing %s", want)
 		}
@@ -372,5 +373,32 @@ func TestAgentNeverReceivesClientSystemCredentials(t *testing.T) {
 				t.Errorf("agent config declares %s; client system credentials belong to the tool server only", name)
 			}
 		}
+	}
+}
+
+// covers: AC-14 (spec 0003). Each binary connects as its own role, so each
+// reads its own URL and never the other's.
+func TestEachBinaryReadsItsOwnDatabaseURL(t *testing.T) {
+	env := minimalAgentEnv()
+	maps.Copy(env, minimalToolServerEnv())
+	env["AGENT_DATABASE_URL"] = "postgres://noord_agent@db/noord"
+	env["TOOLSERVER_DATABASE_URL"] = "postgres://noord_toolserver@db/noord"
+
+	agent, err := LoadAgent(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	tool, err := LoadToolServer(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	if agent.DatabaseURL != env["AGENT_DATABASE_URL"] {
+		t.Errorf("agent DatabaseURL = %q, want the AGENT_DATABASE_URL value", agent.DatabaseURL)
+	}
+	if tool.DatabaseURL != env["TOOLSERVER_DATABASE_URL"] {
+		t.Errorf("tool server DatabaseURL = %q, want the TOOLSERVER_DATABASE_URL value", tool.DatabaseURL)
+	}
+	if slices.Contains(Names(), "DATABASE_URL") {
+		t.Error("the shared DATABASE_URL should be gone; each binary has its own")
 	}
 }

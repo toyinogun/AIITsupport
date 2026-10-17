@@ -48,6 +48,8 @@ jobs:
           --health-timeout 5s
           --health-retries 15
     env:
+      # A superuser URL: internal/db/dbtest creates the roles and a migrated
+      # scratch database per test, so no migration step runs here.
       TEST_DATABASE_URL: postgres://noord:noord-dev@localhost:5432/noord?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,7 +63,6 @@ jobs:
       - uses: ./.github/actions/setup-go
         with:
           cache-key: ${{ github.job }}
-      - run: go tool goose -dir db/migrations postgres "$TEST_DATABASE_URL" up
       - run: go test -race -coverprofile=coverage.out ./...
       - name: Report coverage (never fails the job)
         run: |

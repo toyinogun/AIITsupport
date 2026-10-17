@@ -83,5 +83,6 @@ MCP servers: `grafana/mcp-grafana` (recommended, feature #18 on), a community Za
 
 - [internal/config/AGENTS.md](internal/config/AGENTS.md) (how settings are declared, validated, and kept in sync with `.env.example`)
 - [db/AGENTS.md](db/AGENTS.md) (goose migrations, sqlc queries, and the generated code)
+- [internal/audit/AGENTS.md](internal/audit/AGENTS.md): the audit recorder and approvals, the only writer of `audit_log` and `approvals`
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
