@@ -30,7 +30,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 3 | Stack & architecture | Foundation | in-progress |
 | 4 | Coding standards & tooling | Foundation | done |
 | 5 | Data model | Foundation | done |
-| 6 | Noord directory & seeded mess | Client environment | planned |
+| 6 | Noord directory & seeded mess | Client environment | in-progress |
 | 7 | Entra tenant & sync (timeboxed) | Client environment | planned |
 | 8 | Ticketing, knowledge base & Slack workspace | Client environment | planned |
 | 9 | Tool server & risk tiers | Slice 1 | planned |
@@ -103,10 +103,17 @@ spec [0003](../specs/0003-data-model/index.md) · code in `db/`, `internal/audit
 
 ## Client environment (Noord Logistics)
 
-### 6. Noord directory & seeded mess · needs a decision
+### 6. Noord directory & seeded mess · in-progress
 A containerised on prem directory with 80 users, OUs, and groups, rebuilt from one seed script, with the mess planted on purpose.
 **Done when:** one script rebuilds the directory from scratch, including stale enabled accounts of leavers, inconsistent group names (`SG-Finance`, `Finance_Users`, `fin-readonly`), groups with no owner, and a privileged group the agent must never touch.
-- [ ] Design it (spec): `/architect noord directory`
+- [x] Design it (spec): `/architect noord directory`
+- [ ] Build it: `/develop noord directory`
+  - [ ] Samba image, dev certs, and the thin seed thread: one user logs in over verified LDAPS, with reset, rerun safety, and the CI test (AC-1, AC-9, AC-12, AC-13, AC-17 to AC-19)
+  - [ ] Permission wall and locks: delegated `svc-itsupport`, seeded and manual lockouts (AC-8, AC-9, AC-11)
+  - [ ] Full model, validation, and Noord's 80 people with the planted mess (AC-2 to AC-7, AC-10, AC-14 to AC-16)
+- [ ] Verify it: `/check verify noord directory`
+- [ ] Test it: `/test noord directory`
+spec [0004](../specs/0004-noord-directory/index.md)
 
 ### 7. Entra tenant & sync (timeboxed) · needs a decision
 A free Entra test tenant with a subset of users synced, so the hybrid, mid migration story and MFA tickets are real. Timeboxed to Oct 21; AD only fallback after that.

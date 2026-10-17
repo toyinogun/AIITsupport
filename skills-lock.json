@@ -42,6 +42,12 @@
       "sourceType": "github",
       "skillPath": "skills/grafana-lgtm/tempo/SKILL.md",
       "computedHash": "aa4bff51512423cb70f7020d589d56cfc3748fd8650525b1130f66ac794e81a5"
+    },
+    "testcontainers-go": {
+      "source": "testcontainers/claude-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/testcontainers/skills/testcontainers-go/SKILL.md",
+      "computedHash": "cd2d0205bfbdd95c46d8191202604c28f1862a406ef883488b084851da0c0501"
     }
   }
 }
