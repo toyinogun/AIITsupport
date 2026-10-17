@@ -2,14 +2,14 @@
 _Steps derived from spec 0001 "Scaffold done means" (SD-1 to SD-5; this decision spec has no AC list). `/check verify` runs these; `/test` locks the durable ones._
 
 ## Commands
-- [x] On a clean clone with no `.env`, run `make dev` → `.env` is created from `.env.example`, Postgres starts in Compose and reports healthy, goose prints `successfully migrated database to version: 1`, and both binaries log `http server listening` → SD-1
-- [x] `docker compose exec -T postgres psql -U noord -d noord -c 'select version_id from goose_db_version'` → rows 0 and 1, so the migration is applied, not just generated → SD-1
+- [x] On a clean clone with no `.env`, run `make dev` → `.env` is created from `.env.example`, Postgres starts in Compose and reports healthy, goose prints `successfully migrated database to version: N` (the newest migration), and both binaries log `http server listening` → SD-1
+- [x] `docker compose exec -T postgres psql -U noord -d noord -c 'select version_id from goose_db_version'` → rows 0 up to the newest version, so the migrations are applied, not just generated → SD-1
 - [x] While `make dev` runs: `curl -i localhost:18080/healthz` and `curl -i localhost:18081/healthz` → both `200 ok` → SD-2
 - [x] `curl -i -X POST localhost:18080/healthz` → `405` → SD-2
 - [x] Ctrl-C on `make dev` → both binaries log `http server stopped` and no `bin/agent` or `bin/toolserver` process is left → SD-1
-- [x] `env -i PATH="$PATH" ./bin/agent` → exits 1 and names `DATABASE_URL`, `TOOLSERVER_TOKEN`, and `TOOLSERVER_URL` in one message → SD-2
-- [x] `env -i PATH="$PATH" DATABASE_URL=x TOOLSERVER_TOKEN=t READ_ONLY=maybe ./bin/toolserver` → exits 1 with `READ_ONLY: not true or false` → SD-2
-- [x] Set `DATABASE_URL` to a port nothing listens on and start either binary → exits 1 with `reach database` → SD-2
+- [x] `env -i PATH="$PATH" ./bin/agent` → exits 1 and names `AGENT_DATABASE_URL`, `TOOLSERVER_TOKEN`, and `TOOLSERVER_URL` in one message → SD-2
+- [x] `env -i PATH="$PATH" TOOLSERVER_DATABASE_URL=x TOOLSERVER_TOKEN=t READ_ONLY=maybe ./bin/toolserver` → exits 1 with `READ_ONLY: not true or false` → SD-2
+- [x] Set `AGENT_DATABASE_URL` (or `TOOLSERVER_DATABASE_URL`) to a port nothing listens on and start that binary → exits 1 with `reach database` → SD-2
 - [x] `make test` and `make vet` → both pass → SD-3
 - [x] `make gen`, then `git status --short internal/db/queries` → no changes → SD-3
 - [x] `make docker` → both `aiitsupport-agent:dev` and `aiitsupport-toolserver:dev` build; `docker run --rm aiitsupport-agent:dev` exits 1 with the missing settings message → SD-4

@@ -362,7 +362,7 @@ Tracer Bullet within the feature: the audit strand that slice 1 (#9, #10) needs 
 
 ## Follow-up
 
-- [ ] Spec 0001: update the *Configuration required* database line to the per binary names (`AGENT_DATABASE_URL`, `TOOLSERVER_DATABASE_URL`, `EVAL_DATABASE_URL`, `MIGRATE_DATABASE_URL`).
+- [x] Spec 0001: update the *Configuration required* database line to the per binary names (`AGENT_DATABASE_URL`, `TOOLSERVER_DATABASE_URL`, `EVAL_DATABASE_URL`, `MIGRATE_DATABASE_URL`).
 - [ ] Feature #9: the tool registry declares each tool's risk tier and `Store` / `StoreResult` keys (never a free text key), and every handler runs through `audit.Recorder`. It validates arguments against each tool's schema (rejecting unknown keys) before `Run` or `Defer`, and handlers wrap errors with `audit.WithReason` and a fixed reason.
 - [ ] Feature #10: the identity match fills `requester_account`; the `eval/pricing.yaml` lookup (a small embedding Go file beside it) fills `llm_usage.cost_microusd`; the hourly event purge; whether a message in a closed thread opens a new conversation.
 - [ ] Feature #12: the purge job for `conversation_messages.content` and the `TICKET_RETENTION_DAYS` default.
