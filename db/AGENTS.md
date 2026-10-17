@@ -18,6 +18,7 @@ Plain SQL for our own Postgres: goose migrations and the sqlc queries that becom
 ```bash
 make migrate   # goose up against DATABASE_URL from .env (starts Postgres first)
 make gen       # go tool sqlc generate; commit the result, it must leave no diff
+make gen-check # fail if the generated code is stale (pre push hook and CI run this)
 ```
 
 ## Conventions

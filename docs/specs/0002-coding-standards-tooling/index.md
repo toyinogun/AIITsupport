@@ -1,7 +1,7 @@
 # 0002. Lint, format, hooks, and CI checks for the Go monolith
 
 **Date**: 2026-10-17
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
