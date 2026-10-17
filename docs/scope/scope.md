@@ -74,7 +74,7 @@ Choose the agent language, ticketing tool (or the Postgres fallback), model endp
 - [x] Scaffold from the decision: `/develop stack & architecture`
 - [ ] Check EU residency for the Anthropic API and record the outcome (week 1, spec Follow-up)
 - [x] Verify it: `/check verify stack & architecture`
-- [ ] Test it: `/test stack & architecture`
+- [x] Test it: `/test stack & architecture`
 spec [0001](../specs/0001-stack-architecture/index.md) · code in `cmd/`, `internal/`, `db/`
 
 ### 4. Coding standards & tooling
