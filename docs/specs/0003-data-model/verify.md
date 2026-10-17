@@ -23,8 +23,8 @@ Set `SU=postgres://noord:noord-dev@localhost:55432/noord?sslmode=disable` (the C
 - [x] Defer with `expires_at` one minute in the past: approve is refused as "expired", and `Recorder.Expire` moves it to `expired` with an `approval.expire` row → AC-8 (expiry from `expires_at`)
 - [x] Store usage with 1000 input, 200 output, 3000 cache read, 500 cache write tokens: `SumConversationTokens` returns 4700, not 1200 → AC-11 (budget counts cache tokens)
 - [x] Purge with a cutoff after now: a closed conversation's content is cleared and an open one's is kept; with a cutoff before `closed_at`, nothing is cleared → AC-9 (cutoff against `closed_at`, open excluded)
-- [ ] Store an argument key outside the tool's allow list (for example a ticket `body`): the row has no `body` key, only `"_omitted": 1`; a 5 KB payload shows `{"truncated": true, …}`; an action error quoting a DN stores `action failed`, and `audit.WithReason("account not found", err)` stores `account not found` → AC-7
-- [ ] Deny, expire, execute, and fail one approval each: every one ends with `arguments` null; as `noord_toolserver` and as `noord_owner`, rewriting a pending approval's `arguments` fails with SQLSTATE 55000 → AC-7, AC-8
+- [x] Store an argument key outside the tool's allow list (for example a ticket `body`): the row has no `body` key, only `"_omitted": 1`; a 5 KB payload shows `{"truncated": true, …}`; an action error quoting a DN stores `action failed`, and `audit.WithReason("account not found", err)` stores `account not found` → AC-7
+- [x] Deny, expire, execute, and fail one approval each: every one ends with `arguments` null; as `noord_toolserver` and as `noord_owner`, rewriting a pending approval's `arguments` fails with SQLSTATE 55000 → AC-7, AC-8
 - [x] Compare two labelled eval runs where one has an extra metric: only metrics present in both come back; a missing label returns no rows → AC-12 (`summary.metrics` shape)
 
 ## Acceptance-criteria coverage

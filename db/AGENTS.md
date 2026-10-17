@@ -28,7 +28,7 @@ make gen-check # fail if the generated code is stale (pre push hook and CI run t
 
 ## Conventions
 
-- Migrations are append only: add a new numbered file, never edit one that has run.
+- Migrations are append only: add a new numbered file, never edit one that has run. Editing an unmerged one your local volume already ran breaks `goose down` there (it runs the new Down), so rebuild that volume (journal 0007).
 - Every query goes through sqlc. No hand written SQL strings in Go, and no ORM.
 - Migrations run as `noord_owner`; migration 00002 refuses any other user and names a missing role. Roles are created by `roles.sql` (CloudNativePG in the cluster), never by a migration.
 - Each binary connects as its own role (`AGENT_DATABASE_URL`, `TOOLSERVER_DATABASE_URL`); grants in the migration decide what each may touch. A new table needs its grants in the same migration, plus a row in `internal/db/grants_test.go`.
