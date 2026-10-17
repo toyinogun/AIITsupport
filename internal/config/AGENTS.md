@@ -16,6 +16,7 @@ The single source of every setting the agent and the tool server read. Each bina
 - Declare a setting once, as a struct field with tags: `env:"NAME"`, optional `default:"..."`, `required:"true"`, `oneof:"a|b"`. No other package reads the environment; `main` only passes `os.LookupEnv` in.
 - Supported field types: `string`, `int`, `bool`, `time.Duration` (`20s`), and `[]string` (comma separated). Add a case in `parseInto` for anything else.
 - Shared settings go in `Common`; agent only settings in `Agent`; anything touching AD, Entra, or Zammad goes in `ToolServer` only.
+- Database URLs are per role, never shared: `AGENT_DATABASE_URL` in `Agent`, `TOOLSERVER_DATABASE_URL` in `ToolServer`, `MIGRATE_DATABASE_URL` in `Migrate`. A setting read outside the two binaries (like migrations) goes in a struct that `Names()` also walks, so the drift test covers it.
 - A setting starts optional with a `// feature #N` comment and flips to `required:"true"` when that feature's code starts using it.
 - Tests pass a map backed `LookupFunc`, never the real environment.
 
@@ -28,5 +29,6 @@ The single source of every setting the agent and the tool server read. Each bina
 ## Related specs
 
 - [0001 stack and architecture](../../docs/specs/0001-stack-architecture/index.md) (Configuration required)
+- [0003 data model](../../docs/specs/0003-data-model/index.md) (the per role database URLs and the audit settings)
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
