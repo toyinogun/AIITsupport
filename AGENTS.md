@@ -14,7 +14,7 @@ Mock FDE engagement. The plan lives in `docs/scope/scope.md`; start there.
 
 ## Stack
 
-- **Language / Runtime**: Go 1.26 (toolchain 1.26.9), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver` (`cmd/eval` arrives with feature #20)
+- **Language / Runtime**: Go 1.27 (toolchain 1.27.2), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver` (`cmd/eval` arrives with feature #20)
 - **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set); later `anthropic-sdk-go`, MCP `go-sdk`, `slack-go`, `go-ldap`
 - **Dev tools**: `sqlc` and `goose` are `tool` entries in `go.mod` (`go tool sqlc`, `go tool goose`), nothing to install
 - **Lint, hook, and scan tools**: `golangci-lint` v2 (also runs gofumpt and goimports), `lefthook`, `gitleaks`, and `govulncheck` are `tool` entries in a separate `tools.mod` (`go tool -modfile=tools.mod <tool>`). Its `go` and `toolchain` lines must match `go.mod`. Dependabot can't see it, so bump these by hand. Decision: [docs/specs/0002-coding-standards-tooling/index.md](docs/specs/0002-coding-standards-tooling/index.md)

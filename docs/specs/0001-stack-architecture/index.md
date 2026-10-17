@@ -26,7 +26,7 @@ One Go module produces three binaries (`agent`, `toolserver`, `eval`). The agent
 | Layer | Choice | Reason |
 |---|---|---|
 | Pattern | One Go module `github.com/toyinogun/AIITsupport`, three binaries (`cmd/agent`, `cmd/toolserver`, `cmd/eval`); two deployables | A monolith in spirit; the only split is the credential boundary the brief requires. |
-| Language | Go 1.26 (`go` and `toolchain` directives in `go.mod`) | One language for the agent, tools, and eval; already installed locally. |
+| Language | Go 1.27 (`go` and `toolchain` directives in `go.mod`; moved up from 1.26 in PR #2 so the image and CI build with one toolchain) | One language for the agent, tools, and eval; already installed locally. |
 | Agent loop | Hand written loop on `github.com/anthropics/anthropic-sdk-go` (Messages API with tool use), bounded as in *Cross component rules* | Every tool call passes through code we can test and show; no hidden runner. |
 | Model client boundary | `internal/llm` is a thin factory that returns the SDK's own client for the chosen provider (Anthropic API now, the SDK's `bedrock` package later), plus a per provider model id map. No home made request or response types. | Switching to Bedrock in an EU region becomes config, not a rewrite, and we never maintain a parallel API. |
 | Model | `claude-sonnet-5-5` for the agent; the eval also runs `claude-haiku-5-5` for cost per ticket. Bedrock uses its own ids (EU inference profile prefix) from the map. | Sonnet for the fewest wrong actions; Haiku numbers make the cost tradeoff visible. Never hardcoded. |
@@ -52,7 +52,7 @@ One Go module produces three binaries (`agent`, `toolserver`, `eval`). The agent
 
 ### Version pins
 
-`go.mod` and `go.sum` pin every Go library and the `sqlc` and `goose` dev tools. The lint, hook, and scan tools are pinned in a separate `tools.mod` and `tools.sum` (spec [0002](../0002-coding-standards-tooling/index.md)). `deploy/helm/noord/Chart.lock` pins every subchart and third party chart. Third party images are pinned by tag in chart values, never `latest`. The scaffold records the exact versions it resolves on its first `go get`; no version is chosen by hand in this spec except Go 1.26 and Postgres 17.
+`go.mod` and `go.sum` pin every Go library and the `sqlc` and `goose` dev tools. The lint, hook, and scan tools are pinned in a separate `tools.mod` and `tools.sum` (spec [0002](../0002-coding-standards-tooling/index.md)). `deploy/helm/noord/Chart.lock` pins every subchart and third party chart. Third party images are pinned by tag in chart values, never `latest`. The scaffold records the exact versions it resolves on its first `go get`; no version is chosen by hand in this spec except Go 1.27 and Postgres 17.
 
 ### Cross component rules
 

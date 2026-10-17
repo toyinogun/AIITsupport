@@ -10,7 +10,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # setup-go's go-version-file reads the go line (1.26.0), not the
+    # setup-go's go-version-file reads the go line (1.27.0), not the
     # toolchain line, so pass the toolchain version explicitly.
     - name: Read the toolchain line
       id: toolchain
