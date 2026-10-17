@@ -27,7 +27,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 |---|---------|-------|--------|
 | 1 | Discovery doc | Foundation | done |
 | 2 | Build journal | Foundation | in-progress |
-| 3 | Stack & architecture | Foundation | planned |
+| 3 | Stack & architecture | Foundation | in-progress |
 | 4 | Coding standards & tooling | Foundation | planned |
 | 5 | Data model | Foundation | planned |
 | 6 | Noord directory & seeded mess | Client environment | planned |
@@ -67,10 +67,15 @@ A running log of everything that breaks, written the moment it happens: symptom,
 - [ ] Pick the top three stories for the post and video (week 4)
 code in `docs/journal/`
 
-### 3. Stack & architecture · needs a decision
-Choose the agent language, ticketing tool (or the Postgres fallback), EU region model endpoint, cluster host, and packaging, then scaffold a runnable repo. This is the only place tools get picked.
+### 3. Stack & architecture · in-progress
+Choose the agent language, ticketing tool (or the Postgres fallback), model endpoint (EU residency checked in week 1), cluster host, and packaging, then scaffold a runnable repo. This is the only place tools get picked.
 **Done when:** the choices and trade offs are recorded in a spec (this becomes the 3 to 5 key decisions in the architecture doc), and the empty repo builds and runs locally under git.
-- [ ] Decide the stack (spec): `/architect stack & architecture`
+- [x] Decide the stack (spec): `/architect stack & architecture`
+- [ ] Scaffold from the decision: `/develop stack & architecture`
+- [ ] Check EU residency for the Anthropic API and record the outcome (week 1, spec Follow-up)
+- [ ] Verify it: `/check verify stack & architecture`
+- [ ] Test it: `/test stack & architecture`
+spec [0001](../specs/0001-stack-architecture/index.md)
 
 ### 4. Coding standards & tooling
 Capture conventions from the real scaffold, then install lint, format, pre commit hooks, and a CI skeleton the eval will later run in.
@@ -156,8 +161,8 @@ Answer common questions from the KB with links, and handle contradictory or outd
 ## Production
 
 ### 17. One command GitOps install · needs a decision
-Package everything and deploy through GitOps to an EU hosted cluster, with Postgres, secrets management, and a tunnel for Slack events with no open ports.
-**Done when:** a single command installs the whole thing into a fresh cluster; secrets are not in git; Slack reaches the agent through the tunnel; model inference goes to an EU region endpoint.
+Package everything and deploy through GitOps to an EU hosted cluster, with Postgres, secrets management, and Slack over Socket Mode so nothing listens on the internet.
+**Done when:** a single command installs the whole thing into a fresh cluster; secrets are not in git; Slack reaches the agent over Socket Mode with no inbound route; model inference goes to an EU region endpoint.
 - [ ] Design it (spec): `/architect gitops install`
 
 ### 18. Observability & ops dashboard · needs a decision
@@ -192,7 +197,7 @@ What an FDE leaves behind so the client's IT person can run, tune, and switch of
 - [ ] Write it: `/develop handover package`
 
 ### 23. Public repo & README
-The public face: Forgejo mirrored to GitHub, a README with the problem, a 30 second demo GIF, the headline eval numbers, and the one command install.
+The public face: the GitHub repo with public CI, a README with the problem, a 30 second demo GIF, the headline eval numbers, and the one command install.
 **Done when:** the repo is public, a stranger can rebuild Noord from the seed scripts, and a final check confirms no real company data is anywhere in it.
 - [ ] Publish it: `/develop public repo & readme`
 
