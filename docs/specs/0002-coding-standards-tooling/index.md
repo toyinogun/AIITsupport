@@ -62,7 +62,7 @@ Imports are in three groups (standard library, third party, this module), and th
 - A bare `//nolint` or `//nolint:all`, or one with no reason.
 - Hand formatted code that gofumpt would change, or imports out of their groups.
 
-**Tool versions.** Each tool in `tools.mod` is pinned at the newest release whose own `go` directive is at most the app's (`go 1.26.0` today). After any `go get -tool -modfile=tools.mod`, the `go 1.26.0` and `toolchain go1.26.5` lines in `tools.mod` must still match `go.mod`. If a newer tool release asks for a newer Go, stay on the older release. At the time of writing, that rule means lefthook v2.1.x (v2.2.2 needs Go 1.27). The others' latest releases fit.
+**Tool versions.** Each tool in `tools.mod` is pinned at the newest release whose own `go` directive is at most the app's (`go 1.26.0` today). After any `go get -tool -modfile=tools.mod`, the `go` and `toolchain` lines in `tools.mod` (`go 1.26.0` and `toolchain go1.26.9` today) must still match `go.mod`. If a newer tool release asks for a newer Go, stay on the older release. At the time of writing, that rule means lefthook v2.1.x (v2.2.2 needs Go 1.27). The others' latest releases fit.
 
 **Enforcement** (each file and what it holds):
 
@@ -86,7 +86,7 @@ Imports are in three groups (standard library, third party, this module), and th
 **CI checks** (`.github/workflows/ci.yml`, one workflow, all must pass):
 
 - **Triggers**: `push` to `main`, and `pull_request`. `concurrency.group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}` with `cancel-in-progress: true`. Top level `permissions: contents: read`. No secrets are used, so fork PRs run safely.
-- **Go setup**: `actions/setup-go` with `go-version-file: go.mod`, and its built in cache off (`cache: false`). Each job instead caches `~/go/pkg/mod` and the Go build cache with `actions/cache`, under a key made of the job id plus the hashes of `go.sum` and `tools.sum`, so each job keeps its own tool builds. The first step in each job prints `go version`, and the job fails if it isn't `go1.26.5` (the `toolchain` line).
+- **Go setup**: every Go job uses one shared composite action, `.github/actions/setup-go`. It reads the `toolchain` line from `go.mod` and passes that version to `actions/setup-go` as `go-version`, with its built in cache off (`cache: false`). It does not use `go-version-file: go.mod`, because that reads the `go` line (1.26.0) instead (journal [0006](../../journal/0006-setup-go-ignores-toolchain-line.md)). The workflow sets `GOTOOLCHAIN: local`, so Go never downloads another toolchain on its own. Each job caches `~/go/pkg/mod` and the Go build cache with `actions/cache`, under a key made of the job id (the action's `cache-key` input) plus the hashes of `go.sum` and `tools.sum`, so each job keeps its own tool builds. The action's last step prints `go version` and fails unless the installed Go equals the `toolchain` line (`go1.26.9` today).
 - **Action pins**: `actions/checkout`, `actions/setup-go`, `actions/cache`, `actions/upload-artifact`, `docker/setup-buildx-action`, and `docker/build-push-action`, each pinned to a full commit SHA (looked up at build time with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`), with the version in a trailing comment. Dependabot's `github-actions` updates keep both current.
 - **Jobs**, each with a `timeout-minutes`:
   - `lint`: `make lint` (it already runs the formatters and fails on a format diff), plus `go tool -modfile=tools.mod lefthook validate`.
@@ -143,4 +143,4 @@ Imports are in three groups (standard library, third party, this module), and th
 - [ ] Add the `main` ruleset requiring `ci-ok`, with you on the bypass list, after the first green run (a check can only be required once it has reported at least once).
 - [ ] Revisit the coverage gate when feature #9 lands real tool server logic.
 - [ ] When features #6 to #9 add the `ldap`, `graph`, and `zammad` packages, confirm they live at the paths depguard and the boundary test deny.
-- [ ] Agent Skills and MCP servers for these tools were declined on 2026-10-17. Run `/sync` so `AGENTS.md` records the decline and the new targets.
+- [x] Agent Skills and MCP servers for these tools were declined on 2026-10-17. Run `/sync` so `AGENTS.md` records the decline and the new targets. (Done in commit cd974a6.)

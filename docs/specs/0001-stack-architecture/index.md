@@ -52,7 +52,7 @@ One Go module produces three binaries (`agent`, `toolserver`, `eval`). The agent
 
 ### Version pins
 
-`go.mod` and `go.sum` pin every Go library and dev tool. `deploy/helm/noord/Chart.lock` pins every subchart and third party chart. Third party images are pinned by tag in chart values, never `latest`. The scaffold records the exact versions it resolves on its first `go get`; no version is chosen by hand in this spec except Go 1.26 and Postgres 17.
+`go.mod` and `go.sum` pin every Go library and the `sqlc` and `goose` dev tools. The lint, hook, and scan tools are pinned in a separate `tools.mod` and `tools.sum` (spec [0002](../0002-coding-standards-tooling/index.md)). `deploy/helm/noord/Chart.lock` pins every subchart and third party chart. Third party images are pinned by tag in chart values, never `latest`. The scaffold records the exact versions it resolves on its first `go get`; no version is chosen by hand in this spec except Go 1.26 and Postgres 17.
 
 ### Cross component rules
 
