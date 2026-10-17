@@ -50,7 +50,7 @@ func run() (err error) {
 	}
 	defer pool.Close()
 
-	ln, err := net.Listen("tcp", cfg.HTTPAddr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.HTTPAddr)
 	if err != nil {
 		return fmt.Errorf("listen on AGENT_HTTP_ADDR %s: %w", cfg.HTTPAddr, err)
 	}

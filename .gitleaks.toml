@@ -1,0 +1,10 @@
+# Secret scanning (spec 0002). Every gitleaks call passes --config .gitleaks.toml.
+# .env.example holds only placeholders: a finding there is a real problem to
+# fix, never something to allowlist.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Vendored Agent Skill docs carry example keys"
+paths = ['''^\.claude/skills/''']

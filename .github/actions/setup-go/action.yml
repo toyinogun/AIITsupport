@@ -1,0 +1,45 @@
+name: Set up Go
+description: >
+  Installs the Go toolchain named on the go.mod toolchain line, restores this
+  job's own module and build cache (tool builds included), and fails unless
+  the installed Go matches that line.
+inputs:
+  cache-key:
+    description: The job id, so each job keeps its own tool builds.
+    required: true
+runs:
+  using: composite
+  steps:
+    # setup-go's go-version-file reads the go line (1.26.0), not the
+    # toolchain line, so pass the toolchain version explicitly.
+    - name: Read the toolchain line
+      id: toolchain
+      shell: bash
+      run: |
+        version=$(awk '$1 == "toolchain" { sub(/^go/, "", $2); print $2 }' go.mod)
+        if [ -z "$version" ]; then
+          echo "::error::go.mod has no toolchain line"
+          exit 1
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ steps.toolchain.outputs.version }}
+        cache: false
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+        key: ${{ inputs.cache-key }}-${{ runner.os }}-${{ hashFiles('go.sum', 'tools.sum') }}
+        restore-keys: ${{ inputs.cache-key }}-${{ runner.os }}-
+    - name: Check the Go toolchain
+      shell: bash
+      run: |
+        want=$(awk '$1 == "toolchain" { print $2 }' go.mod)
+        got=$(go env GOVERSION)
+        go version
+        if [ "$got" != "$want" ]; then
+          echo "::error::Go is $got, but go.mod's toolchain line says $want"
+          exit 1
+        fi

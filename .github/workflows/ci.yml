@@ -1,0 +1,143 @@
+# CI (spec 0002). One workflow; the ci-ok job is the one required check on main.
+# Actions are pinned by full commit SHA; Dependabot keeps the pins current.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Use exactly the toolchain setup-go installed; never download another one.
+  GOTOOLCHAIN: local
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: ${{ github.job }}
+      - run: make lint
+      - run: go tool -modfile=tools.mod lefthook validate
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # Keep in sync with compose.yaml; the first step below checks it.
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: noord
+          POSTGRES_PASSWORD: noord-dev
+          POSTGRES_DB: noord
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U noord -d noord"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      TEST_DATABASE_URL: postgres://noord:noord-dev@localhost:5432/noord?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the Postgres image matches compose.yaml
+        run: |
+          want=$(awk '$1 == "image:" && $2 ~ /^postgres:/ { print $2 }' compose.yaml)
+          if [ "$want" != "postgres:17.6-alpine" ]; then
+            echo "::error::compose.yaml uses $want, but this job uses postgres:17.6-alpine"
+            exit 1
+          fi
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: ${{ github.job }}
+      - run: go tool goose -dir db/migrations postgres "$TEST_DATABASE_URL" up
+      - run: go test -race -coverprofile=coverage.out ./...
+      - name: Report coverage (never fails the job)
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ { print $3 }')
+          echo "Total statement coverage: **${total}**" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage.out
+
+  generated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: ${{ github.job }}
+      - run: make gen-check
+      - run: make tidy-check
+
+  vuln:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: ${{ github.job }}
+      - run: make vuln
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: ${{ github.job }}
+      - run: make secrets
+
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cmd: [agent, toolserver]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The Dockerfile cross compiles from $BUILDPLATFORM, so no QEMU is needed.
+      # Pushing to GHCR is feature #17's job.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: CMD=${{ matrix.cmd }}
+          push: false
+
+  ci-ok:
+    if: always()
+    needs: [lint, test, generated, vuln, secrets, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a required job ended as $r"
+              exit 1
+            fi
+          done

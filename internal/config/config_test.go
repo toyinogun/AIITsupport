@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -157,6 +158,7 @@ func TestOverridesWin(t *testing.T) {
 	}
 }
 
+// covers: SD-5
 // TestEnvExampleMatchesConfig fails when .env.example and this package drift apart,
 // so a setting is never named in one place only.
 func TestEnvExampleMatchesConfig(t *testing.T) {
@@ -192,6 +194,183 @@ func TestEnvExampleMatchesConfig(t *testing.T) {
 	for _, name := range inExample {
 		if !slices.Contains(known, name) {
 			t.Errorf("%s is in .env.example but unknown to internal/config", name)
+		}
+	}
+}
+
+// covers: SD-2. One start attempt shows every problem, missing and malformed alike.
+func TestLoadAgentJoinsMissingAndInvalidSettings(t *testing.T) {
+	_, err := LoadAgent(envFrom(map[string]string{"AGENT_MAX_TURNS": "eight"}))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{"DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "AGENT_MAX_TURNS"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %s", err, want)
+		}
+	}
+}
+
+// covers: SD-2
+func TestLoadToolServerReportsEveryMissingSetting(t *testing.T) {
+	_, err := LoadToolServer(envFrom(map[string]string{}))
+	if err == nil {
+		t.Fatal("expected an error for missing required settings")
+	}
+	for _, name := range []string{"DATABASE_URL", "TOOLSERVER_TOKEN"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error %q does not name missing setting %s", err, name)
+		}
+	}
+	if strings.Contains(err.Error(), "TOOLSERVER_URL") {
+		t.Errorf("tool server does not read TOOLSERVER_URL, but the error names it: %q", err)
+	}
+}
+
+// covers: SD-2. The prefix tells an operator which binary refused to start.
+func TestErrorsNameTheBinary(t *testing.T) {
+	_, agentErr := LoadAgent(envFrom(map[string]string{}))
+	_, toolErr := LoadToolServer(envFrom(map[string]string{}))
+
+	if agentErr == nil || !strings.HasPrefix(agentErr.Error(), "agent config: ") {
+		t.Errorf("agent error = %v, want prefix %q", agentErr, "agent config: ")
+	}
+	if toolErr == nil || !strings.HasPrefix(toolErr.Error(), "toolserver config: ") {
+		t.Errorf("toolserver error = %v, want prefix %q", toolErr, "toolserver config: ")
+	}
+}
+
+func TestFailedLoadReturnsZeroConfig(t *testing.T) {
+	env := minimalAgentEnv()
+	env["AGENT_MAX_TURNS"] = "eight"
+	cfg, err := LoadAgent(envFrom(env))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if cfg.DatabaseURL != "" || cfg.MaxTurns != 0 {
+		t.Errorf("a failed load should return a zero config, got DatabaseURL=%q MaxTurns=%d", cfg.DatabaseURL, cfg.MaxTurns)
+	}
+}
+
+func TestBlankOptionalValueFallsBackToDefault(t *testing.T) {
+	env := minimalAgentEnv()
+	env["AGENT_MAX_TURNS"] = "   "
+	cfg, err := LoadAgent(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	if cfg.MaxTurns != 8 {
+		t.Errorf("MaxTurns = %d, want the default 8", cfg.MaxTurns)
+	}
+}
+
+func TestValuesAreTrimmed(t *testing.T) {
+	env := minimalAgentEnv()
+	env["DATABASE_URL"] = "  postgres://u:p@db:5432/noord  "
+	cfg, err := LoadAgent(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	if cfg.DatabaseURL != "postgres://u:p@db:5432/noord" {
+		t.Errorf("DatabaseURL = %q, want surrounding spaces trimmed", cfg.DatabaseURL)
+	}
+}
+
+func TestUnsetSettingWithoutDefaultStaysZero(t *testing.T) {
+	cfg, err := LoadToolServer(envFrom(minimalToolServerEnv()))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	if cfg.TicketRetentionDays != 0 || cfg.ApprovalTimeout != 0 || cfg.LDAPURL != "" {
+		t.Errorf("unset settings should stay zero, got TicketRetentionDays=%d ApprovalTimeout=%v LDAPURL=%q",
+			cfg.TicketRetentionDays, cfg.ApprovalTimeout, cfg.LDAPURL)
+	}
+}
+
+func TestReadOnlyCanBeTurnedOff(t *testing.T) {
+	env := minimalToolServerEnv()
+	env["READ_ONLY"] = "false"
+	cfg, err := LoadToolServer(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	if cfg.ReadOnly {
+		t.Error("READ_ONLY=false should turn the boot default off")
+	}
+}
+
+func TestDurationOverrideParses(t *testing.T) {
+	env := minimalAgentEnv()
+	env["AGENT_MESSAGE_TIMEOUT"] = "1m30s"
+	cfg, err := LoadAgent(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	if cfg.MessageTimeout != 90*time.Second {
+		t.Errorf("MessageTimeout = %v, want 1m30s", cfg.MessageTimeout)
+	}
+}
+
+func TestEveryAllowedChoiceIsAccepted(t *testing.T) {
+	cases := map[string][]string{
+		"LOG_LEVEL":    {"debug", "info", "warn", "error"},
+		"LLM_PROVIDER": {"anthropic", "bedrock"},
+	}
+	for key, values := range cases {
+		for _, value := range values {
+			t.Run(key+"="+value, func(t *testing.T) {
+				env := minimalAgentEnv()
+				env[key] = value
+				if _, err := LoadAgent(envFrom(env)); err != nil {
+					t.Errorf("LoadAgent with %s=%s: %v", key, value, err)
+				}
+			})
+		}
+	}
+}
+
+// A future setting with a type the parser cannot handle must fail loudly, not load as zero.
+func TestUnsupportedFieldTypeIsAnError(t *testing.T) {
+	var cfg struct {
+		Ratio float64 `env:"RATIO" default:"1.5"`
+	}
+	err := load(&cfg, envFrom(map[string]string{}))
+	if err == nil || !strings.Contains(err.Error(), "unsupported setting type") {
+		t.Fatalf("expected an unsupported type error, got %v", err)
+	}
+}
+
+func TestNamesAreSortedUniqueAndComplete(t *testing.T) {
+	names := Names()
+
+	if !slices.IsSorted(names) {
+		t.Errorf("Names() is not sorted: %v", names)
+	}
+	if len(slices.Compact(slices.Clone(names))) != len(names) {
+		t.Errorf("Names() has duplicates: %v", names)
+	}
+	for _, want := range []string{"DATABASE_URL", "AGENT_MAX_TURNS", "TOOLSERVER_URL", "READ_ONLY", "LDAP_BIND_PASSWORD"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("Names() is missing %s", want)
+		}
+	}
+	if slices.Contains(names, "") {
+		t.Error("Names() contains an empty name")
+	}
+}
+
+// The spec keeps every client system credential in the tool server. If an
+// LDAP, Graph, or Zammad setting ever lands on the agent, this fails.
+func TestAgentNeverReceivesClientSystemCredentials(t *testing.T) {
+	var agentNames []string
+	walkFields(reflect.TypeFor[Agent](), func(f reflect.StructField) {
+		agentNames = append(agentNames, f.Tag.Get("env"))
+	})
+	for _, name := range agentNames {
+		for _, prefix := range []string{"LDAP_", "GRAPH_", "ZAMMAD_"} {
+			if strings.HasPrefix(name, prefix) {
+				t.Errorf("agent config declares %s; client system credentials belong to the tool server only", name)
+			}
 		}
 	}
 }

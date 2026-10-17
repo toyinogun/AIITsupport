@@ -28,7 +28,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 1 | Discovery doc | Foundation | done |
 | 2 | Build journal | Foundation | in-progress |
 | 3 | Stack & architecture | Foundation | in-progress |
-| 4 | Coding standards & tooling | Foundation | planned |
+| 4 | Coding standards & tooling | Foundation | in-progress |
 | 5 | Data model | Foundation | planned |
 | 6 | Noord directory & seeded mess | Client environment | planned |
 | 7 | Entra tenant & sync (timeboxed) | Client environment | planned |
@@ -73,16 +73,18 @@ Choose the agent language, ticketing tool (or the Postgres fallback), model endp
 - [x] Decide the stack (spec): `/architect stack & architecture`
 - [x] Scaffold from the decision: `/develop stack & architecture`
 - [ ] Check EU residency for the Anthropic API and record the outcome (week 1, spec Follow-up)
-- [ ] Verify it: `/check verify stack & architecture`
-- [ ] Test it: `/test stack & architecture`
+- [x] Verify it: `/check verify stack & architecture`
+- [x] Test it: `/test stack & architecture`
 spec [0001](../specs/0001-stack-architecture/index.md) · code in `cmd/`, `internal/`, `db/`
 
-### 4. Coding standards & tooling
+### 4. Coding standards & tooling · in-progress
 Capture conventions from the real scaffold, then install lint, format, pre commit hooks, and a CI skeleton the eval will later run in.
 **Done when:** root `AGENTS.md` reflects the real stack, and lint, format, and pre commit run clean in CI.
-- [ ] Capture conventions and tooling choices: `/audit`
-- [ ] Install the tooling: `/develop tooling`
-- [ ] Check it runs clean: `/test`
+- [x] Capture conventions and tooling choices: `/audit`
+- [x] Decide the tooling (spec): `/architect coding standards & tooling`
+- [x] Install the tooling: `/develop tooling`
+- [x] Check it runs clean: `/test`
+spec [0002](../specs/0002-coding-standards-tooling/index.md) · code in `tools.mod`, `.golangci.yml`, `lefthook.yml`, `.gitleaks.toml`, `.github/`, `.claude/hooks/format-go.py`, `cmd/agent/boundary_test.go`
 
 ### 5. Data model · needs a decision · GA
 The records the agent owns: the append only audit log, pending approvals, eval runs and results, and tickets if you use the Postgres fallback.
