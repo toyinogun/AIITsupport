@@ -43,6 +43,53 @@ func TestBoundaryCheckCatchesTransitiveImport(t *testing.T) {
 	}
 }
 
+// covers: DM-2. The two deny lists are kept in sync by hand (spec 0002,
+// Consequences); this fails the moment one changes without the other.
+func TestDeniedImportsMatchTheDepguardRule(t *testing.T) {
+	config, err := os.ReadFile(filepath.Join("..", "..", ".golangci.yml"))
+	if err != nil {
+		t.Fatalf("read .golangci.yml: %v", err)
+	}
+
+	got := depguardDenyList(string(config), "agent-credential-boundary")
+	if len(got) == 0 {
+		t.Fatal("no agent-credential-boundary deny entries found in .golangci.yml")
+	}
+	want := slices.Sorted(slices.Values(deniedImports))
+	if !slices.Equal(got, want) {
+		t.Errorf("depguard denies %v, boundary test denies %v; keep both lists in sync", got, want)
+	}
+}
+
+// depguardDenyList returns the sorted `pkg:` values listed under the named
+// depguard rule. It reads the YAML by indentation, which is enough for the
+// one file it checks and avoids a YAML dependency.
+func depguardDenyList(config, rule string) []string {
+	var pkgs []string
+	ruleIndent := -1
+	for line := range strings.Lines(config) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if ruleIndent < 0 {
+			if trimmed == rule+":" {
+				ruleIndent = indent
+			}
+			continue
+		}
+		if indent <= ruleIndent {
+			break
+		}
+		if pkg, ok := strings.CutPrefix(trimmed, "- pkg:"); ok {
+			pkgs = append(pkgs, strings.Trim(strings.TrimSpace(pkg), `"'`))
+		}
+	}
+	slices.Sort(pkgs)
+	return pkgs
+}
+
 // listDeps returns every package the package in dir imports, directly or
 // not. -e keeps packages that can't be resolved (the stub's denied import).
 func listDeps(t *testing.T, dir string) []string {
