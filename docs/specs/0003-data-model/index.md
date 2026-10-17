@@ -26,8 +26,8 @@ Reasoning, the options weighed, and why: see [rationale.md](rationale.md).
 - **AC-4**: Each role reaches only what the grants table allows: `noord_agent` gets `42501` on any read or write of `audit_log`, `approvals`, and the eval tables; `noord_eval` can read but not write `audit_log` and cannot update `eval_results`; `noord_toolserver` cannot touch the conversation, usage, event, or eval tables.
 - **AC-5**: `audit.Recorder.Run` writes the intent row before calling the action. If the intent insert fails, the action is never called and `ErrAuditUnavailable` is returned.
 - **AC-6**: If the action ran but the outcome insert still fails after `AUDIT_OUTCOME_RETRIES` retries, `Run` returns the action's result together with `ErrAuditIncomplete` (joined with the action's own error, if any), and `ListUnconfirmedCalls` returns that intent.
-- **AC-7**: Only the top level argument and result keys a call allows are stored; every other key is stored as the string `"[omitted]"`. A stored payload larger than `AUDIT_MAX_PAYLOAD_BYTES` is replaced by `{"truncated": true, "bytes": <n>}`. Calls with risk tier `read` store no `result`.
-- **AC-8**: An approval moves only along the allowed transitions. Approve succeeds once, only for a Slack id in `allowed_approvers` that is not the requester, and only before `expires_at`; a repeat, unauthorised, self, or late click changes nothing and is audited as `denied_policy` with the reason. When approve and deny race, exactly one wins. Each approval belongs to exactly one originating `call_id`.
+- **AC-7**: Only the top level argument and result keys a call allows are stored; every other key is dropped, name and value, and the payload records how many as `"_omitted": <n>`. A stored payload larger than `AUDIT_MAX_PAYLOAD_BYTES` is replaced by `{"truncated": true, "bytes": <n>}`. Calls with risk tier `read` store no `result`. The `error` column never holds an action's own error text or a panic value: it holds the reason the action attached with `audit.WithReason`, else `action failed` (`action panicked` for a panic).
+- **AC-8**: An approval moves only along the allowed transitions. Approve succeeds once, only for a Slack id in `allowed_approvers` that is not the requester, and only before `expires_at`; a repeat, unauthorised, self, or late click changes nothing and is audited as `denied_policy` with the reason. When approve and deny race, exactly one wins. Each approval belongs to exactly one originating `call_id`. An approval holds the call's full `arguments` only while it can still run: they are cleared when it is denied, expires, is executed, or fails, and no role can rewrite them.
 - **AC-9**: A conversation is unique per (`slack_channel_id`, `slack_thread_ts`): upserting the same thread returns the same row. Messages get gapless `seq` values even when appended concurrently, and come back in `seq` order. Purging content clears `content` and sets `content_purged_at` only for messages of conversations that closed before the cutoff; open conversations are never purged.
 - **AC-10**: Marking a Slack `event_id` seen a second time reports it as a duplicate (zero rows affected); purging removes events older than `SLACK_EVENT_DEDUP_TTL`.
 - **AC-11**: One usage row per model call can be stored; `SumConversationTokens` returns input, output, cache read, and cache write tokens summed (0 for a conversation with no calls), and `SumConversationUsage` returns each total plus cost.
@@ -101,7 +101,7 @@ Every table has `created_at timestamptz not null default now()` unless noted. Pr
 | `id` | uuid | no | PK, default `gen_random_uuid()`; goes into the Slack button value, so it must not be guessable |
 | `call_id` | uuid | no | unique; the intent row that asked for approval |
 | `tool_name` | text | no | |
-| `arguments` | jsonb | no | the exact, full call to run on approval (medium tier tools take no secrets) |
+| `arguments` | jsonb | yes | the exact, full call to run on approval (medium tier tools take no secrets); kept only while `pending` or `approved`, null once it ends (`CHECK`); trigger `approvals_arguments_only_cleared` raises `55000` on any change except clearing, owner included |
 | `risk_tier` | text | no | `read`, `low`, `medium`, `blocked` |
 | `requester_slack_id` | text | no | |
 | `requester_account` | text | yes | |
@@ -132,7 +132,7 @@ Every table has `created_at timestamptz not null default now()` unless noted. Pr
 | `arguments` | jsonb | yes | allowed keys only, size capped |
 | `result` | jsonb | yes | allowed keys only, size capped; never for `read` tier |
 | `outcome` | text | yes | `ok`, `error`, `denied_policy`, `denied_identity`, `read_only`, `pending_approval`, `denied_approval`, `expired` |
-| `error` | text | yes | the error or refusal reason for any non `ok` outcome; at most 500 characters |
+| `error` | text | yes | a fixed reason for any non `ok` outcome (the `WithReason` reason, `action failed`, `action panicked`, or the refusal reason); never an action's own error text; at most 500 characters |
 | `approval_id` | uuid | yes | FK → `approvals.id` |
 | `approver_slack_id` | text | yes | |
 | `trace_id` | text | yes | OTel trace id, links to Tempo (feature #18) |
@@ -239,8 +239,8 @@ Query details the builder must keep:
 
 `audit.Recorder` semantics:
 - `NewRecorder(store, cfg)` takes a `Store` interface (the sqlc queries plus a transaction runner), so tests can inject failures without a scratch role. It rejects a negative `AUDIT_OUTCOME_RETRIES`, so the tool server fails at startup.
-- `Call.Store` lists the top level argument keys to keep and `Call.StoreResult` the result keys to keep (declared per tool in the registry, feature #9); every other key becomes `"[omitted]"`. Only top level keys are filtered: nested values under an allowed key are stored whole, so the registry must not allow a key that holds free text. A filtered payload over `AUDIT_MAX_PAYLOAD_BYTES` becomes `{"truncated": true, "bytes": n}`. `read` tier calls store no result.
-- `Run`: insert the intent within `AUDIT_WRITE_TIMEOUT` (on failure return `ErrAuditUnavailable` and do not call `action`); call `action` with a deferred `recover`; map a panic or error to outcome `error` with the message cut to 500 characters, otherwise the `Result` outcome (default `ok`); insert the outcome on `context.WithoutCancel(ctx)` with `AUDIT_WRITE_TIMEOUT` per attempt, retrying up to `AUDIT_OUTCOME_RETRIES` times (backoff 50 ms, doubling, capped at 1 s; `3` means four attempts); on final failure log `audit_outcome_incomplete` at error level with `call_id` only and return the result with `errors.Join(actionErr, ErrAuditIncomplete)`; re-panic after the outcome attempt if the action panicked.
+- `Call.Store` lists the top level argument keys to keep and `Call.StoreResult` the result keys to keep (declared per tool in the registry, feature #9); every other key is dropped and counted as `"_omitted": n` (its name comes from the model and can hold any text). Only top level keys are filtered: nested values under an allowed key are stored whole, so the registry must not allow a key that holds free text. A filtered payload over `AUDIT_MAX_PAYLOAD_BYTES` becomes `{"truncated": true, "bytes": n}`. `read` tier calls store no result.
+- `Run`: insert the intent within `AUDIT_WRITE_TIMEOUT` (on failure return `ErrAuditUnavailable` and do not call `action`); call `action` with a deferred `recover`; map a panic or error to outcome `error` with a fixed reason (an error's `WithReason` reason, else `action failed`; a panic stores `action panicked`), cut to 500 characters, while the action's own error is returned to the caller unchanged, otherwise the `Result` outcome (default `ok`); insert the outcome on `context.WithoutCancel(ctx)` with `AUDIT_WRITE_TIMEOUT` per attempt, retrying up to `AUDIT_OUTCOME_RETRIES` times (backoff 50 ms, doubling, capped at 1 s; `3` means four attempts); on final failure log `audit_outcome_incomplete` at error level with `call_id` only and return the result with `errors.Join(actionErr, ErrAuditIncomplete)`; re-panic after the outcome attempt if the action panicked.
 - `Refuse`, `Defer`, `Decide`, and `Expire` each write their rows in one transaction; any failure returns `ErrAuditUnavailable` and changes nothing.
 
 **Value sourcing**
@@ -254,7 +254,7 @@ Query details the builder must keep:
 | audit intent | `call_id` | `gen_random_uuid()` default, returned by `InsertAuditIntent` |
 | audit intent | `trace_id` | the current OTel span context; null when tracing is a no op |
 | audit outcome | identity columns | copied from the intent row by `InsertAuditOutcome` |
-| audit outcome | `outcome`, `result`, `error` | the action's `Result` and error, the panic, or the `Refuse`/`Decide` reason |
+| audit outcome | `outcome`, `result`, `error` | the action's `Result`, its error's `WithReason` reason, a fixed panic reason, or the `Refuse`/`Decide` reason (fixed text the code writes) |
 | approval decision | clicker Slack id | the Slack interaction payload, received by agent code and sent to the approve endpoint (spec 0001), never the model |
 | approval execution | `approval_id`, `approver_slack_id`, arguments | the approval row (`decided_by`, `arguments`) |
 | approval | `allowed_approvers` | `SLACK_IT_APPROVERS` for `it`; the group owner's Slack id for `group_owner` (resolved in feature #15) |
@@ -276,7 +276,7 @@ Query details the builder must keep:
 - No audit row, no write: a write action runs only inside `audit.Recorder.Run`, after its intent row exists.
 - `audit_log` is never updated, deleted, or truncated: no app role holds those privileges, and trigger `audit_log_append_only` (BEFORE UPDATE OR DELETE per row, BEFORE TRUNCATE per statement) raises `audit_log is append only` with SQLSTATE `55000` for everyone, owner included. Only a reviewed migration that drops the trigger can change that.
 - One intent and at most one outcome per `call_id`; every outcome has an intent. An intent with no outcome means "outcome unknown"; it is never filled in later.
-- Keys outside a tool's allow list, and payloads over the cap, never reach the database.
+- Keys outside a tool's allow list (names and values), payloads over the cap, and an action's own error text never reach `audit_log`. An approval's full `arguments` exist only while it can still run.
 - An approval leaves `pending` at most once and executes at most once, never on its requester's own click. `CHECK`: `approved` and `denied` have `decided_by` and `decided_at`; `expired` has no `decided_by`; `executed_at` is set only for `executed` and `failed`; `cardinality(allowed_approvers) > 0`.
 - A conversation that is not `open` has `closed_at`. Message `content` is null exactly when `content_purged_at` is set. Message `seq` is gapless per conversation.
 - All timestamps come from the database clock.
@@ -299,7 +299,7 @@ Roles (`noord_owner` owns every table and only runs migrations; no running binar
 - Identity columns need no sequence grants. New tables carry no PUBLIC grants, so the migration only grants; it does not revoke.
 - The database boundary stops a compromised agent from writing audit or approval rows directly. It does not stop the agent from calling the tool server's approve endpoint with a made up clicker id: that endpoint trusts the agent's bearer token (spec 0001). Feature #14 decides whether to harden it.
 - The read only Grafana role is added by feature #18.
-- Compliance scope: GDPR (Noord is a Dutch employer; the data is about its staff). The audit log holds Slack ids, directory account names, and only allow listed argument keys, kept for the whole engagement and never erased; `approvals` rows are kept as long, since audit rows reference them. It must never hold names, emails, or ticket text, which is why storage is an allow list. Conversation message content is personal data and is purgeable (feature #12). The data processing note (feature #22) states all of this.
+- Compliance scope: GDPR (Noord is a Dutch employer; the data is about its staff). The audit log holds Slack ids, directory account names, and only allow listed argument keys, kept for the whole engagement and never erased; `approvals` rows are kept as long, since audit rows reference them. It must never hold names, emails, or ticket text, which is why storage is an allow list, unknown keys are dropped by name, and the `error` column holds only fixed reasons. An approval's unfiltered `arguments` are cleared the moment it can no longer run, so only the allow listed copy in `audit_log` stays. Conversation message content is personal data and is purgeable (feature #12). The data processing note (feature #22) states all of this.
 
 **Configuration required**
 
@@ -317,7 +317,7 @@ Roles (`noord_owner` owns every table and only runs migrations; no running binar
 
 **Critical test scenarios** (DB tests run when `TEST_DATABASE_URL` points at a superuser connection; CI provides one)
 
-- Happy path: `Run` with a fake action writes an intent then an `ok` outcome with the same `call_id`; a disallowed key reads `"[omitted]"`; an oversize payload reads `truncated`, verifies **AC-2**, **AC-7**.
+- Happy path: `Run` with a fake action writes an intent then an `ok` outcome with the same `call_id`; a disallowed key is dropped and counted as `"_omitted"`, an action error stores only its fixed reason; an oversize payload reads `truncated`, verifies **AC-2**, **AC-7**.
 - Failure case: a store whose intent insert fails leaves the action's call counter at 0 and returns `ErrAuditUnavailable`, verifies **AC-5**. A store whose outcome insert always fails returns the result with `ErrAuditIncomplete`, and `ListUnconfirmedCalls` finds the intent, verifies **AC-6**. A cancelled context and a panicking action still produce an outcome row, verifies **AC-15**.
 - Failure case: approve and deny race on one approval from two goroutines; exactly one moves it and the other is audited `denied_policy`; a requester's own click is refused, verifies **AC-8**. Twenty concurrent `AppendMessage` calls give `seq` 1 to 20, verifies **AC-9**.
 - Auth/permission: after inserting a row, as `noord_toolserver` `UPDATE audit_log`, `DELETE`, and `TRUNCATE` return `42501`; as `noord_owner` they return `55000`; as `noord_agent`, `SELECT` from `audit_log` and `approvals` returns `42501`; as `noord_eval`, `UPDATE eval_results` returns `42501`, verifies **AC-3**, **AC-4**.
@@ -363,7 +363,7 @@ Tracer Bullet within the feature: the audit strand that slice 1 (#9, #10) needs 
 ## Follow-up
 
 - [ ] Spec 0001: update the *Configuration required* database line to the per binary names (`AGENT_DATABASE_URL`, `TOOLSERVER_DATABASE_URL`, `EVAL_DATABASE_URL`, `MIGRATE_DATABASE_URL`).
-- [ ] Feature #9: the tool registry declares each tool's risk tier and `Store` / `StoreResult` keys (never a free text key), and every handler runs through `audit.Recorder`.
+- [ ] Feature #9: the tool registry declares each tool's risk tier and `Store` / `StoreResult` keys (never a free text key), and every handler runs through `audit.Recorder`. It validates arguments against each tool's schema (rejecting unknown keys) before `Run` or `Defer`, and handlers wrap errors with `audit.WithReason` and a fixed reason.
 - [ ] Feature #10: the identity match fills `requester_account`; the `eval/pricing.yaml` lookup (a small embedding Go file beside it) fills `llm_usage.cost_microusd`; the hourly event purge; whether a message in a closed thread opens a new conversation.
 - [ ] Feature #12: the purge job for `conversation_messages.content` and the `TICKET_RETENTION_DAYS` default.
 - [ ] Feature #14: who calls `Recorder.Expire` and how the agent learns to escalate; recovering an approval stuck in `approved` after a crash; the `APPROVAL_TIMEOUT` default; whether the approve endpoint should verify the clicker beyond trusting the agent.

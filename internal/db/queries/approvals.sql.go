@@ -126,7 +126,7 @@ func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) 
 
 const denyApproval = `-- name: DenyApproval :one
 UPDATE approvals
-SET status = 'denied', decided_by = $1::text, decided_at = now()
+SET status = 'denied', decided_by = $1::text, decided_at = now(), arguments = NULL
 WHERE id = $2 AND status = 'pending' AND expires_at > now()
   AND $1::text = ANY (allowed_approvers)
 RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
@@ -137,6 +137,7 @@ type DenyApprovalParams struct {
 	ID      uuid.UUID
 }
 
+// An ended approval drops the full call (the CHECK on approvals requires it).
 func (q *Queries) DenyApproval(ctx context.Context, arg DenyApprovalParams) (Approval, error) {
 	row := q.db.QueryRow(ctx, denyApproval, arg.Clicker, arg.ID)
 	var i Approval
@@ -165,7 +166,7 @@ func (q *Queries) DenyApproval(ctx context.Context, arg DenyApprovalParams) (App
 
 const expireDueApprovals = `-- name: ExpireDueApprovals :many
 UPDATE approvals
-SET status = 'expired'
+SET status = 'expired', arguments = NULL
 WHERE id IN (
     SELECT a.id FROM approvals AS a
     WHERE a.status = 'pending' AND a.expires_at <= now()
@@ -246,7 +247,7 @@ func (q *Queries) GetApproval(ctx context.Context, id uuid.UUID) (Approval, erro
 }
 
 const markApprovalExecuted = `-- name: MarkApprovalExecuted :one
-UPDATE approvals SET status = 'executed', executed_at = now()
+UPDATE approvals SET status = 'executed', executed_at = now(), arguments = NULL
 WHERE id = $1 AND status = 'approved'
 RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
 `
@@ -278,7 +279,7 @@ func (q *Queries) MarkApprovalExecuted(ctx context.Context, id uuid.UUID) (Appro
 }
 
 const markApprovalFailed = `-- name: MarkApprovalFailed :one
-UPDATE approvals SET status = 'failed', executed_at = now()
+UPDATE approvals SET status = 'failed', executed_at = now(), arguments = NULL
 WHERE id = $1 AND status = 'approved'
 RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
 `

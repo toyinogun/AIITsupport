@@ -85,7 +85,9 @@ CREATE TABLE approvals (
     id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     call_id            uuid        NOT NULL UNIQUE,
     tool_name          text        NOT NULL,
-    arguments          jsonb       NOT NULL,
+    -- The exact call, unfiltered, kept only while it can still run: it may
+    -- hold free text, and this table is never erased. Cleared when it ends.
+    arguments          jsonb,
     risk_tier          text        NOT NULL CHECK (risk_tier IN ('read', 'low', 'medium', 'blocked')),
     requester_slack_id text        NOT NULL,
     requester_account  text,
@@ -105,9 +107,28 @@ CREATE TABLE approvals (
     CHECK ((status IN ('approved', 'denied', 'executed', 'failed'))
         = (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
     CHECK (status NOT IN ('pending', 'expired') OR (decided_by IS NULL AND decided_at IS NULL)),
-    CHECK ((executed_at IS NOT NULL) = (status IN ('executed', 'failed')))
+    CHECK ((executed_at IS NOT NULL) = (status IN ('executed', 'failed'))),
+    CHECK ((arguments IS NULL) = (status IN ('denied', 'expired', 'executed', 'failed')))
 );
 CREATE INDEX approvals_pending_expiry_idx ON approvals (expires_at) WHERE status = 'pending';
+
+-- +goose StatementBegin
+CREATE FUNCTION approvals_arguments_only_cleared() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.arguments IS NOT NULL AND NEW.arguments IS DISTINCT FROM OLD.arguments THEN
+        RAISE EXCEPTION 'approval arguments can only be cleared' USING ERRCODE = '55000';
+    END IF;
+    RETURN NEW;
+END
+$$;
+-- +goose StatementEnd
+
+-- The tool server may clear a call's arguments but never rewrite the call a
+-- human approved. Like the audit trigger, this binds the owner too.
+CREATE TRIGGER approvals_arguments_only_cleared
+    BEFORE UPDATE OF arguments ON approvals
+    FOR EACH ROW EXECUTE FUNCTION approvals_arguments_only_cleared();
 
 -- Tool server: every call, an intent row before it acts and an outcome row
 -- after. Append only: see the trigger below.
@@ -208,7 +229,7 @@ GRANT SELECT, INSERT ON llm_usage TO noord_agent;
 GRANT SELECT, INSERT, DELETE ON slack_events TO noord_agent;
 
 GRANT SELECT, INSERT ON approvals TO noord_toolserver;
-GRANT UPDATE (status, decided_by, decided_at, executed_at) ON approvals TO noord_toolserver;
+GRANT UPDATE (status, decided_by, decided_at, executed_at, arguments) ON approvals TO noord_toolserver;
 GRANT SELECT, INSERT ON audit_log TO noord_toolserver;
 
 GRANT SELECT ON audit_log, conversations, llm_usage TO noord_eval;
@@ -222,6 +243,7 @@ DROP TABLE eval_runs;
 DROP TABLE audit_log;
 DROP FUNCTION audit_log_append_only();
 DROP TABLE approvals;
+DROP FUNCTION approvals_arguments_only_cleared();
 DROP TABLE slack_events;
 DROP TABLE llm_usage;
 DROP TABLE conversation_messages;

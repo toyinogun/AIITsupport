@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -130,14 +131,14 @@ func TestRunRecordsIntentBeforeTheActionAndOutcomeAfter(t *testing.T) {
 	if got := strings.Join(store.events, ","); got != "intent,action,outcome" {
 		t.Fatalf("order = %s, want intent,action,outcome", got)
 	}
-	if got := string(store.intents[0].Arguments); got != `{"account":"jdevries","note":"[omitted]"}` {
+	if got := string(store.intents[0].Arguments); got != `{"_omitted":1,"account":"jdevries"}` {
 		t.Errorf("arguments = %s", got)
 	}
 	out := store.outcomes[0]
 	if out.Outcome != string(OutcomeOK) || out.Error.Valid {
 		t.Errorf("outcome = %q error = %v, want ok and no error", out.Outcome, out.Error)
 	}
-	if got := string(out.Result); got != `{"dn":"[omitted]","unlocked":true}` {
+	if got := string(out.Result); got != `{"_omitted":1,"unlocked":true}` {
 		t.Errorf("result = %s", got)
 	}
 }
@@ -235,8 +236,9 @@ func TestRunRecordsAPanicThenPanicsAgain(t *testing.T) {
 			t.Fatalf("outcomes = %d, want 1", len(store.outcomes))
 		}
 		out := store.outcomes[0]
-		if out.Outcome != string(OutcomeError) || !strings.Contains(out.Error.String, "action panicked: boom") {
-			t.Errorf("outcome = %q %q, want an error naming the panic", out.Outcome, out.Error.String)
+		// The panic value is not stored: it can quote a name or a ticket.
+		if out.Outcome != string(OutcomeError) || out.Error.String != "action panicked" {
+			t.Errorf("outcome = %q %q, want error \"action panicked\"", out.Outcome, out.Error.String)
 		}
 	}()
 	_, _ = r.Run(t.Context(), unlockCall(), func(context.Context) (Result, error) { panic("boom") })
@@ -253,8 +255,10 @@ func TestEncodeKeptStoresOnlyAllowedKeys(t *testing.T) {
 	}{
 		{"nil stores NULL", nil, []string{"a"}, ""},
 		{"allowed key kept", map[string]any{"a": 1}, []string{"a"}, `{"a":1}`},
-		{"other keys omitted", map[string]any{"a": 1, "body": "help"}, []string{"a"}, `{"a":1,"body":"[omitted]"}`},
-		{"nothing allowed", map[string]any{"body": "help"}, nil, `{"body":"[omitted]"}`},
+		{"other keys dropped and counted", map[string]any{"a": 1, "body": "help", "note": "x"}, []string{"a"}, `{"_omitted":2,"a":1}`},
+		{"nothing allowed", map[string]any{"body": "help"}, nil, `{"_omitted":1}`},
+		{"a key name is never stored", map[string]any{"jan.devries@noord.example needs a reset": 1}, nil, `{"_omitted":1}`},
+		{"the count key cannot be allowed", map[string]any{"_omitted": "text"}, []string{"_omitted"}, `{"_omitted":1}`},
 		{"nested values stay whole", map[string]any{"a": map[string]any{"b": 2}}, []string{"a"}, `{"a":{"b":2}}`},
 		{"oversize truncated", map[string]any{"a": big}, []string{"a"}, `{"bytes":5008,"truncated":true}`},
 	}
@@ -300,12 +304,50 @@ func TestUnencodableResultIsMarked(t *testing.T) {
 	}
 }
 
+// covers: AC-7 (spec 0003)
+func TestActionErrorsStoreOnlyAFixedReason(t *testing.T) {
+	directoryErr := errors.New(`LDAP 32: no such object "CN=Jan de Vries,OU=Staff,DC=noord,DC=example"`)
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"raw error text is never stored", directoryErr, "action failed"},
+		{"a reason the action gives is stored", WithReason("account not found", directoryErr), "account not found"},
+		{"the reason survives more wrapping", fmt.Errorf("unlock: %w", WithReason("account not found", directoryErr)), "account not found"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{}
+			r, _ := newTestRecorder(t, store)
+			_, err := r.Run(t.Context(), unlockCall(), func(context.Context) (Result, error) { return Result{}, tc.err })
+			if !errors.Is(err, directoryErr) {
+				t.Errorf("Run error = %v, want the action's own error back for the caller", err)
+			}
+			if got := store.outcomes[0].Error.String; got != tc.want {
+				t.Errorf("stored error = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWithReasonKeepsTheErrorChain(t *testing.T) {
+	base := errors.New("timeout")
+	err := WithReason("directory unreachable", base)
+	if !errors.Is(err, base) || err.Error() != "directory unreachable: timeout" {
+		t.Errorf("WithReason = %q, is base %v", err, errors.Is(err, base))
+	}
+	if got := WithReason("account not found", nil).Error(); got != "account not found" {
+		t.Errorf("WithReason with no error = %q", got)
+	}
+}
+
 func TestErrorTextIsCappedAt500Characters(t *testing.T) {
 	store := &fakeStore{}
 	r, _ := newTestRecorder(t, store)
 
 	_, _ = r.Run(t.Context(), unlockCall(), func(context.Context) (Result, error) {
-		return Result{}, errors.New(strings.Repeat("é", 600))
+		return Result{}, WithReason(strings.Repeat("é", 600), errors.New("x"))
 	})
 	if n := utf8.RuneCountInString(store.outcomes[0].Error.String); n != maxErrorRunes {
 		t.Errorf("error length = %d characters, want %d", n, maxErrorRunes)

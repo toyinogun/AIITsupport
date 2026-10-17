@@ -95,9 +95,9 @@ The records the agent owns: the append only audit log, pending approvals, eval r
   - [x] Audit strand: `internal/audit` recorder plus the grant and trigger tests (AC-2 to AC-7, AC-15)
   - [x] Approvals with guarded transitions and their audit pairs (AC-8)
   - [x] Conversations, messages, usage, Slack event dedup, and eval queries (AC-9 to AC-12)
-- [ ] Verify it: `/check verify data model`
-- [ ] Test it: `/test data model`
-- [ ] Review it (fresh model): `/check review data model`
+- [x] Verify it: `/check verify data model`
+- [x] Test it: `/test data model`
+- [x] Review it (fresh model): `/check review data model`
 - [ ] Document it: `/document data model`
 spec [0003](../specs/0003-data-model/index.md) · code in `db/`, `internal/audit/`, `internal/db/`, `internal/config/`
 

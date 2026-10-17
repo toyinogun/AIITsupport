@@ -70,8 +70,8 @@ func TestPgRunWritesAnIntentAndAnOutcome(t *testing.T) {
 	if err := json.Unmarshal(intent.Arguments, &args); err != nil {
 		t.Fatalf("arguments: %v", err)
 	}
-	if args["account"] != "jdevries" || args["note"] != omitted {
-		t.Errorf("arguments = %v, want account kept and note omitted", args)
+	if _, kept := args["note"]; args["account"] != "jdevries" || kept || args[omittedKey] != 1.0 {
+		t.Errorf("arguments = %v, want account kept and note dropped and counted", args)
 	}
 	// The outcome copies who, what, and where from its intent.
 	if outcome.ToolName != c.Tool || outcome.RequesterSlackID != c.RequesterSlackID ||
@@ -231,6 +231,102 @@ func TestPgAnApprovalIsApprovedOnlyOnce(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("audit outcomes = %v, want %v", got, want)
 		}
+	}
+}
+
+// covers: AC-7, AC-8 (spec 0003)
+func TestPgAnEndedApprovalForgetsItsArguments(t *testing.T) {
+	r, q := pgRecorder(t)
+	const full = `{"account": "jdevries"}`
+
+	denied := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	d, err := r.Decide(t.Context(), denied.ID, approverA, false)
+	if err != nil || !d.Moved || d.Approval.Arguments != nil {
+		t.Errorf("deny = %+v, %v; want arguments cleared", d.Approval, err)
+	}
+
+	approved := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	d, err = r.Decide(t.Context(), approved.ID, approverA, true)
+	if err != nil || string(d.Approval.Arguments) != full {
+		t.Fatalf("approve = %+v, %v; want the full call kept until it runs", d.Approval, err)
+	}
+	executed, err := q.MarkApprovalExecuted(t.Context(), approved.ID)
+	if err != nil || executed.Arguments != nil {
+		t.Errorf("executed = %s, %v; want arguments cleared", executed.Arguments, err)
+	}
+
+	failing := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	if _, err := r.Decide(t.Context(), failing.ID, approverA, true); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if failed, err := q.MarkApprovalFailed(t.Context(), failing.ID); err != nil || failed.Arguments != nil {
+		t.Errorf("failed = %s, %v; want arguments cleared", failed.Arguments, err)
+	}
+
+	late := deferMFA(t, r, []string{approverA}, time.Now().Add(-time.Minute))
+	expired, err := r.Expire(t.Context(), 10)
+	if err != nil || len(expired) != 1 || expired[0].ID != late.ID || expired[0].Arguments != nil {
+		t.Errorf("expire = %+v, %v; want the late approval expired with arguments cleared", expired, err)
+	}
+}
+
+// covers: AC-8 (spec 0003)
+func TestPgApprovalArgumentsCanOnlyBeCleared(t *testing.T) {
+	tdb := dbtest.New(t)
+	r, err := NewRecorder(NewPgStore(tdb.ToolServer), testConfig, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewRecorder: %v", err)
+	}
+	a := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+
+	for role, pool := range map[string]interface {
+		Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	}{dbtest.RoleToolServer: tdb.ToolServer, dbtest.RoleOwner: tdb.Owner} {
+		_, err := pool.Exec(t.Context(), `UPDATE approvals SET arguments = '{"account": "someone_else"}' WHERE id = $1`, a.ID)
+		if sqlState(err) != "55000" {
+			t.Errorf("%s rewrote a pending call's arguments: err = %v, want 55000", role, err)
+		}
+	}
+	_, err = tdb.ToolServer.Exec(t.Context(), `UPDATE approvals SET arguments = NULL WHERE id = $1`, a.ID)
+	if sqlState(err) != "23514" {
+		t.Errorf("cleared the arguments of a call that can still run: err = %v, want a check violation", err)
+	}
+	_, err = tdb.ToolServer.Exec(t.Context(),
+		`UPDATE approvals SET status = 'denied', decided_by = $2, decided_at = now() WHERE id = $1`, a.ID, approverA)
+	if sqlState(err) != "23514" {
+		t.Errorf("ended an approval without clearing its arguments: err = %v, want a check violation", err)
+	}
+}
+
+// covers: AC-8 (spec 0003)
+func TestPgOnlyAnApprovedApprovalCanRunOrFail(t *testing.T) {
+	r, q := pgRecorder(t)
+
+	pending := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	if _, err := q.MarkApprovalExecuted(t.Context(), pending.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("a pending approval was executed: %v", err)
+	}
+	if _, err := q.MarkApprovalFailed(t.Context(), pending.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("a pending approval was marked failed: %v", err)
+	}
+
+	if _, err := r.Decide(t.Context(), pending.ID, approverA, false); err != nil {
+		t.Fatalf("deny: %v", err)
+	}
+	if _, err := q.MarkApprovalExecuted(t.Context(), pending.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("a denied approval was executed: %v", err)
+	}
+
+	approved := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	if d, err := r.Decide(t.Context(), approved.ID, approverA, true); err != nil || !d.Moved {
+		t.Fatalf("approve = %+v, %v", d, err)
+	}
+	failed, err := q.MarkApprovalFailed(t.Context(), approved.ID)
+	if err != nil || failed.Status != "failed" || !failed.ExecutedAt.Valid {
+		t.Fatalf("MarkApprovalFailed = %+v, %v; want failed with executed_at set", failed, err)
+	}
+	if _, err := q.MarkApprovalExecuted(t.Context(), approved.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("a failed approval was executed afterwards: %v", err)
 	}
 }
 

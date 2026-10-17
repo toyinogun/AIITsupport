@@ -25,15 +25,16 @@ WHERE id = @id AND status = 'pending' AND expires_at > now()
 RETURNING *;
 
 -- name: DenyApproval :one
+-- An ended approval drops the full call (the CHECK on approvals requires it).
 UPDATE approvals
-SET status = 'denied', decided_by = @clicker::text, decided_at = now()
+SET status = 'denied', decided_by = @clicker::text, decided_at = now(), arguments = NULL
 WHERE id = @id AND status = 'pending' AND expires_at > now()
   AND @clicker::text = ANY (allowed_approvers)
 RETURNING *;
 
 -- name: ExpireDueApprovals :many
 UPDATE approvals
-SET status = 'expired'
+SET status = 'expired', arguments = NULL
 WHERE id IN (
     SELECT a.id FROM approvals AS a
     WHERE a.status = 'pending' AND a.expires_at <= now()
@@ -44,11 +45,11 @@ WHERE id IN (
 RETURNING *;
 
 -- name: MarkApprovalExecuted :one
-UPDATE approvals SET status = 'executed', executed_at = now()
+UPDATE approvals SET status = 'executed', executed_at = now(), arguments = NULL
 WHERE id = @id AND status = 'approved'
 RETURNING *;
 
 -- name: MarkApprovalFailed :one
-UPDATE approvals SET status = 'failed', executed_at = now()
+UPDATE approvals SET status = 'failed', executed_at = now(), arguments = NULL
 WHERE id = @id AND status = 'approved'
 RETURNING *;

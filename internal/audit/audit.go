@@ -96,7 +96,7 @@ type Call struct {
 	Target           string
 	Args             map[string]any
 	// Store and StoreResult list the top level keys kept in the audit row.
-	// Every other key is stored as "[omitted]". Never allow a free text key.
+	// Every other key is dropped and only counted. Never allow a free text key.
 	Store       []string
 	StoreResult []string
 	TraceID     string
@@ -108,8 +108,10 @@ type Call struct {
 // Result is what an action reports back to Run.
 type Result struct {
 	Outcome Outcome // empty means OutcomeOK
-	Reason  string  // why, for an outcome other than ok
-	Data    map[string]any
+	// Reason says why, for an outcome other than ok. It is stored as is, so
+	// it must be fixed text the tool code writes, never request or ticket data.
+	Reason string
+	Data   map[string]any
 }
 
 // Config holds the audit settings from internal/config.
@@ -153,7 +155,9 @@ func NewRecorder(store Store, cfg Config, logger *slog.Logger) (*Recorder, error
 // intent cannot be recorded, action is never called. The outcome is written
 // even if ctx is cancelled meanwhile, and even if action panics (Run then
 // panics again). If the outcome still fails after the configured retries,
-// Run returns the action's result with ErrAuditIncomplete.
+// Run returns the action's result with ErrAuditIncomplete. An action error is
+// returned whole but stored only as its WithReason reason (or "action
+// failed"), and a panic only as "action panicked".
 func (r *Recorder) Run(ctx context.Context, c Call, action func(context.Context) (Result, error)) (Result, error) {
 	intent, err := r.intentParams(c)
 	if err != nil {
@@ -171,10 +175,10 @@ func (r *Recorder) Run(ctx context.Context, c Call, action func(context.Context)
 		}
 		p := recover()
 		if p == nil { // runtime.Goexit: nothing to panic with
-			_ = r.recordOutcome(ctx, callID, c, Result{}, errors.New("action exited without returning"))
+			_ = r.recordOutcome(ctx, callID, c, Result{}, WithReason(reasonActionExited, nil))
 			return
 		}
-		_ = r.recordOutcome(ctx, callID, c, Result{}, fmt.Errorf("action panicked: %v", p))
+		_ = r.recordOutcome(ctx, callID, c, Result{}, WithReason(reasonActionPanicked, nil))
 		panic(p)
 	}()
 	res, actionErr := action(ctx)
@@ -184,7 +188,8 @@ func (r *Recorder) Run(ctx context.Context, c Call, action func(context.Context)
 
 // Refuse records a call that was never run, as an intent and outcome pair in
 // one transaction. outcome must be a refusal (denied_policy, denied_identity,
-// read_only, denied_approval, or expired).
+// read_only, denied_approval, or expired). reason is stored as is, so it must
+// be fixed text, never request or ticket data.
 func (r *Recorder) Refuse(ctx context.Context, c Call, outcome Outcome, reason string) error {
 	if !outcome.refusal() {
 		return fmt.Errorf("%w: %q is not a refusal outcome", ErrInvalidCall, outcome)
@@ -313,10 +318,10 @@ func (r *Recorder) outcomeParams(callID uuid.UUID, c Call, res Result, actionErr
 	return params
 }
 
-// settle decides the outcome and its reason from what the action returned.
+// settle decides the outcome and its stored reason from what the action returned.
 func settle(res Result, actionErr error) (Outcome, string) {
 	if actionErr != nil {
-		return OutcomeError, actionErr.Error()
+		return OutcomeError, storedReason(actionErr)
 	}
 	switch {
 	case res.Outcome == "":
