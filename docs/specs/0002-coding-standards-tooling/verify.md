@@ -16,11 +16,11 @@ _Steps derived from spec 0002 "Done means" (DM-1 to DM-6; this decision spec has
 ## CI (after you push and open a PR)
 - [ ] The PR runs `lint`, `test`, `generated`, `vuln`, `secrets`, `images (agent)`, `images (toolserver)`, and `ci-ok`, all green → DM-5
 - [ ] In the `test` job log, `internal/db` runs `TestOpen...` against the service container, not `SKIP` (the job summary also shows total coverage) → DM-5
-- [ ] Each job's first Go step prints `go version go1.26.9` and passes the toolchain check → DM-5
+- [ ] Each job's first Go step prints `go version go1.27.2` and passes the toolchain check → DM-5
 - [ ] After the first green run, add the `main` ruleset requiring `ci-ok` with you on the bypass list, and turn on secret push protection (spec Follow-up) → DM-5
 
 ## Docs
-- [ ] After `/sync`, root `AGENTS.md` lists `make lint`, `fmt`, `fmt-check`, `gen-check`, `tidy-check`, `vuln`, `secrets`, `hooks`, `check`, the tooling rules, and toolchain 1.26.9 (it still says 1.26.5 today) → DM-6
+- [ ] After `/sync`, root `AGENTS.md` lists `make lint`, `fmt`, `fmt-check`, `gen-check`, `tidy-check`, `vuln`, `secrets`, `hooks`, `check`, the tooling rules, and toolchain 1.27.2 → DM-6
 
 ## Done means coverage
 - DM-1 clean clone, hooks, `make check` · covered by the first three Commands steps and the pre push step
