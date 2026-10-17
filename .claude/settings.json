@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/journal-check.py\"",
+            "timeout": 15,
+            "statusMessage": "Checking the build journal"
+          }
+        ]
+      }
+    ]
+  }
+}
