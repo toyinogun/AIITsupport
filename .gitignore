@@ -7,3 +7,12 @@ prd.md
 # Python caches
 __pycache__/
 *.pyc
+
+# Local settings and secrets (see .env.example)
+.env
+
+# Build output
+bin/
+
+# Agent scratch cache
+docs/.agent-cache/

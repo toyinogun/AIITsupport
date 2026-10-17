@@ -71,11 +71,11 @@ code in `docs/journal/`
 Choose the agent language, ticketing tool (or the Postgres fallback), model endpoint (EU residency checked in week 1), cluster host, and packaging, then scaffold a runnable repo. This is the only place tools get picked.
 **Done when:** the choices and trade offs are recorded in a spec (this becomes the 3 to 5 key decisions in the architecture doc), and the empty repo builds and runs locally under git.
 - [x] Decide the stack (spec): `/architect stack & architecture`
-- [ ] Scaffold from the decision: `/develop stack & architecture`
+- [x] Scaffold from the decision: `/develop stack & architecture`
 - [ ] Check EU residency for the Anthropic API and record the outcome (week 1, spec Follow-up)
 - [ ] Verify it: `/check verify stack & architecture`
 - [ ] Test it: `/test stack & architecture`
-spec [0001](../specs/0001-stack-architecture/index.md)
+spec [0001](../specs/0001-stack-architecture/index.md) · code in `cmd/`, `internal/`, `db/`
 
 ### 4. Coding standards & tooling
 Capture conventions from the real scaffold, then install lint, format, pre commit hooks, and a CI skeleton the eval will later run in.

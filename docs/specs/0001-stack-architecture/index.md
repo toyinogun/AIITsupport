@@ -1,7 +1,7 @@
 # 0001. Go monolith with an MCP tool server on the existing k3s cluster
 
 **Date**: 2026-10-17
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

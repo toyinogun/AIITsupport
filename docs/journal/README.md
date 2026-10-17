@@ -22,6 +22,8 @@ Write down what you expect to break before you start. Comparing these with the r
 
 | # | Date | Title | Feature (scope #) | Time lost | Story worthy |
 |---|------|-------|-------------------|-----------|--------------|
-| | | | | | |
+| [0001](0001-sqlc-refuses-empty-scaffold.md) | 2026-10-17 | sqlc refuses to generate on an empty scaffold | #3 Stack & architecture | ~5 min | no |
+| [0002](0002-dev-ports-already-taken.md) | 2026-10-17 | Local dev ports already taken on the laptop | #3 Stack & architecture | ~3 min | no |
+| [0003](0003-go-tool-missing-go-sum.md) | 2026-10-17 | go.sum entries missing after adding goose as a tool | #3 Stack & architecture | ~2 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

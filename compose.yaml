@@ -1,0 +1,24 @@
+# Local development environment. Samba AD joins in feature #6, Zammad in #8.
+# Credentials here are for a throwaway local database only.
+name: noord
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: noord
+      POSTGRES_PASSWORD: noord-dev
+      POSTGRES_DB: noord
+    ports:
+      # 55432 on the host so it never collides with a Postgres already on 5432.
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noord -d noord"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
