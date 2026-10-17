@@ -1,0 +1,99 @@
+# One linter config for the whole repo (spec 0002). Run it through the pinned
+# tools: `make lint` and `make fmt`, never a golangci-lint from PATH.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - depguard
+    - errname
+    - errorlint
+    - forbidigo
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - nolintlint
+    - revive
+    - sloglint
+  settings:
+    depguard:
+      rules:
+        # AGENTS.md: the tool server is the only process that holds client
+        # system credentials. cmd/agent/boundary_test.go checks the same list
+        # against the transitive imports; keep both in sync.
+        agent-credential-boundary:
+          files:
+            - "**/cmd/agent/**"
+          deny:
+            - pkg: github.com/toyinogun/AIITsupport/internal/ldap
+              desc: only the tool server may talk to AD (AGENTS.md, Rules)
+            - pkg: github.com/toyinogun/AIITsupport/internal/graph
+              desc: only the tool server may talk to Entra (AGENTS.md, Rules)
+            - pkg: github.com/toyinogun/AIITsupport/internal/zammad
+              desc: only the tool server may talk to Zammad (AGENTS.md, Rules)
+            - pkg: github.com/go-ldap/ldap
+              desc: only the tool server may talk to AD (AGENTS.md, Rules)
+            - pkg: github.com/Azure/azure-sdk-for-go/sdk/azidentity
+              desc: only the tool server may hold Entra credentials (AGENTS.md, Rules)
+        no-std-log:
+          deny:
+            - pkg: "log$"
+              desc: log through log/slog so redaction sees every line
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print.*$
+          msg: log through log/slog; fmt.Fprint* to a writer is fine
+        - pattern: ^print$
+          msg: log through log/slog
+        - pattern: ^println$
+          msg: log through log/slog
+    gocritic:
+      enabled-tags:
+        - diagnostic
+      disabled-tags:
+        - style
+        - performance
+        - experimental
+        - opinionated
+    sloglint:
+      kv-only: true
+      no-mixed-args: true
+      static-msg: true
+      key-naming-case: snake
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+      allow-unused: false
+  exclusions:
+    # Skips the sqlc output in internal/db/queries/ (never hand edited).
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      # Tests may dial without a context and hold fake credentials.
+      - path: _test\.go
+        linters:
+          - noctx
+      - path: _test\.go
+        linters:
+          - gosec
+        text: G101
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/toyinogun/AIITsupport
+  exclusions:
+    generated: lax
+
+issues:
+  # Show every finding, not the first few per linter.
+  max-issues-per-linter: 0
+  max-same-issues: 0

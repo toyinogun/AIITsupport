@@ -25,5 +25,7 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0001](0001-sqlc-refuses-empty-scaffold.md) | 2026-10-17 | sqlc refuses to generate on an empty scaffold | #3 Stack & architecture | ~5 min | no |
 | [0002](0002-dev-ports-already-taken.md) | 2026-10-17 | Local dev ports already taken on the laptop | #3 Stack & architecture | ~3 min | no |
 | [0003](0003-go-tool-missing-go-sum.md) | 2026-10-17 | go.sum entries missing after adding goose as a tool | #3 Stack & architecture | ~2 min | no |
+| [0004](0004-gitleaks-build-clash-in-tools-mod.md) | 2026-10-17 | gitleaks won't build next to golangci-lint in one tools.mod | #4 Coding standards & tooling | ~5 min | post |
+| [0005](0005-govulncheck-flags-go-toolchain.md) | 2026-10-17 | govulncheck fails the first run on the Go toolchain itself | #4 Coding standards & tooling | ~5 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

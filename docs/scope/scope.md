@@ -82,9 +82,9 @@ Capture conventions from the real scaffold, then install lint, format, pre commi
 **Done when:** root `AGENTS.md` reflects the real stack, and lint, format, and pre commit run clean in CI.
 - [x] Capture conventions and tooling choices: `/audit`
 - [x] Decide the tooling (spec): `/architect coding standards & tooling`
-- [ ] Install the tooling: `/develop tooling`
+- [x] Install the tooling: `/develop tooling`
 - [ ] Check it runs clean: `/test`
-spec [0002](../specs/0002-coding-standards-tooling.md) · code in `tools.mod`, `.golangci.yml`, `lefthook.yml`, `.github/`
+spec [0002](../specs/0002-coding-standards-tooling/index.md) · code in `tools.mod`, `.golangci.yml`, `lefthook.yml`, `.gitleaks.toml`, `.github/`, `.claude/hooks/format-go.py`, `cmd/agent/boundary_test.go`
 
 ### 5. Data model · needs a decision · GA
 The records the agent owns: the append only audit log, pending approvals, eval runs and results, and tickets if you use the Postgres fallback.

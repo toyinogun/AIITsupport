@@ -1,0 +1,23 @@
+# Git hooks (spec 0002). `make hooks` writes shims in .git/hooks that run
+# lefthook through `go tool`, so nothing needs to be on PATH. lefthook must
+# never overwrite those shims, hence no_auto_install.
+no_auto_install: true
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: go tool -modfile=tools.mod golangci-lint fmt --diff {staged_files}
+    lint:
+      glob: "**/*.go"
+      run: go tool -modfile=tools.mod golangci-lint run
+    secrets:
+      run: go tool -modfile=tools.mod gitleaks git --staged --config .gitleaks.toml --no-banner
+
+pre-push:
+  commands:
+    test:
+      run: go test -race ./...
+    gen-check:
+      run: make gen-check

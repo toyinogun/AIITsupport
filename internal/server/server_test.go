@@ -40,7 +40,7 @@ func TestRunServesUntilContextIsCancelled(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, ln, NewMux(), logger) }()
@@ -49,7 +49,9 @@ func TestRunServesUntilContextIsCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /healthz: %v", err)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("close body: %v", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /healthz = %d, want 200", resp.StatusCode)
 	}
@@ -147,7 +149,7 @@ func TestRunFinishesInFlightRequestOnShutdown(t *testing.T) {
 		_, _ = io.WriteString(w, "done")
 	})
 	ctx, cancel := context.WithCancel(t.Context())
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, ln, mux, logger) }()
@@ -187,8 +189,10 @@ func TestRunReturnsErrorWhenServingFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	ln.Close()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	logger := slog.New(slog.DiscardHandler)
 
 	err = Run(t.Context(), ln, NewMux(), logger)
 	if err == nil || !strings.Contains(err.Error(), "http server") {
@@ -202,7 +206,9 @@ func waitForHealthz(t *testing.T, addr string) {
 	if err != nil {
 		t.Fatalf("GET /healthz: %v", err)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("close body: %v", err)
+	}
 }
 
 func waitForRun(t *testing.T, done <-chan error) error {

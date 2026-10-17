@@ -24,7 +24,10 @@ func TestOpenFailsFastWhenDatabaseIsUnreachable(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	addr := ln.Addr().String()
-	ln.Close() // the port is now free, so connections are refused
+	// The port is now free, so connections are refused.
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
 
 	pool, err := Open(t.Context(), "postgres://noord:x@"+addr+"/noord?sslmode=disable&connect_timeout=2")
 	if err == nil || !strings.Contains(err.Error(), "reach database") {
