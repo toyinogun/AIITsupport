@@ -130,7 +130,7 @@ docs/               scope, specs, discovery, journal
 - Slack: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` (agent only); `SLACK_IT_CHANNEL` and `SLACK_IT_APPROVERS` (escalation channel and approver user ids, feature #11 and #14).
 - Agent to tool server: `TOOLSERVER_URL`, `TOOLSERVER_TOKEN` (token on both sides).
 - Listen addresses: `AGENT_HTTP_ADDR` (`:8080`, health only), `TOOLSERVER_HTTP_ADDR` (`:8080`, MCP and health).
-- Database: `DATABASE_URL`, one per binary with a different role per binary (roles and grants: feature #5).
+- Database: one URL per role, never shared: `AGENT_DATABASE_URL` (`noord_agent`), `TOOLSERVER_DATABASE_URL` (`noord_toolserver`), `MIGRATE_DATABASE_URL` (`noord_owner`, migrations only), and `EVAL_DATABASE_URL` (`noord_eval`, feature #20). Roles, grants, and the audit settings (`AUDIT_OUTCOME_RETRIES`, `AUDIT_WRITE_TIMEOUT`, `AUDIT_MAX_PAYLOAD_BYTES`, `SLACK_EVENT_DEDUP_TTL`): [spec 0003](../0003-data-model/index.md).
 - Samba AD (tool server only): `LDAP_URL`, `LDAP_BASE_DN`, `LDAP_BIND_DN`, `LDAP_BIND_PASSWORD`, `LDAP_CA_CERT`.
 - Entra (tool server only, unset if feature #7 takes the AD only fallback): `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`.
 - Zammad (tool server only): `ZAMMAD_URL`, `ZAMMAD_TOKEN`, `ZAMMAD_DEFAULT_GROUP` (feature #8).
