@@ -7,7 +7,7 @@ LOAD_ENV := set -a && . ./.env && set +a
 TOOL := go tool -modfile=tools.mod
 GIT_HOOKS := pre-commit pre-push
 
-.PHONY: dev db-up db-down migrate build test vet gen docker clean \
+.PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
@@ -30,9 +30,14 @@ db-up:
 db-down:
 	docker compose down
 
-## migrate: apply goose migrations to DATABASE_URL from .env
-migrate: .env db-up
-	@$(LOAD_ENV) && go tool goose -dir db/migrations postgres "$$DATABASE_URL" up
+## db-roles: create the app roles in the Compose Postgres (safe to run again)
+db-roles: db-up
+	docker compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U noord -d noord < db/roles.sql
+
+## migrate: apply goose migrations as the owner role (MIGRATE_DATABASE_URL from .env)
+migrate: .env db-roles
+	@$(LOAD_ENV) && go tool goose -dir db/migrations postgres \
+		"$${MIGRATE_DATABASE_URL:?is not set; copy the database lines from .env.example into .env}" up
 
 ## build: compile both binaries into bin/
 build:

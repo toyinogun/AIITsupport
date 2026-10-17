@@ -29,7 +29,6 @@ type LookupFunc func(key string) (string, bool)
 // Common holds settings both binaries read.
 type Common struct {
 	LogLevel            string `env:"LOG_LEVEL" default:"info" oneof:"debug|info|warn|error"`
-	DatabaseURL         string `env:"DATABASE_URL" required:"true"`
 	ToolServerToken     string `env:"TOOLSERVER_TOKEN" required:"true"`
 	OTelEndpoint        string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 	TicketRetentionDays int    `env:"TICKET_RETENTION_DAYS"` // default owned by feature #12
@@ -40,7 +39,8 @@ type Common struct {
 type Agent struct {
 	Common
 
-	HTTPAddr string `env:"AGENT_HTTP_ADDR" default:":8080"`
+	HTTPAddr    string `env:"AGENT_HTTP_ADDR" default:":8080"`
+	DatabaseURL string `env:"AGENT_DATABASE_URL" required:"true"` // connects as noord_agent
 
 	LLMProvider        string `env:"LLM_PROVIDER" default:"anthropic" oneof:"anthropic|bedrock"`
 	LLMModel           string `env:"LLM_MODEL" default:"claude-sonnet-5-5"`
@@ -61,6 +61,9 @@ type Agent struct {
 	SlackITApprovers []string `env:"SLACK_IT_APPROVERS"` // feature #14
 
 	ToolServerURL string `env:"TOOLSERVER_URL" required:"true"`
+
+	// SlackEventDedupTTL is how long seen Slack event ids are kept (spec 0003).
+	SlackEventDedupTTL time.Duration `env:"SLACK_EVENT_DEDUP_TTL" default:"24h"`
 }
 
 // ToolServer holds the MCP tool server's settings. It alone holds the
@@ -68,7 +71,8 @@ type Agent struct {
 type ToolServer struct {
 	Common
 
-	HTTPAddr string `env:"TOOLSERVER_HTTP_ADDR" default:":8080"`
+	HTTPAddr    string `env:"TOOLSERVER_HTTP_ADDR" default:":8080"`
+	DatabaseURL string `env:"TOOLSERVER_DATABASE_URL" required:"true"` // connects as noord_toolserver
 
 	LDAPURL          string `env:"LDAP_URL"`
 	LDAPBaseDN       string `env:"LDAP_BASE_DN"`
@@ -89,6 +93,19 @@ type ToolServer struct {
 	ReadOnly        bool          `env:"READ_ONLY" default:"true"`
 	KillSwitchFile  string        `env:"KILL_SWITCH_FILE"`
 	ApprovalTimeout time.Duration `env:"APPROVAL_TIMEOUT"` // feature #14
+
+	// Audit log writes (spec 0003). internal/audit validates the ranges.
+	AuditOutcomeRetries  int           `env:"AUDIT_OUTCOME_RETRIES" default:"3"`
+	AuditWriteTimeout    time.Duration `env:"AUDIT_WRITE_TIMEOUT" default:"5s"`
+	AuditMaxPayloadBytes int           `env:"AUDIT_MAX_PAYLOAD_BYTES" default:"4096"`
+}
+
+// Migrate holds the settings for running migrations as the table owner role.
+// `make migrate` reads MIGRATE_DATABASE_URL from the shell today; the
+// migration Job in feature #17 adds a loader. Declaring it here keeps the
+// .env.example drift test covering the name.
+type Migrate struct {
+	DatabaseURL string `env:"MIGRATE_DATABASE_URL" required:"true"` // connects as noord_owner
 }
 
 // LoadAgent reads and validates the agent's settings.
@@ -109,11 +126,11 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	return cfg, nil
 }
 
-// Names lists every setting either binary knows, sorted. The .env.example
+// Names lists every setting the binaries and migrations know, sorted. The .env.example
 // drift test compares against it.
 func Names() []string {
 	var names []string
-	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer]()} {
+	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate]()} {
 		walkFields(t, func(f reflect.StructField) {
 			names = append(names, f.Tag.Get("env"))
 		})
