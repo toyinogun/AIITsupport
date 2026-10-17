@@ -27,5 +27,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0003](0003-go-tool-missing-go-sum.md) | 2026-10-17 | go.sum entries missing after adding goose as a tool | #3 Stack & architecture | ~2 min | no |
 | [0004](0004-gitleaks-build-clash-in-tools-mod.md) | 2026-10-17 | gitleaks won't build next to golangci-lint in one tools.mod | #4 Coding standards & tooling | ~5 min | post |
 | [0005](0005-govulncheck-flags-go-toolchain.md) | 2026-10-17 | govulncheck fails the first run on the Go toolchain itself | #4 Coding standards & tooling | ~5 min | post |
+| [0006](0006-setup-go-ignores-toolchain-line.md) | 2026-10-17 | CI installs the go line's Go, not the toolchain line's | #4 Coding standards & tooling | ~5 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
