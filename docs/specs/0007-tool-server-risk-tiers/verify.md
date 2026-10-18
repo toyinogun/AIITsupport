@@ -8,7 +8,7 @@ Before the live steps you may want to run: `make directory-reset`, `make helpdes
 - [x] `DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_DATABASE_URL=... go test -count=1 -race ./internal/ldap/ ./internal/mcpserver/` → live Samba, real Postgres, fake Zammad; all pass → AC-3, AC-4, AC-6, AC-7, AC-8, AC-12, AC-13, AC-17, AC-19, AC-20
 - [x] `TEST_DATABASE_URL=... go test -race -run 'TestPg(CountRecentOK|ThreadHasOK)' ./internal/audit/` → the rate limit and one ticket per thread reads count only ok outcomes → AC-9, AC-10
 - [x] Right after `make helpdesk-reset`: `set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run LiveTickets -v ./internal/tools/` → logs `search lag after reset: ... 0s`, `tags on create: [noord-assistant]`, pending then closed; passes. It leaves a closed ticket, so run `make helpdesk-reset` after → AC-10, AC-11
-- [ ] `make check` (after the generated sqlc code is committed, since `gen-check` diffs against git) → green → AC-16, AC-18
+- [x] `make check` (after the generated sqlc code is committed, since `gen-check` diffs against git) → green → AC-16, AC-18
 - [x] `go test ./cmd/toolserver/ -run DoesNotLink` and `go test ./cmd/agent/ -run Boundary` → the tool server links nothing from `internal/seed`; the agent links no `internal/ldap`, `internal/tools`, `internal/mcpserver`, `internal/zammad` → AC-18
 
 ## Manual, against the real binary

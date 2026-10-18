@@ -1,7 +1,7 @@
 # 0007. Tool server: an audited MCP dispatcher with risk tiers, an OU fence, and a kill switch
 
 **Date**: 2026-10-18
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

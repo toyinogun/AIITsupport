@@ -33,7 +33,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 6 | Noord directory & seeded mess | Client environment | done |
 | 7 | Entra tenant & sync (timeboxed) | Client environment | done |
 | 8 | Ticketing, knowledge base & Slack workspace | Client environment | done |
-| 9 | Tool server & risk tiers | Slice 1 | in-progress |
+| 9 | Tool server & risk tiers | Slice 1 | done |
 | 10 | Locked out user, end to end | Slice 1 | planned |
 | 11 | Privileged request refusal & escalation | Slice 2 | planned |
 | 12 | PII redaction & retention | Slice 2 | planned |
@@ -144,7 +144,7 @@ spec [0006](../specs/0006-helpdesk-kb-slack/index.md) · code in `seed/helpdesk/
 
 ## Slice 1: Locked out user, end to end
 
-### 9. Tool server & risk tiers · in-progress · GA
+### 9. Tool server & risk tiers · done · GA
 The only path into client systems. Every tool has a risk tier enforced in code: read, low, medium, blocked. Allow list of OUs and groups, deny list of privileged groups, kill switch to read only, and an audit row for every call.
 **Done when:** `user_lookup`, `account_unlock`, and `ticket_create` / `ticket_update` work through it; a call against a denied group fails at the tool layer whatever the prompt says; flipping the kill switch blocks every account change; every call writes an audit row.
 - [x] Design it (spec): `/architect tool server & risk tiers`
