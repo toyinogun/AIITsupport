@@ -25,7 +25,7 @@ A thin client for Zammad's REST API (spec 0006): tickets, articles, and the know
 
 ## Gotchas
 
-- Zammad's search index lags writes and a fresh LDAP import by a few seconds (journal 0025). Never use `SearchUsers` to confirm a write; the seed takes user ids from bootstrap's login map instead.
+- Zammad's search index lags writes and a fresh LDAP import by seconds, and by more than a minute right after `make helpdesk-reset` (journal 0025). Never use `SearchUsers` to confirm a write; the seed takes user ids from bootstrap's login map instead.
 - KB writes return `{id, assets}`, not the object. The assistant token gets 403 on any KB write and on `/api/v1/settings`, but it **can** create and edit customer users at the Zammad level; it cannot edit an Admin (403, probed 2026-10-18).
 
 ## Commands

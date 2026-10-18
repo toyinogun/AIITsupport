@@ -61,11 +61,13 @@ DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_ENTRA=1 go test -race -run L
 - The helpdesk marker (`seed:sha256:<hash>`) lives in the `Noord Logistics` organization's note in Zammad, written last by `backdate.rb`. Any other seeded content means `make helpdesk-reset`, never a top up. Changing `noord.yaml`, a helpdesk file, or the certs changes the marker.
 - Secrets reach the Rails steps only as environment variables (`-e NAME` with no value); step output is shown with every secret value redacted.
 - The seed takes Zammad user ids from bootstrap's login map, never from user search (its index lags the import). Seeded tickets name customers by numeric id.
+- AD is the only way into Zammad: `bootstrap.rb` turns off self signup and password reset (`user_create_account`, `user_lost_password`), which Zammad enforces on REST and GraphQL alike. `TestLiveSideDoorsClosed` checks it (spec 0006 AC-17).
 - Demo users live only in the gitignored `seed/entra/demo.local.yaml` (at most 2); tracked files hold only `+1 20255501NN` numbers. No command resets a password: the seed app has no right to (journal 0016).
 
 ## Gotchas
 
 - The Samba container must have the hostname `samba`, or it starts but never listens (journal 0008).
+- A live test that POSTs to Zammad with no credentials must first `GET /api/v1/signshow` and send its `CSRF-Token` header back with the session cookie, or Zammad refuses on CSRF and the test proves nothing about the setting it targets.
 - On macOS, check LDAPS with Homebrew OpenLDAP against `ldaps://127.0.0.1:55636`: Apple's `ldapsearch` ignores `LDAPTLS_CACERT`, and OpenLDAP swaps `localhost` for your machine's hostname before the cert check (journal 0009).
 - A seed that fails partway (a weak `SEED_USER_PASSWORD`, say) leaves content behind, so the next `make seed` refuses until you reset.
 - Live tests hang forever on Docker's credential helper unless `DOCKER_AUTH_CONFIG='{"auths":{}}'` is set (journal 0011).
