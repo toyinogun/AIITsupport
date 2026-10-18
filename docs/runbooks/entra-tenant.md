@@ -127,7 +127,9 @@ DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_ENTRA=1 go test -race -run L
 
 They need Docker and the `.env` settings loaded into your shell (`set -a && . ./.env && set +a`). They never run in CI. The empty `DOCKER_AUTH_CONFIG` stops testcontainers from waiting forever on the Docker credential helper (journal 0011). `TestLiveReadScope` needs only `TEST_SAMBA=1`, no tenant.
 
-**Admin probe result** (fill in on evening one): _not recorded yet_.
+**Admin probe result** (Oct 18): Graph lets the tool server app read an unmarked user's phone methods (status 200), as expected with tenant wide rights. Our code refuses it with "not managed" before any such call, and `make entra-mfa` on your admin proves that. The Entra side wall (an administrative unit) is a spec follow up. Both 403 checks passed: the tool server app cannot create users or issue a Temporary Access Pass.
+
+**Expect lag.** Graph's reads trail its writes by tens of seconds. Right after you change or delete something in the portal, the next sync may not see it yet; the one after will. The live tests allow for this by syncing until a run makes no writes.
 
 ## 9. Rotate a client secret
 

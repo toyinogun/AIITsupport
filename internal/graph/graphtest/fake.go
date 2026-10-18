@@ -70,6 +70,9 @@ type Fake struct {
 	// still list a phone method after it is deleted, as Graph's /methods
 	// lags /phoneMethods for a few seconds.
 	StaleMethodReads int
+	// ListAlsoDeleted keeps these deleted user ids in user listings, as
+	// Graph's /users lags just after a delete.
+	ListAlsoDeleted map[string]bool
 	// Intercept, when set, may answer a request instead of the fake (return
 	// ok false to let it through). It runs before anything is changed.
 	Intercept func(r *http.Request) (Fault, bool)
@@ -308,6 +311,11 @@ func (f *Fake) route(r *http.Request) (int, any) {
 func (f *Fake) listUsers(r *http.Request) (int, any) {
 	q := r.URL.Query()
 	all := sorted(f.users)
+	for id := range f.ListAlsoDeleted {
+		if u, ok := f.deleted[id]; ok {
+			all = append(all, public(u))
+		}
+	}
 	if filter := q.Get("$filter"); filter != "" {
 		nick, ok := parseNicknameFilter(filter)
 		if !ok {

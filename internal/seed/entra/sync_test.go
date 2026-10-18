@@ -391,3 +391,50 @@ func TestSyncRefusesUnallocatedPhoneRange(t *testing.T) {
 		}
 	}
 }
+
+// covers: AC-6, AC-12. Right after a delete Graph may still list the user;
+// its phone read then 404s. The run treats it as gone and still restores it.
+func TestSyncStaleListingAfterDelete(t *testing.T) {
+	h := newHarness(t)
+	h.run(t)
+	bas := h.mustUser(t, "bas.kramer")
+	basID, _ := bas["id"].(string)
+	h.fake.SoftDelete(basID)
+
+	// Graph lags: the next user listing still shows bas.kramer as live.
+	var once atomic.Bool
+	h.fake.Intercept = func(r *http.Request) (graphtest.Fault, bool) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, basID+"/authentication/phoneMethods") && once.CompareAndSwap(false, true) {
+			return graphtest.Fault{Status: http.StatusNotFound, Code: "resourceNotFound", Message: "The specified user could not be found."}, true
+		}
+		return graphtest.Fault{}, false
+	}
+	h.fake.ListAlsoDeleted = map[string]bool{basID: true}
+
+	res := h.run(t)
+	if res.Restored != 1 || res.Created != 0 {
+		t.Errorf("result = %+v, want bas.kramer restored", res)
+	}
+	if got := h.mustUser(t, "bas.kramer")["id"]; got != basID {
+		t.Errorf("bas.kramer id = %v, want the restored %s", got, basID)
+	}
+}
+
+// covers: AC-7, AC-12. A user restored moments ago may still be listed as
+// deleted too; one object in both lists is not a duplicate nickname.
+func TestPlanIgnoresSameObjectInBothLists(t *testing.T) {
+	u := ADUser{DN: "e", Username: "eva.peters", DisplayName: "Eva Peters", GivenName: "Eva", Surname: "Peters"}
+	live := managedUser("id-eva", u)
+	_, err := MakePlan(Inputs{
+		Scope: []ADUser{u},
+		Entra: State{
+			Users:   []graph.User{live},
+			Deleted: []graph.DeletedUser{{ID: "id-eva", MailNickname: "eva.peters", EmployeeType: graph.ManagedMarker}},
+			Phones:  map[string][]graph.PhoneMethod{},
+		},
+		Domain: testDomain, Phones: map[string]string{"eva.peters": "+1 2025550117"}, DeleteLimit: 10,
+	})
+	if err != nil {
+		t.Errorf("MakePlan = %v, want no duplicate error", err)
+	}
+}

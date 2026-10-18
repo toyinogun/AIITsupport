@@ -36,5 +36,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0012](0012-free-tenant-cannot-create-tenants.md) | 2026-10-18 | A free Azure tenant may not create a second tenant | #7 Entra tenant & sync | ~10 min | post |
 | [0013](0013-graph-rejects-the-fictional-phone-range.md) | 2026-10-18 | Graph rejects the fictional phone range the spec picked | #7 Entra tenant & sync | ~35 min | post |
 | [0014](0014-mfa-clear-reports-too-early.md) | 2026-10-18 | The MFA clear said done while Graph still listed the phone | #7 Entra tenant & sync | ~10 min | video |
+| [0015](0015-graph-reads-lag-behind-writes.md) | 2026-10-18 | Graph's reads lag its writes, so drift takes two syncs to repair | #7 Entra tenant & sync | ~30 min | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

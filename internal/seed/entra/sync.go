@@ -95,21 +95,27 @@ func (s Syncer) ReadState(ctx context.Context, scope []ADUser, only string) (Sta
 		}
 	}
 	phones := map[string][]graph.PhoneMethod{}
+	live := make([]graph.User, 0, len(users))
 	for _, u := range users {
-		if !wanted[strings.ToLower(u.MailNickname)] {
+		mu, err := graph.Managed(u)
+		if !wanted[strings.ToLower(u.MailNickname)] || err != nil {
+			live = append(live, u) // unmanaged: the plan's guard reports any clash
 			continue
 		}
-		mu, err := graph.Managed(u)
-		if err != nil {
-			continue // unmanaged: the plan's guard reports it
-		}
 		methods, err := s.Client.PhoneMethods(ctx, mu)
+		if graph.IsNotFound(err) {
+			// Graph still listed a user that was just deleted (replication
+			// lag, AC-12). Treat it as gone for this run.
+			s.Logger.InfoContext(ctx, "listed user is gone, skipping it this run", "user", u.MailNickname)
+			continue
+		}
 		if err != nil {
 			return State{}, err
 		}
 		phones[u.ID] = methods
+		live = append(live, u)
 	}
-	return State{Users: users, Deleted: deleted, Phones: phones}, nil
+	return State{Users: live, Deleted: deleted, Phones: phones}, nil
 }
 
 func knownIDs(s State) map[string]string {

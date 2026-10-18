@@ -145,17 +145,42 @@ func liveDrift(t *testing.T, l *live) {
 		t.Fatal(err)
 	}
 
-	res := l.sync(t)
-	if res.Restored != 1 || res.Created != 0 {
-		t.Errorf("result = %+v, want bas.kramer restored, not created", res)
+	total := l.syncUntilSettled(t)
+	if total.Restored != 1 || total.Created != 0 || total.Updated < 1 {
+		t.Errorf("total over the settling runs = %+v, want bas.kramer restored (not created) and eva.peters updated", total)
 	}
 	back, err := l.seed.UserByUsername(t.Context(), "bas.kramer")
 	if err != nil || back.ID() != bas.ID() {
 		t.Errorf("bas.kramer after the sync = %v, %v; want the same object id", back.ID(), err)
 	}
 	if got := l.mustUser(t, "eva.peters").User().Department; got == nil || *got != "Sales" {
-		t.Errorf("eva.peters department = %v, want Sales", got)
+		t.Errorf("eva.peters department = %v, want Sales", deref(got))
 	}
+}
+
+// syncUntilSettled syncs until a run makes no writes (at most 4 runs, 15s
+// apart) and returns the summed result. Graph is eventually consistent:
+// for a while after a write, some reads still return the old state, so the
+// first run after a drift may not see all of it. Each later run fixes what
+// it sees, and none recreates or duplicates anything (AC-6, AC-12).
+func (l *live) syncUntilSettled(t *testing.T) Result {
+	t.Helper()
+	var total Result
+	for run := 1; run <= 4; run++ {
+		res := l.sync(t)
+		total.Created += res.Created
+		total.Updated += res.Updated
+		total.Restored += res.Restored
+		total.Deleted += res.Deleted
+		total.PhonesSet += res.PhonesSet
+		total.Writes += res.Writes
+		if res.Writes == 0 && run > 1 {
+			return total
+		}
+		time.Sleep(15 * time.Second)
+	}
+	t.Fatalf("still writing after 4 runs: %+v", total)
+	return total
 }
 
 func liveMFAClear(t *testing.T, l *live) {
@@ -172,8 +197,8 @@ func liveMFAClear(t *testing.T, l *live) {
 			t.Fatalf("DeletePhoneMethod with the tool server app: %v", err)
 		}
 	}
-	if res := l.sync(t); res.PhonesSet != 1 {
-		t.Errorf("result = %+v, want the mobile restored", res)
+	if total := l.syncUntilSettled(t); total.PhonesSet != 1 {
+		t.Errorf("total over the settling runs = %+v, want the mobile restored once", total)
 	}
 }
 

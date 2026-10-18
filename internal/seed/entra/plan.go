@@ -187,7 +187,14 @@ func indexEntra(s State) entraIndex {
 			idx.unmanaged = append(idx.unmanaged, u)
 		}
 	}
+	liveIDs := map[string]bool{}
+	for _, u := range s.Users {
+		liveIDs[u.ID] = true
+	}
 	for _, u := range s.Deleted {
+		if liveIDs[u.ID] {
+			continue // a user restored moments ago can still be listed as deleted
+		}
 		if u.EmployeeType == graph.ManagedMarker {
 			key := strings.ToLower(u.MailNickname)
 			idx.managedDeleted[key] = append(idx.managedDeleted[key], u)

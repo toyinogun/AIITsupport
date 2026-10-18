@@ -120,7 +120,7 @@ A free Entra test tenant with a subset of users synced, so the hybrid, mid migra
 **Done when:** a subset of users appear in Entra, a few are deliberately left unsynced (the sync gap), and MFA methods can be cleared through the API; or the fallback is taken and recorded in the journal.
 - [x] Design it (spec): `/architect entra tenant & sync`
 - [ ] Build it: `/develop entra tenant & sync`
-  - [ ] Evening one: tenant, both apps, runbook, Graph transport, thin sync for one user, MFA cleared by the tool server app, licence go or no go (AC-1, AC-5, AC-9 to AC-12)
+  - [x] Evening one: tenant, both apps, runbook, Graph transport, thin sync for one user, MFA cleared by the tool server app, licence go or no go (AC-1, AC-5, AC-9 to AC-12)
   - [ ] Evening two: full reconcile with guards, restore, and deletes, demo users, `make noord-reset`, live and hygiene tests (AC-2, AC-3, AC-6 to AC-8, AC-13, AC-15, AC-16)
   - [x] Manager pass, built last and cut first (AC-4)
   - [ ] Oct 21 checkpoint: green, or the fallback taken and journaled (AC-14)
