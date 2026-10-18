@@ -34,6 +34,7 @@ func TestUserByUsernameFence(t *testing.T) {
 	f := graphtest.New(t)
 	f.AddUser(map[string]any{"mailNickname": "eva.peters", "employeeType": graph.ManagedMarker, "userPrincipalName": "eva.peters@t.test"})
 	f.AddUser(map[string]any{"mailNickname": "tenantadmin", "userPrincipalName": "tenantadmin@t.test"})
+	f.AddUser(map[string]any{"mailNickname": "someone_example.com#EXT#", "userPrincipalName": "someone_example.com#EXT#@t.test"})
 	c := fakeClient(t, f)
 
 	u, err := c.UserByUsername(t.Context(), "eva.peters")
@@ -46,6 +47,9 @@ func TestUserByUsernameFence(t *testing.T) {
 
 	if _, err := c.UserByUsername(t.Context(), "tenantadmin"); !errors.Is(err, graph.ErrNotManaged) {
 		t.Errorf("tenantadmin: %v, want ErrNotManaged", err)
+	}
+	if _, err := c.UserByUsername(t.Context(), "someone_example.com#EXT#"); !errors.Is(err, graph.ErrNotManaged) {
+		t.Errorf("guest admin: %v, want ErrNotManaged", err)
 	}
 	if _, err := c.UserByUsername(t.Context(), "made.up"); !errors.Is(err, graph.ErrNotFound) {
 		t.Errorf("made.up: %v, want ErrNotFound", err)
@@ -83,7 +87,7 @@ func TestManagedRejectsAnUnmarkedUser(t *testing.T) {
 func TestAuthMethodsAndDelete(t *testing.T) {
 	f := graphtest.New(t)
 	id := f.AddUser(map[string]any{"mailNickname": "eva.peters", "employeeType": graph.ManagedMarker})
-	f.SetPhones(id, []graphtest.Phone{{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+31 600000014", PhoneType: "mobile"}})
+	f.SetPhones(id, []graphtest.Phone{{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+1 2025550114", PhoneType: "mobile"}})
 	c := fakeClient(t, f)
 	u, err := c.UserByUsername(t.Context(), "eva.peters")
 	if err != nil {
@@ -114,8 +118,8 @@ func TestAuthMethodsAndDelete(t *testing.T) {
 // covers: AC-9, AC-15. Masking never shows more than the last 2 digits.
 func TestMaskPhone(t *testing.T) {
 	cases := map[string]string{
-		"+31 600000014": "+** *******14",
-		"+1 5551234567": "+* ********67",
+		"+1 2025550114": "+* ********14",
+		"+1 2025550167": "+* ********67",
 		"12":            "12",
 		"":              "",
 	}
@@ -125,7 +129,7 @@ func TestMaskPhone(t *testing.T) {
 		}
 	}
 	visible := regexp.MustCompile(`\d`)
-	for _, n := range []string{"+31 612345678", "+44 7700900123", "+316 12345678"} {
+	for _, n := range []string{"+1 2025550198", "+1 2025550123", "+12 025550197"} {
 		if got := len(visible.FindAllString(graph.MaskPhone(n), -1)); got > 2 {
 			t.Errorf("MaskPhone(%q) shows %d digits", n, got)
 		}

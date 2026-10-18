@@ -116,10 +116,29 @@ func ParseDemo(data []byte, m directory.Model) (Demo, error) {
 		seenPhone[fu.MFAPhone] = fu.Username
 		d.Users = append(d.Users, DemoUser{Username: fu.Username, MFAPhone: fu.MFAPhone})
 	}
+	problems = append(problems, clashesWithGenerated(d, m)...)
 	if err := errors.Join(problems...); err != nil {
 		return Demo{}, err
 	}
 	return d, nil
+}
+
+// clashesWithGenerated refuses a demo number that a staff user already gets
+// from the generator, so no two users share a mobile (AC-8).
+func clashesWithGenerated(d Demo, m directory.Model) []error {
+	generated, err := GeneratedPhones(m)
+	if err != nil {
+		return []error{err}
+	}
+	var problems []error
+	for _, du := range d.Users {
+		for name, n := range generated {
+			if name != du.Username && samePhone(n, du.MFAPhone) {
+				problems = append(problems, fmt.Errorf("demo user %s: mfa_phone is the generated number of %s", du.Username, name))
+			}
+		}
+	}
+	return problems
 }
 
 const (

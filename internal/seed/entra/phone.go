@@ -9,13 +9,23 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 )
 
-// generatedPhonePrefix is the fictional range every generated number uses (AC-5).
-const generatedPhonePrefix = "+31 60000"
+// Generated numbers come from the North American 555-0100 to 555-0199
+// range, reserved for fiction, so none ever reaches a real phone (AC-5).
+// Graph validates numbers like Google's libphonenumber and rejects
+// unallocated ranges, which ruled out +31 60 and Ofcom's +44 7700 900
+// (journal 0013); this one it accepts.
+const (
+	generatedPhonePrefix = "+1 20255501"
+	maxGeneratedPhones   = 99
+)
 
-// ExpectedPhones is every staff user's expected mobile number: the demo
-// file's number for demo users, else +31 60000NNNN where NNNN is the user's
-// 1 based position in the bytewise sorted staff usernames (AC-5).
-func ExpectedPhones(m directory.Model, demo Demo) map[string]string {
+// GeneratedPhones is every staff user's generated mobile number:
+// +1 20255501NN, where NN is the user's 1 based position in the bytewise
+// sorted staff usernames, compared as the exact strings in the seed file.
+func GeneratedPhones(m directory.Model) (map[string]string, error) {
+	if len(m.Users) > maxGeneratedPhones {
+		return nil, fmt.Errorf("%d staff users, but the fictional phone range holds only %d numbers", len(m.Users), maxGeneratedPhones)
+	}
 	names := make([]string, 0, len(m.Users))
 	for _, u := range m.Users {
 		names = append(names, u.Username)
@@ -23,12 +33,22 @@ func ExpectedPhones(m directory.Model, demo Demo) map[string]string {
 	slices.Sort(names)
 	out := make(map[string]string, len(names))
 	for i, name := range names {
-		out[name] = fmt.Sprintf("%s%04d", generatedPhonePrefix, i+1)
+		out[name] = fmt.Sprintf("%s%02d", generatedPhonePrefix, i+1)
+	}
+	return out, nil
+}
+
+// ExpectedPhones is every staff user's expected mobile number: the demo
+// file's number for demo users, else the generated one (AC-5).
+func ExpectedPhones(m directory.Model, demo Demo) (map[string]string, error) {
+	out, err := GeneratedPhones(m)
+	if err != nil {
+		return nil, err
 	}
 	for _, d := range demo.Users {
 		out[d.Username] = d.MFAPhone
 	}
-	return out
+	return out, nil
 }
 
 // samePhone compares numbers ignoring spacing, since Graph may store them

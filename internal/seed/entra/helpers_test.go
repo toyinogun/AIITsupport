@@ -63,6 +63,15 @@ type harness struct {
 	logs   *bytes.Buffer
 }
 
+func mustPhones(t *testing.T, m directory.Model, d Demo) map[string]string {
+	t.Helper()
+	phones, err := ExpectedPhones(m, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return phones
+}
+
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	fake := graphtest.New(t)
@@ -86,7 +95,7 @@ func newHarness(t *testing.T) *harness {
 			Logger:   slog.New(slog.NewJSONHandler(io.MultiWriter(logs), &slog.HandlerOptions{Level: slog.LevelDebug})),
 			Password: func(string) string { return RandomPassword() },
 		},
-		opts: Options{Domain: testDomain, Phones: ExpectedPhones(m, Demo{}), DeleteLimit: 10},
+		opts: Options{Domain: testDomain, Phones: mustPhones(t, m, Demo{}), DeleteLimit: 10},
 	}
 }
 

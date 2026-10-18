@@ -88,7 +88,7 @@ func newLive(t *testing.T) *live {
 	return &live{
 		seed: seedClient, tool: toolClient, scope: scope,
 		syncer: Syncer{Client: seedClient, Logger: slog.New(slog.DiscardHandler), Password: func(string) string { return RandomPassword() }},
-		opts:   Options{Domain: cfg.EntraDomain, Phones: ExpectedPhones(m, Demo{}), DeleteLimit: cfg.EntraDeleteLimit},
+		opts:   Options{Domain: cfg.EntraDomain, Phones: mustPhones(t, m, Demo{}), DeleteLimit: cfg.EntraDeleteLimit},
 	}
 }
 
@@ -276,7 +276,7 @@ func TestLiveReadScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadScope: %v", err)
 	}
-	_, err = MakePlan(Inputs{Scope: scope, Domain: testDomain, Phones: ExpectedPhones(m, Demo{}), DeleteLimit: 10})
+	_, err = MakePlan(Inputs{Scope: scope, Domain: testDomain, Phones: mustPhones(t, m, Demo{}), DeleteLimit: 10})
 	if err == nil || !strings.Contains(err.Error(), "OU=Admin Accounts") {
 		t.Errorf("MakePlan = %v, want the scope guard naming the admin account", err)
 	}

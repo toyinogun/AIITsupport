@@ -70,6 +70,10 @@ func runEntraSync(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 
+	phones, err := entra.ExpectedPhones(m, demo)
+	if err != nil {
+		return err
+	}
 	syncer := entra.Syncer{Client: client, Logger: logger, Password: func(username string) string {
 		if demo.IsDemo(username) {
 			return cfg.EntraDemoPassword
@@ -77,7 +81,7 @@ func runEntraSync(ctx context.Context, args []string, out io.Writer) error {
 		return entra.RandomPassword()
 	}}
 	res, err := syncer.Run(ctx, scope, entra.Options{
-		Domain: cfg.EntraDomain, Phones: entra.ExpectedPhones(m, demo),
+		Domain: cfg.EntraDomain, Phones: phones,
 		DeleteLimit: cfg.EntraDeleteLimit, Only: *only,
 	})
 	if err != nil {
@@ -159,23 +163,23 @@ func runEntraMFA(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := printMethods(ctx, client, u, out, "auth methods of "+username); err != nil {
-		return err
-	}
-	if !*clearPhonesFlag {
-		return nil
-	}
-	if err := clearPhones(ctx, client, u, cfg.ClearWait); err != nil {
-		return err
-	}
-	return printMethods(ctx, client, u, out, "after clearing")
-}
-
-func printMethods(ctx context.Context, c *graph.Client, u graph.ManagedUser, out io.Writer, title string) error {
-	methods, err := c.AuthMethods(ctx, u)
+	before, err := client.AuthMethods(ctx, u)
 	if err != nil {
 		return err
 	}
+	printMethods(out, "auth methods of "+username, before)
+	if !*clearPhonesFlag {
+		return nil
+	}
+	after, err := clearPhones(ctx, client, u, cfg.ClearWait, clearPollInterval)
+	if err != nil {
+		return err
+	}
+	printMethods(out, "after clearing", after)
+	return nil
+}
+
+func printMethods(out io.Writer, title string, methods []graph.AuthMethod) {
 	fmt.Fprintf(out, "%s:\n", title)
 	for _, m := range methods {
 		if m.Type == "phone" {
@@ -184,38 +188,60 @@ func printMethods(ctx context.Context, c *graph.Client, u graph.ManagedUser, out
 		}
 		fmt.Fprintf(out, "  %s\n", m.Type)
 	}
-	return nil
 }
 
-// clearPhones deletes every phone method, then polls until none remain.
-func clearPhones(ctx context.Context, c *graph.Client, u graph.ManagedUser, wait time.Duration) error {
+// clearPhones deletes every phone method, then polls until neither Graph
+// list shows a phone, and returns the final method list (AC-9). The two
+// lists settle at different speeds: /phoneMethods empties first, while
+// /methods still shows the phone for a few seconds.
+func clearPhones(ctx context.Context, c *graph.Client, u graph.ManagedUser, wait, interval time.Duration) ([]graph.AuthMethod, error) {
 	phones, err := c.PhoneMethods(ctx, u)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, p := range phones {
 		if err := c.DeletePhoneMethod(ctx, u, p.ID); err != nil {
-			return fmt.Errorf("delete the %s phone method: %w", p.PhoneType, err)
+			return nil, fmt.Errorf("delete the %s phone method: %w", p.PhoneType, err)
 		}
 	}
 	deadline := time.Now().Add(wait)
 	for {
-		left, err := c.PhoneMethods(ctx, u)
+		left, methods, err := phonesLeft(ctx, c, u)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if len(left) == 0 {
-			return nil
+		if left == 0 {
+			return methods, nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%d phone methods still listed after %s (SEED_ENTRA_CLEAR_WAIT)", len(left), wait)
+			return nil, fmt.Errorf("%d phone methods still listed after %s (SEED_ENTRA_CLEAR_WAIT)", left, wait)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(clearPollInterval):
+			return nil, ctx.Err()
+		case <-time.After(interval):
 		}
 	}
+}
+
+// phonesLeft counts the phones either list still shows, and returns the
+// full method list from the same check.
+func phonesLeft(ctx context.Context, c *graph.Client, u graph.ManagedUser) (int, []graph.AuthMethod, error) {
+	phones, err := c.PhoneMethods(ctx, u)
+	if err != nil {
+		return 0, nil, err
+	}
+	methods, err := c.AuthMethods(ctx, u)
+	if err != nil {
+		return 0, nil, err
+	}
+	listed := 0
+	for _, m := range methods {
+		if m.Type == "phone" {
+			listed++
+		}
+	}
+	return max(len(phones), listed), methods, nil
 }
 
 // runEntraDemoPassword sets SEED_ENTRA_DEMO_PASSWORD on one existing demo user.

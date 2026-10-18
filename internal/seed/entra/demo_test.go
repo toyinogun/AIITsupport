@@ -1,6 +1,7 @@
 package entra
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/go-ldap/ldap/v3"
+
+	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 )
 
 const demoExample = "../../../seed/entra/demo.example.yaml"
@@ -19,15 +22,16 @@ func TestParseDemo(t *testing.T) {
 	cases := []struct {
 		name, yaml, wantErr string
 	}{
-		{"valid", `users: [{username: eva.peters, mfa_phone: "+31 612345678"}]`, ""},
+		{"valid", `users: [{username: eva.peters, mfa_phone: "+1 2025550198"}]`, ""},
 		{"empty file", ``, ""},
-		{"unknown user", `users: [{username: no.one, mfa_phone: "+31 612345678"}]`, "not a user in the seed file"},
-		{"not synced", `users: [{username: piotr.nowak, mfa_phone: "+31 612345678"}]`, "synced: false"},
-		{"three users", `users: [{username: eva.peters, mfa_phone: "+31 612345671"}, {username: bas.kramer, mfa_phone: "+31 612345672"}, {username: ilse.smit, mfa_phone: "+31 612345673"}]`, "at most 2"},
-		{"shared number", `users: [{username: eva.peters, mfa_phone: "+31 612345678"}, {username: bas.kramer, mfa_phone: "+31 612345678"}]`, "share an mfa_phone"},
-		{"bad pattern", `users: [{username: eva.peters, mfa_phone: "0612345678"}]`, "6 to 12 digits"},
-		{"listed twice", `users: [{username: eva.peters, mfa_phone: "+31 612345671"}, {username: eva.peters, mfa_phone: "+31 612345672"}]`, "listed twice"},
-		{"unknown field", `users: [{username: eva.peters, mfa_phone: "+31 612345678", mail: x}]`, "decode"},
+		{"unknown user", `users: [{username: no.one, mfa_phone: "+1 2025550198"}]`, "not a user in the seed file"},
+		{"not synced", `users: [{username: piotr.nowak, mfa_phone: "+1 2025550198"}]`, "synced: false"},
+		{"three users", `users: [{username: eva.peters, mfa_phone: "+1 2025550191"}, {username: bas.kramer, mfa_phone: "+1 2025550192"}, {username: ilse.smit, mfa_phone: "+1 2025550193"}]`, "at most 2"},
+		{"shared number", `users: [{username: eva.peters, mfa_phone: "+1 2025550198"}, {username: bas.kramer, mfa_phone: "+1 2025550198"}]`, "share an mfa_phone"},
+		{"bad pattern", `users: [{username: eva.peters, mfa_phone: "2025550199"}]`, "6 to 12 digits"},
+		{"clashes with a generated number", `users: [{username: eva.peters, mfa_phone: "+1 2025550101"}]`, "generated number of"},
+		{"listed twice", `users: [{username: eva.peters, mfa_phone: "+1 2025550191"}, {username: eva.peters, mfa_phone: "+1 2025550192"}]`, "listed twice"},
+		{"unknown field", `users: [{username: eva.peters, mfa_phone: "+1 2025550198", mail: x}]`, "decode"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -41,7 +45,7 @@ func TestParseDemo(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 				t.Fatalf("ParseDemo = %v, want %q", err, c.wantErr)
 			}
-			if strings.Contains(err.Error(), "612345") {
+			if strings.Contains(err.Error(), "2025550") {
 				t.Errorf("error %q echoes a phone number", err)
 			}
 		})
@@ -99,7 +103,7 @@ func TestRandomPassword(t *testing.T) {
 // follow the bytewise sorted username order; demo numbers win.
 func TestExpectedPhones(t *testing.T) {
 	m := loadNoord(t)
-	phones := ExpectedPhones(m, Demo{Users: []DemoUser{{Username: "eva.peters", MFAPhone: "+31 612345678"}}})
+	phones := mustPhones(t, m, Demo{Users: []DemoUser{{Username: "eva.peters", MFAPhone: "+1 2025550198"}}})
 	if len(phones) != len(m.Users) {
 		t.Errorf("%d numbers for %d staff", len(phones), len(m.Users))
 	}
@@ -111,16 +115,19 @@ func TestExpectedPhones(t *testing.T) {
 		names = append(names, u.Username)
 	}
 	slices.Sort(names)
-	if phones[names[0]] != "+31 600000001" {
-		t.Errorf("first sorted user %s = %s, want +31 600000001", names[0], phones[names[0]])
+	if phones[names[0]] != "+1 2025550101" {
+		t.Errorf("first sorted user %s = %s, want +1 2025550101", names[0], phones[names[0]])
 	}
-	generated := regexp.MustCompile(`^\+31 60000\d{4}$`)
+	if last := names[len(names)-1]; phones[last] != fmt.Sprintf("+1 20255501%02d", len(names)) {
+		t.Errorf("last sorted user %s = %s, want position %d", last, phones[last], len(names))
+	}
+	generated := regexp.MustCompile(`^\+1 20255501\d{2}$`)
 	for name, n := range phones {
 		if name != "eva.peters" && !generated.MatchString(n) {
-			t.Errorf("%s = %s, outside +31 60000NNNN", name, n)
+			t.Errorf("%s = %s, outside the drama range", name, n)
 		}
 	}
-	if phones["eva.peters"] != "+31 612345678" {
+	if phones["eva.peters"] != "+1 2025550198" {
 		t.Error("the demo number did not win")
 	}
 }
@@ -143,11 +150,22 @@ func TestEntraHygiene(t *testing.T) {
 	if err != nil {
 		t.Fatalf("demo.example.yaml: %v", err)
 	}
-	fictional := regexp.MustCompile(`^\+31 60000\d{4}$`)
+	fictional := regexp.MustCompile(`^\+1 20255501\d{2}$`)
 	for _, u := range d.Users {
 		if !fictional.MatchString(u.MFAPhone) {
-			t.Errorf("demo.example.yaml: %s has a number outside +31 60000NNNN", u.Username)
+			t.Errorf("demo.example.yaml: %s has a number outside +1 20255501NN", u.Username)
 		}
+	}
+}
+
+// covers: AC-5. More staff than the fictional range holds fails up front.
+func TestGeneratedPhonesRefusesTooManyStaff(t *testing.T) {
+	var m directory.Model
+	for i := range maxGeneratedPhones + 1 {
+		m.Users = append(m.Users, directory.User{Username: fmt.Sprintf("user%04d", i)})
+	}
+	if _, err := GeneratedPhones(m); err == nil {
+		t.Error("GeneratedPhones with 1000 staff: want an error")
 	}
 }
 

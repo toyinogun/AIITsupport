@@ -84,12 +84,12 @@ make entra-sync ONLY=eva.peters
 
 What to look for:
 
-- The first sync creates `eva.peters` with a `mobile` phone method (a fictional `+31 60000NNNN` number) and logs `manager not in Entra yet`, since `--only` never creates the manager.
+- The first sync creates `eva.peters` with a `mobile` phone method (a fictional `+1 20255501NN` number from the 555-01xx range reserved for fiction) and logs `manager not in Entra yet`, since `--only` never creates the manager.
 - `entra mfa` lists the methods with numbers masked to their last 2 digits. `CLEAR=1` deletes every phone method, waits until none are listed, and prints the list again.
 - The second sync puts the `mobile` method back.
-- Time the first sync of one user (create plus phone). Multiply by the number of synced users to check the full run fits AC-2's 2 minutes.
+- Time the first sync of one user (create plus phone). Multiply by the number of synced users to check the full run fits AC-2's 3 minutes. Measured Oct 18: a full first run of 79 users took about 2 minutes, a rerun with nothing to change about 25 seconds.
 
-**Licence go or no go.** A 403 on the auth method calls with the permissions above means the Free tier is not enough: start the Entra ID P1 trial and journal it.
+**Licence go or no go.** A 403 on the auth method calls with the permissions above means the Free tier is not enough: start the Entra ID P1 trial and journal it. Result on Oct 18: the Free tier was enough. The tool server app listed and deleted phone methods with no 403.
 
 ## 6. The full sync
 

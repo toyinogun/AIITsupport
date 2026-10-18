@@ -287,8 +287,8 @@ func TestSyncPhoneConflictThenPatch(t *testing.T) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/phoneMethods") && once.CompareAndSwap(false, true) {
 			id := strings.Split(r.URL.Path, "/")[2]
 			h.fake.SetPhones(id, []graphtest.Phone{
-				{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+31 600009999", PhoneType: "mobile"},
-				{ID: graphtest.PhoneID("office"), PhoneNumber: "+31 200000000", PhoneType: "office"},
+				{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+1 2025550199", PhoneType: "mobile"},
+				{ID: graphtest.PhoneID("office"), PhoneNumber: "+1 2025550198", PhoneType: "office"},
 			})
 			return graphtest.Fault{Status: http.StatusBadRequest, Message: "A phone method of this type already exists."}, true
 		}
@@ -299,7 +299,7 @@ func TestSyncPhoneConflictThenPatch(t *testing.T) {
 	eva := h.mustUser(t, "eva.peters")
 	evaID, _ := eva["id"].(string)
 	phones := h.fake.Phones(evaID)
-	if len(phones) != 2 || phones[0].PhoneNumber != h.opts.Phones["eva.peters"] || phones[1].PhoneNumber != "+31 200000000" {
+	if len(phones) != 2 || phones[0].PhoneNumber != h.opts.Phones["eva.peters"] || phones[1].PhoneNumber != "+1 2025550198" {
 		t.Errorf("phones = %+v, want the mobile fixed and the office number untouched", phones)
 	}
 }
@@ -310,7 +310,7 @@ func TestSyncFixesWrongMobile(t *testing.T) {
 	h.run(t)
 	eva := h.mustUser(t, "eva.peters")
 	evaID, _ := eva["id"].(string)
-	h.fake.SetPhones(evaID, []graphtest.Phone{{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+31 600009999", PhoneType: "mobile"}})
+	h.fake.SetPhones(evaID, []graphtest.Phone{{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+1 2025550199", PhoneType: "mobile"}})
 
 	res := h.run(t)
 	if res.PhonesSet != 1 || res.Writes != 1 {
@@ -325,7 +325,7 @@ func TestSyncFixesWrongMobile(t *testing.T) {
 // rewrites a password.
 func TestSyncDemoPasswordAtCreate(t *testing.T) {
 	h := newHarness(t)
-	demo := Demo{Users: []DemoUser{{Username: "eva.peters", MFAPhone: "+31 600001234"}}}
+	demo := Demo{Users: []DemoUser{{Username: "eva.peters", MFAPhone: "+1 2025550195"}}}
 	const demoPassword = "Kq7!vXz2-Wm9#"
 	h.syncer.Password = func(u string) string {
 		if demo.IsDemo(u) {
@@ -333,7 +333,7 @@ func TestSyncDemoPasswordAtCreate(t *testing.T) {
 		}
 		return RandomPassword()
 	}
-	h.opts.Phones = ExpectedPhones(h.model, demo)
+	h.opts.Phones = mustPhones(t, h.model, demo)
 	h.run(t)
 
 	eva := h.mustUser(t, "eva.peters")
@@ -341,7 +341,7 @@ func TestSyncDemoPasswordAtCreate(t *testing.T) {
 	if pw, _ := h.fake.Password(evaID); pw != demoPassword {
 		t.Error("eva.peters did not get the demo password at create")
 	}
-	if got := h.fake.Phones(evaID); len(got) != 1 || got[0].PhoneNumber != "+31 600001234" {
+	if got := h.fake.Phones(evaID); len(got) != 1 || got[0].PhoneNumber != "+1 2025550195" {
 		t.Errorf("eva.peters phones = %+v, want the demo number", got)
 	}
 	bas := h.mustUser(t, "bas.kramer")
@@ -349,7 +349,7 @@ func TestSyncDemoPasswordAtCreate(t *testing.T) {
 	if pw, _ := h.fake.Password(basID); pw == demoPassword || len(pw) != passwordLen {
 		t.Error("bas.kramer did not get a fresh random password")
 	}
-	if strings.Contains(h.logs.String(), demoPassword) || strings.Contains(h.logs.String(), "+31 600001234") {
+	if strings.Contains(h.logs.String(), demoPassword) || strings.Contains(h.logs.String(), "+1 2025550195") {
 		t.Error("a log line holds the demo password or the demo phone")
 	}
 }
@@ -375,5 +375,19 @@ func TestSyncRetriesNotFoundAfterCreate(t *testing.T) {
 	}
 	if res := h.run(t); res.PhonesSet != 1 {
 		t.Errorf("result = %+v, want the phone set after one retry", res)
+	}
+}
+
+// covers: AC-5. The fake refuses an unallocated range the way Graph did
+// (journal 0013), so a generator regression fails here, not on the tenant.
+func TestSyncRefusesUnallocatedPhoneRange(t *testing.T) {
+	h := newHarness(t)
+	h.opts.Only = "eva.peters"
+	for _, bad := range []string{"+31 600000014", "+44 7700900014"} {
+		h.opts.Phones = map[string]string{"eva.peters": bad}
+		_, err := h.syncer.Run(t.Context(), h.scope, h.opts)
+		if err == nil || !strings.Contains(err.Error(), "invalidPhoneNumber") {
+			t.Errorf("Run with %s = %v, want Graph's invalidPhoneNumber", bad, err)
+		}
 	}
 }

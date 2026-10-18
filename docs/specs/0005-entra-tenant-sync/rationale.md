@@ -70,6 +70,28 @@ Calls made at write time:
 - **Secret lifetime 6 months**: under Microsoft's recommended 12, past the engagement end.
 - **Package split**: user writes stay in `internal/seed/entra`, so even the code the tool server imports has no user create or delete calls.
 
+## Update (Oct 18, 2026): the fictional phone range
+
+The first real sync created a user, then Graph refused its phone with `400 invalidPhoneNumber`: "formatted properly, but is an invalid phone number" (journal 0013). Graph checks that a number could exist, and `+31 60` is not an allocated Dutch mobile range (Dutch mobiles start `+31 61` to `+31 65` or `+31 68`). The fake Graph in the unit tests stored any number, so they never caught it.
+
+Options weighed:
+
+- **Ofcom's drama range, `+44 7700 900000` to `900999` (chosen).** The UK regulator reserves these numbers for fiction, so they can never reach a real person, which keeps AC-15's "fictional only" promise. They were expected to pass as UK mobiles, but they did not; see the second update below. 1,000 numbers is plenty for 85 staff. The cost is cosmetic: Dutch staff with UK numbers.
+- A real but unused looking Dutch range such as `+31 61...`: valid to Graph, but those numbers belong to real subscribers, and an SMS sign in could text a stranger. Rejected under AC-15.
+- Seeding no phone for non demo users: breaks AC-5 and the MFA tickets that need a phone to clear. Rejected.
+
+The engineer chose the drama range. The format keeps the one space shape the demo file already validates (`+44 7700900NNN`), with a 3 digit position instead of 4.
+
+### Third update (Oct 18, 2026): the AC-2 time limit
+
+The first full run on the real tenant took 119,018 ms: 78 creates, 78 phones, and 78 manager links (234 writes), one call at a time. A read only rerun took 24,926 ms, so the writes cost about 0.4 s each, which is normal Graph latency rather than retries. That passes a 2 minute limit by about a second, so a slower day would fail it at random. The engineer raised the limit to 3 minutes, as AC-2 allows, instead of adding concurrency the spec ruled out.
+
+### Second update (Oct 18, 2026): the drama range failed too
+
+The rerun with `+44 7700900017` got the same `400 invalidPhoneNumber`. A check with Google's libphonenumber (the `phonenumbers` Python port, 9.0.41) explains both failures: it marks `+31 600000017` and `+44 7700900017` invalid, because neither range is allocated to a carrier. Ranges reserved for fiction are, by design, mostly unallocated, so libphonenumber style validation rejects most of them. The same check marked these valid: `+1 2025550117` (the North American 555-0100 to 555-0199 range, reserved for fiction), `+61 491570017` (Australia reserves only a few scattered drama numbers, too few for 85 staff), and `+46 701740617` (a Swedish reservation that could not be confirmed).
+
+A live probe then set `+1 2025550117` on `eva.peters` through the seed app, and Graph accepted it (`phones_set: 1`). Chosen: `+1 20255501NN` with a 2 digit position, which holds 99 staff (Noord has 85). Lesson for the spec: check a fictional range against the real validator before writing it into acceptance criteria.
+
 ## Cross check (Oct 18, 2026)
 
 An independent read only review on a different model found 12 gaps, all applied with your approval: the demo users moved out of the 0004 overlay into their own file (the overlay requires `mail` and its hash is the directory marker); the reads behind "zero writes" (`$expand=manager`, `deletedItems` with `$select`, phone GETs) and the compare rules are now named; phone writes are read then PATCH or POST; the tool server app was narrowed to phone only writes, because `UserAuthenticationMethod.ReadWrite.All` would let it issue a Temporary Access Pass (a takeover path); the password generator forces character classes and the demo password is validated; `--only`, per request timeouts, serial calls, create conflicts, duplicate nicknames, and the manager skip log are defined; the checkpoint covers AC-1 to AC-16; and the manager pass moved last, as the first cut.

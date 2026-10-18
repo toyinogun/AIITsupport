@@ -30,11 +30,25 @@ var phoneIDs = map[string]string{
 
 const passwordMethodID = "28c10230-6103-485e-b985-444c60001490" //nolint:gosec // G101: Graph's fixed method id, not a secret
 
+// validPhone mirrors the Graph rule the sync has met: a number in an
+// unallocated range is refused as invalid. Both ranges Graph rejected live
+// are listed (journal 0013).
+func validPhone(n string) bool {
+	n = strings.ReplaceAll(n, " ", "")
+	return !strings.HasPrefix(n, "+3160") && !strings.HasPrefix(n, "+447700900")
+}
+
 // Phone is a stored phone method.
 type Phone struct {
 	ID          string `json:"id"`
 	PhoneNumber string `json:"phoneNumber"`
 	PhoneType   string `json:"phoneType"`
+}
+
+// ghost is a deleted phone /methods still lists for a few more reads.
+type ghost struct {
+	phone Phone
+	reads int
 }
 
 // Fault is an injected answer for one request.
@@ -52,6 +66,10 @@ type Fake struct {
 	PageSize int
 	// DeletedHoldUPN makes a create clash with a user in the recycle bin.
 	DeletedHoldUPN bool
+	// StaleMethodReads is how many GET .../authentication/methods calls
+	// still list a phone method after it is deleted, as Graph's /methods
+	// lags /phoneMethods for a few seconds.
+	StaleMethodReads int
 	// Intercept, when set, may answer a request instead of the fake (return
 	// ok false to let it through). It runs before anything is changed.
 	Intercept func(r *http.Request) (Fault, bool)
@@ -62,6 +80,7 @@ type Fake struct {
 	deleted  map[string]map[string]any
 	managers map[string]string
 	phones   map[string][]Phone
+	ghosts   map[string][]ghost
 	writes   int
 	requests []string
 }
@@ -75,6 +94,7 @@ func New(t testing.TB) *Fake {
 		deleted:  map[string]map[string]any{},
 		managers: map[string]string{},
 		phones:   map[string][]Phone{},
+		ghosts:   map[string][]ghost{},
 	}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Server.Close)
@@ -420,7 +440,16 @@ func (f *Fake) methods(r *http.Request, id string, rest []string) (int, any) {
 	switch {
 	case len(rest) == 1 && rest[0] == "methods" && r.Method == http.MethodGet:
 		out := []map[string]any{{"@odata.type": "#microsoft.graph.passwordAuthenticationMethod", "id": passwordMethodID}}
-		for _, p := range f.phones[id] {
+		listed := slices.Clone(f.phones[id])
+		var keep []ghost
+		for _, g := range f.ghosts[id] {
+			listed = append(listed, g.phone)
+			if g.reads > 1 {
+				keep = append(keep, ghost{phone: g.phone, reads: g.reads - 1})
+			}
+		}
+		f.ghosts[id] = keep
+		for _, p := range listed {
 			out = append(out, map[string]any{
 				"@odata.type": "#microsoft.graph.phoneAuthenticationMethod",
 				"id":          p.ID, "phoneNumber": p.PhoneNumber, "phoneType": p.PhoneType,
@@ -443,6 +472,9 @@ func (f *Fake) phoneCollection(r *http.Request, id string) (int, any) {
 		var p Phone
 		if err := json.NewDecoder(r.Body).Decode(&p); err != nil || phoneIDs[p.PhoneType] == "" {
 			return fail(http.StatusBadRequest, "Request_BadRequest", "bad phone method")
+		}
+		if !validPhone(p.PhoneNumber) {
+			return fail(http.StatusBadRequest, "invalidPhoneNumber", "The provided phone number is formatted properly, but is an invalid phone number.")
 		}
 		for _, have := range f.phones[id] {
 			if have.PhoneType == p.PhoneType {
@@ -467,9 +499,15 @@ func (f *Fake) phoneMethod(r *http.Request, id, methodID string) (int, any) {
 		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 			return fail(http.StatusBadRequest, "Request_BadRequest", "bad phone method")
 		}
+		if !validPhone(p.PhoneNumber) {
+			return fail(http.StatusBadRequest, "invalidPhoneNumber", "The provided phone number is formatted properly, but is an invalid phone number.")
+		}
 		f.phones[id][i].PhoneNumber = p.PhoneNumber
 		return http.StatusNoContent, nil
 	case http.MethodDelete:
+		if f.StaleMethodReads > 0 {
+			f.ghosts[id] = append(f.ghosts[id], ghost{phone: f.phones[id][i], reads: f.StaleMethodReads})
+		}
 		f.phones[id] = slices.Delete(f.phones[id], i, i+1)
 		return http.StatusNoContent, nil
 	}

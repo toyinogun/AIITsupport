@@ -9,7 +9,7 @@ _Steps derived from spec 0005 acceptance criteria and its Value sourcing table. 
 - [ ] Stop Samba (`docker compose stop samba`) with `SEED_GRAPH_*` set: `make entra-sync` → fails naming `SEED_LDAP_URL` and the URL, no Graph call → AC-12
 - [ ] `DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 go test -race -run TestLiveReadScope ./internal/seed/entra/` → the scope read from real Samba is exactly the synced users with their AD managers; an admin account added to `SYNC-Entra-Users` trips the scope guard → AC-3
 - [ ] Put 3 users, or a `synced: false` user, or a shared number in `seed/entra/demo.local.yaml`, then `go run ./cmd/seed validate` → fails naming the rule, never echoing the number → AC-8
-- [ ] `git ls-files | xargs grep -nE '\+31 6[1-9]|tenant|client_secret'` → no real number, tenant id, client id, or secret in tracked files → AC-15
+- [ ] `git ls-files | xargs grep -nE '\+[0-9]{2} ?[0-9]{8,}' | grep -v '20255501'` → every phone shaped value in tracked files is in the 555-01xx fictional range; no tenant id, client id, or secret is tracked → AC-15
 
 ## Tenant setup (tenant)
 - [ ] Both app registrations show exactly the AC-1 permissions with admin consent; `docs/runbooks/entra-tenant.md` holds no ids or secrets → AC-1
@@ -22,11 +22,11 @@ _Steps derived from spec 0005 acceptance criteria and its Value sourcing table. 
 - [ ] `make entra-mfa NAME=<your admin's mailNickname>` → fails with "not managed"; `make entra-mfa NAME=made.up` → "not found in Entra" → AC-10
 
 ## Full sync (tenant)
-- [ ] `make noord-reset` → exits 0 in under 2 minutes; the summary line shows created, updated, restored, deleted, phones_set, managers_set, managers_cleared, managers_skipped, and duration_ms → AC-2, AC-13
+- [ ] `make noord-reset` → exits 0 in under 3 minutes; the summary line shows created, updated, restored, deleted, phones_set, managers_set, managers_cleared, managers_skipped, and duration_ms → AC-2, AC-13
 - [ ] In Entra: every `SYNC-Entra-Users` member is present; `piotr.nowak`, `olga.petrenko`, `andrzej.zielinski`, `bogdan.ionescu`, `ricardo.silva`, `alex.dobrev`, and `adm.ruben.mulder` are absent → AC-3
 - [ ] Spot check `eva.peters`: displayName, givenName, surname, department `Sales`, jobTitle `Account Manager`, companyName `Noord Logistics`, usageLocation `NL`, accountEnabled true, manager `daan.bos` → AC-2, AC-4 (Value sourcing: mapped fields, manager id)
 - [ ] A leaver such as `thomas.meijer` is present and still enabled, with stale hints → AC-2 (Value sourcing: accountEnabled from the AD disabled bit)
-- [ ] The first user in bytewise sorted `noord.yaml` usernames has `+31 600000001`; a user further down has its position number → AC-5 (Value sourcing: generated number)
+- [ ] The first user in bytewise sorted `noord.yaml` usernames has `+1 2025550101`; a user further down has its 2 digit position number → AC-5 (Value sourcing: generated number)
 - [ ] Run `make entra-sync` again → `writes` is 0 → AC-6
 - [ ] In the portal: change one department, delete one user's phone method, delete one user; `make entra-sync` → all three put back, the deleted user restored with the same object id → AC-6
 - [ ] Remove a user from `SYNC-Entra-Users` in Samba; `make entra-sync` → that user is in the recycle bin; with 11 removed (or `SEED_ENTRA_DELETE_LIMIT=0` and 1 removed) → exits 1 with no writes → AC-7

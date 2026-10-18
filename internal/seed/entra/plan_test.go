@@ -39,10 +39,10 @@ func TestMakePlanOrderAndNoop(t *testing.T) {
 		Entra: State{
 			Users:   []graph.User{bossU, keptU, stale},
 			Deleted: []graph.DeletedUser{{ID: "id-back", MailNickname: "back", EmployeeType: graph.ManagedMarker}},
-			Phones:  map[string][]graph.PhoneMethod{"id-boss": phone("boss", "+31 600000001"), "id-kept": phone("kept", "+31 600000002")},
+			Phones:  map[string][]graph.PhoneMethod{"id-boss": phone("boss", "+1 2025550101"), "id-kept": phone("kept", "+1 2025550102")},
 		},
 		Domain:      testDomain,
-		Phones:      map[string]string{"boss": "+31 600000001", "kept": "+31 600000002", "fresh": "+31 600000003", "back": "+31 600000004"},
+		Phones:      map[string]string{"boss": "+1 2025550101", "kept": "+1 2025550102", "fresh": "+1 2025550103", "back": "+1 2025550104"},
 		DeleteLimit: 10,
 	}
 	p, err := MakePlan(in)

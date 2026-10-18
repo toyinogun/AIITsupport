@@ -73,9 +73,11 @@ func Managed(u User) (ManagedUser, error) {
 	return ManagedUser{user: u}, nil
 }
 
-// usernamePattern is the sAMAccountName shape Noord uses; anything else is
-// refused before it reaches a $filter.
-var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+// usernamePattern is the sAMAccountName shape Noord uses, plus "#" so a
+// guest admin's nickname (name_example.com#EXT#) reaches the fence and is
+// refused as not managed (AC-10). Anything else is refused before it
+// reaches a $filter.
+var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._#-]{0,63}$`)
 
 // UserByUsername finds a user by mailNickname, the sync's anchor, and fences
 // it: ErrNotFound for none, ErrNotManaged for a user without the marker.
