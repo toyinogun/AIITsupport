@@ -45,7 +45,7 @@ _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `
 - [x] With both Slack tokens in `.env`, run `make dev` and DM the bot "hello" → one threaded holding reply within 5 seconds (record the time here); the agent log has one `slack_event_received` line with event id, channel id, and event type, and no message text → AC-12 (2026-10-18: `slack_connected` on the first attempt; reply 0.5 s after the message by Slack's own timestamps; one `message.im` log line, no text)
 - [x] Mention the bot in `#it-help` → it answers in that message's thread; edit the message → no new reply → AC-12 (2026-10-18: one threaded reply, shown within 5 s; one `app_mention` log line; after the edit still 1 reply and no new log line. The exact gap is not readable: the bot has no `channels:history` scope, by design)
 - [x] DM the bot a message that also mentions it → exactly one reply → AC-12 (2026-10-18: one reply 0.4 s later, one `message.im` log line)
-- [ ] Open `http://127.0.0.1:58080/#login` signed out → no "Register as a new customer" link and no "Forgot password" link → AC-17
+- [x] Open `http://127.0.0.1:58080/#login` signed out → no "Register as a new customer" link and no "Forgot password" link → AC-17
 
 ### Commands
 - [x] `make helpdesk-reset` → logs `helpdesk seeded` with users 85, tickets 20, categories 6, answers 15 → AC-1, AC-3, AC-4
@@ -61,7 +61,7 @@ _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `
 - [x] Run the agent with both Slack tokens unset → logs `slack_disabled`, `curl 127.0.0.1:<AGENT_HTTP_ADDR port>/healthz` → 200 → AC-13
 - [x] Revoke the app level token, start the agent → exits 1 naming `SLACK_APP_TOKEN` → AC-13
 - [x] `make check` → passes (unit tests with no network, including the user write guard and the fiction check) → AC-6, AC-15, AC-16
-- [ ] `set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -count=1 -run LiveSideDoors ./internal/seed/helpdesk/` after a reset → passes: both settings false, an anonymous signup and a password reset for `eva.peters` each get 422, no new user, no new reset token → AC-17
+- [x] `set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -count=1 -run LiveSideDoors ./internal/seed/helpdesk/` after a reset → passes: both settings false, an anonymous signup and a password reset for `eva.peters` each get 422, no new user, no new reset token → AC-17
 
 ### Value sourcing
 - [x] Pending reminder: hd-019's `pending_time` is the reset time plus 30 days, not a file date → Seed, pending reminder
@@ -79,3 +79,12 @@ _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `
 Every step above ran in this pass, from a fresh `make helpdesk-reset` (seeded in 103 s after Zammad was healthy). Highlights: five wrong passwords at the Zammad web login locked `eva.peters` in AD and Zammad then refused her right password; the public portal lists all 15 answers (7, 2, 3, 1, 1, 1 by category); a KB search for SecureLink finds the retired article; the pending reminder is the reset time plus 30 days; Slack DMs got their threaded reply in 0.57 s and 0.52 s, an `#it-help` mention got one, an edit got none, and the reply text equals the constant; the bot holds exactly the five manifest scopes and sits in the private `#it-escalations`; a bogus app token ends the agent naming `SLACK_APP_TOKEN`; `make check` passes.
 
 Side effect: the hand made ticket #40023 ("Verify test: cannot open the shared drive", Eva) now sits in Zammad, so `TestLiveContentMatchesFiles` fails until the next `make helpdesk-reset`.
+
+## /check verify run · 2026-10-18 (AC-17) · PASS
+
+This run covers the change since the run above (commit 204d176: the two settings in `bootstrap.rb`, `report.rb`, the live test), on the Zammad from the `make helpdesk-reset` done for that build. `make helpdesk-seed` says "already seeded", `seed validate` passes, and all five `TEST_ZAMMAD=1` live tests pass, `TestLiveSideDoorsClosed` included (signup and password reset both 422 "This feature is not enabled.").
+
+Beyond the spec's checks, the other doors are shut too. Zammad's GraphQL `userSignup` and `userPasswordResetSend` mutations (used by its newer UI) both answer "This feature is not enabled.", with no user and no reset token made. The classic login (`/#login`), the desktop login (`/desktop/login`), and the mobile login (`/mobile/login`) show no signup and no reset link. Opening `/#signup`, `/#password_reset`, or `/desktop/reset-password` directly lands back on the login page.
+
+Not run again here, because nothing they touch changed since the run above: the Slack steps by hand and the agent token steps. As a smoke check, the agent started with both Slack tokens logged `slack_connected` and `/healthz` answered 200.
+
