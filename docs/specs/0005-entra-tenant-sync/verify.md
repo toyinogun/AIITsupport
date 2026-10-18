@@ -13,7 +13,7 @@ _Steps derived from spec 0005 acceptance criteria and its Value sourcing table. 
 
 ## Tenant setup (tenant)
 - [ ] Both app registrations show exactly the AC-1 permissions with admin consent; `docs/runbooks/entra-tenant.md` holds no ids or secrets → AC-1
-- [ ] Security defaults off; your admin account signs in with your Microsoft account's two step verification; per user MFA shows Enabled on each demo user, and SMS in the authentication methods policy targets only the demo users group → AC-1, AC-8
+- [ ] Security defaults off; your admin account signs in with your Microsoft account's two step verification; per user MFA shows Enabled on each demo user → AC-1, AC-8
 
 ## Thin thread (tenant)
 - [ ] `make directory-reset && make entra-sync ONLY=eva.peters` → `eva.peters` exists in Entra with `employeeType` `noord-sync`, UPN `eva.peters@<SEED_ENTRA_DOMAIN>`, and one `mobile` method; the log says `manager not in Entra yet` → AC-5, AC-4

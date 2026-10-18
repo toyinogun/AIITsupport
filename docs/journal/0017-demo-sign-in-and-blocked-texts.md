@@ -15,7 +15,7 @@ TODO (you): what did you first think it was?
 2. `399287` is not in Microsoft's documented error list. Microsoft staff on Q&A tie it to telephony fraud protection: a "bad reputation" block on texts for the user, the number, or the tenant, which no admin setting lifts. A brand new free tenant sending its first texts fits. Not confirmed by Microsoft for this tenant.
 
 ## How I fixed it
-Security defaults off, per user MFA on the demo user, SMS enabled in the authentication methods policy (for the demo users only, not for sign in). For the second factor, cleared the user's phone with `make entra-mfa CLEAR=1`, signed in, registered a code app at the "More information required" prompt, then `make entra-sync` put the seeded mobile back. The demo sign in now always asks for an app code. Spec 0005 updated (AC-1, AC-8, Security model with the accepted risk, rationale sixth update). Not committed yet.
+Security defaults off, per user MFA on the demo user, SMS enabled in the authentication methods policy (not for sign in; scoping it to a group was dropped once the portal announced Microsoft retires its SMS and voice delivery on Feb 1, 2027). For the second factor, cleared the user's phone with `make entra-mfa CLEAR=1`, signed in, registered a code app at the "More information required" prompt, then `make entra-sync` put the seeded mobile back. The demo sign in now always asks for an app code. Spec 0005 updated (AC-1, AC-8, Security model with the accepted risk, rationale sixth update). Not committed yet.
 
 ## What I would tell a team doing this for real
 (draft) "MFA is on" and "this sign in asks for MFA" are different things; and do not build a demo on SMS from a new tenant.

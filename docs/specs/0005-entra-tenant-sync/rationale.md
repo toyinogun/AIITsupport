@@ -82,6 +82,10 @@ Options weighed:
 
 The engineer chose the drama range. The format keeps the one space shape the demo file already validates (`+44 7700900NNN`), with a 3 digit position instead of 4.
 
+### Seventh update (Oct 18, 2026): Microsoft retires its SMS and voice delivery
+
+The portal announced, and Microsoft Learn confirms (page updated Sep 23, 2026), that Microsoft stops delivering SMS and voice MFA on Feb 1, 2027 (Jul 1, 2027 for Global Administrators and external users) and has made passkeys the default since Sep 1, 2026. It does not retire phone methods or the Graph `phoneMethods` API. Two consequences: the cross check's "SMS only for a demo users group" control was dropped (texts are blocked here and retiring), and #14's "clear MFA" gets a dated reason to cover passkeys and authenticator apps (Follow-up). The page does not mention error 399287, so the block is not attributed to the retirement.
+
 ### Sixth update (Oct 18, 2026): how the demo sign in reaches MFA
 
 The first demo sign in went straight in with no second step: security defaults only challenge ordinary users when a sign in looks risky. Options weighed: per user MFA on the demo users (free, permanent, needs security defaults off; chosen), the P1 trial with a Conditional Access policy (realistic, but the trial ends around Nov 17 and the policy with it), or recording "no MFA step" and skipping it in the video. With per user MFA on and SMS enabled in the authentication methods policy, the sign in reached "Verify your identity" offering a text to the seeded number, but Microsoft refused to send it (error 399287, which Microsoft staff on Q&A tie to telephony fraud protection, a "bad reputation" block that no admin setting lifts). The engineer chose to register an authenticator app on the demo user instead (journal 0017). AC-1 also now records the Default Directory as Noord's tenant (journal 0012).

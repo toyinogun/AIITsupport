@@ -113,11 +113,12 @@ Users without the marker, your own admin account included, are never edited, res
 3. Run `make noord-reset`. New demo users get the password at create. A demo user that already exists keeps its old password, because the seed app has no right to reset passwords (spec 0005). Reset it yourself: in the Entra admin center, **Users**, the user, **Reset password**. Microsoft shows a temporary password; at the first sign in you are asked for a new one, and you choose the demo password.
 4. Make each demo user ask for MFA on every sign in. These steps are manual, once per demo user, and they survive `make noord-reset` (only deleting the user from Entra loses them):
    - **Users**, **All users**, **Per-user multifactor authentication** (under **...** in the toolbar), tick the user, **Enable MFA**.
-   - Create a cloud security group `Noord demo users` (**Groups**, **New group**) and add the demo users to it.
-   - **Authentication methods**, **Policies**, **SMS**: enable it, target the `Noord demo users` group only, and leave **Use for sign-in** unticked.
+   - **Authentication methods**, **Policies**, **SMS**: enable it for all users and leave **Use for sign-in** unticked. Microsoft blocks texts on this tenant and retires its own SMS and voice delivery on Feb 1, 2027, so it is not worth scoping further.
 5. Register an authenticator app on the demo user. Microsoft blocks texts on this tenant (error 399287, journal 0017), so a code app is the second factor that works: run `make entra-mfa NAME=<username> CLEAR=1`, sign in as the user in a private window, follow **More information required**, and add Microsoft Authenticator or another code app. Then `make entra-sync` puts the seeded mobile back.
 6. Sign in as that user at `myaccount.microsoft.com` in a private window. You should get **Verify your identity**, and a code from the app signs you in. That is AC-8's pass condition.
-7. When a user leaves the demo file, undo step 4 for it (disable per user MFA, remove it from the group).
+7. When a user leaves the demo file, disable per user MFA for it.
+
+**SMS is retiring.** Microsoft stops delivering SMS and voice MFA on Feb 1, 2027 and has nudged SMS users toward passkeys since Sep 1, 2026. The demo users may see a "register a passkey" prompt after MFA; you can skip it. Spec 0005's Follow-up records what this means for feature #14.
 
 Every other user gets a random 32 character password at create that nobody ever sees.
 
