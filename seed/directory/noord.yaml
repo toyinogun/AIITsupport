@@ -1,0 +1,231 @@
+# Noord Logistics B.V. directory seed (spec 0004). Every person here is
+# fictional. `make directory-reset` rebuilds the directory from this file.
+#
+# The mess is on purpose: 5 leavers still enabled (left: is the truth, never
+# written to AD), two Jan de Vries, Sanne Jansen and Sanne Janssen, three
+# names for "finance", groups nobody owns, a share owned by a leaver, and a
+# privileged group the agent must never touch.
+version: 1
+mail_domain: noord.example
+departments: [Finance, Sales, Customer Service, HR, IT, Management, Warehouse, Transport]
+
+users:
+  # Management (4)
+  - {username: annemiek.bakker, given_name: Annemiek, surname: Bakker, department: Management, title: Managing Director, manager: null}
+  - {username: pieter.vandam, given_name: Pieter, surname: van Dam, department: Management, title: Operations Director, manager: annemiek.bakker}
+  - {username: floor.dewit, given_name: Floor, surname: de Wit, department: Management, title: Commercial Director, manager: annemiek.bakker}
+  - {username: linda.bosman, given_name: Linda, surname: Bosman, department: Management, title: Office Manager, manager: annemiek.bakker}
+
+  # Finance (6, plus 1 leaver)
+  - {username: ilse.smit, given_name: Ilse, surname: Smit, department: Finance, title: Finance Manager, manager: annemiek.bakker}
+  - {username: jan.devries2, given_name: Jan, surname: de Vries, department: Finance, title: Accounts Payable, manager: ilse.smit, locked: true}
+  - {username: marloes.vanleeuwen, given_name: Marloes, surname: van Leeuwen, department: Finance, title: Accounts Receivable, manager: ilse.smit}
+  - {username: bas.kramer, given_name: Bas, surname: Kramer, department: Finance, title: Controller, manager: ilse.smit}
+  - {username: noor.elamrani, given_name: Noor, surname: El Amrani, department: Finance, title: Payroll Administrator, manager: ilse.smit}
+  - {username: wouter.hoekstra, given_name: Wouter, surname: Hoekstra, department: Finance, title: Credit Controller, manager: ilse.smit}
+  - {username: thomas.meijer, given_name: Thomas, surname: Meijer, department: Finance, title: Accounts Receivable (temp), manager: ilse.smit, description: contract ended, left: 2026-06-30}
+
+  # Sales (6, plus 2 leavers: the old sales manager and one of his reports)
+  - {username: daan.bos, given_name: Daan, surname: Bos, department: Sales, title: Sales Manager, manager: floor.dewit}
+  - {username: eva.peters, given_name: Eva, surname: Peters, department: Sales, title: Account Manager, manager: daan.bos}
+  - {username: milan.vanderberg, given_name: Milan, surname: van der Berg, department: Sales, title: Account Manager, manager: daan.bos}
+  - {username: sophie.koster, given_name: Sophie, surname: Koster, department: Sales, title: Sales Support, manager: daan.bos}
+  - {username: lars.brouwer, given_name: Lars, surname: Brouwer, department: Sales, title: Business Developer, manager: daan.bos}
+  - {username: fleur.dijkstra, given_name: Fleur, surname: Dijkstra, department: Sales, title: Sales Support, manager: daan.bos}
+  - {username: mark.dekker, given_name: Mark, surname: Dekker, department: Sales, title: Sales Manager, manager: floor.dewit, left: 2026-03-31}
+  - {username: lotte.hendriks, given_name: Lotte, surname: Hendriks, department: Sales, title: Account Manager, manager: mark.dekker, left: 2026-05-15}
+
+  # Customer Service (7)
+  - {username: esther.vermeulen, given_name: Esther, surname: Vermeulen, department: Customer Service, title: Customer Service Lead, manager: pieter.vandam}
+  - {username: sanne.jansen, given_name: Sanne, surname: Jansen, department: Customer Service, title: Customer Service Agent, manager: esther.vermeulen}
+  - {username: rick.vandenbroek, given_name: Rick, surname: van den Broek, department: Customer Service, title: Customer Service Agent, manager: esther.vermeulen}
+  - {username: yara.schouten, given_name: Yara, surname: Schouten, department: Customer Service, title: Customer Service Agent, manager: esther.vermeulen, locked: true}
+  - {username: tim.vos, given_name: Tim, surname: Vos, department: Customer Service, title: Customs Documentation, manager: esther.vermeulen}
+  - {username: iris.molenaar, given_name: Iris, surname: Molenaar, department: Customer Service, title: Customer Service Agent, manager: esther.vermeulen}
+  - {username: jeroen.prins, given_name: Jeroen, surname: Prins, department: Customer Service, title: Customs Documentation, manager: esther.vermeulen}
+
+  # HR (3)
+  - {username: monique.vandijk, given_name: Monique, surname: van Dijk, department: HR, title: HR Manager, manager: annemiek.bakker}
+  - {username: kim.verhoeven, given_name: Kim, surname: Verhoeven, department: HR, title: HR Advisor, manager: monique.vandijk}
+  - {username: anouk.kok, given_name: Anouk, surname: Kok, department: HR, title: HR Assistant, manager: monique.vandijk}
+
+  # IT (1, the overloaded IT person)
+  - {username: ruben.mulder, given_name: Ruben, surname: Mulder, department: IT, title: IT Coordinator, manager: pieter.vandam}
+
+  # Warehouse (28, plus 1 leaver)
+  - {username: hans.groen, given_name: Hans, surname: Groen, department: Warehouse, title: Warehouse Manager, manager: pieter.vandam}
+  - {username: erik.dejong, given_name: Erik, surname: de Jong, department: Warehouse, title: Shift Lead, manager: hans.groen}
+  - {username: martijn.huisman, given_name: Martijn, surname: Huisman, department: Warehouse, title: Shift Lead, manager: hans.groen}
+  - {username: sandra.veenstra, given_name: Sandra, surname: Veenstra, department: Warehouse, title: Shift Lead, manager: hans.groen}
+  - {username: sanne.janssen, given_name: Sanne, surname: Janssen, department: Warehouse, title: Inventory Clerk, manager: erik.dejong}
+  - {username: kevin.smits, given_name: Kevin, surname: Smits, department: Warehouse, title: Forklift Driver, manager: erik.dejong, locked: true}
+  - {username: dennis.post, given_name: Dennis, surname: Post, department: Warehouse, title: Warehouse Operative, manager: erik.dejong}
+  - {username: mohamed.bouzid, given_name: Mohamed, surname: Bouzid, department: Warehouse, title: Reach Truck Operator, manager: erik.dejong}
+  - {username: piotr.nowak, given_name: Piotr, surname: Nowak, department: Warehouse, title: Warehouse Operative, manager: erik.dejong, synced: false}
+  - {username: marta.kowalska, given_name: Marta, surname: Kowalska, department: Warehouse, title: Warehouse Operative, manager: erik.dejong}
+  - {username: tomasz.wisniewski, given_name: Tomasz, surname: Wisniewski, department: Warehouse, title: Forklift Driver, manager: erik.dejong}
+  - {username: bram.vandenberg, given_name: Bram, surname: van den Berg, department: Warehouse, title: Warehouse Operative, manager: erik.dejong}
+  - {username: stefan.wouters, given_name: Stefan, surname: Wouters, department: Warehouse, title: Inventory Clerk, manager: martijn.huisman}
+  - {username: nina.hermans, given_name: Nina, surname: Hermans, department: Warehouse, title: Warehouse Operative, manager: martijn.huisman}
+  - {username: youssef.elhadi, given_name: Youssef, surname: El Hadi, department: Warehouse, title: Forklift Driver, manager: martijn.huisman}
+  - {username: gerrit.mol, given_name: Gerrit, surname: Mol, department: Warehouse, title: Warehouse Operative, manager: martijn.huisman}
+  - {username: robin.kuipers, given_name: Robin, surname: Kuipers, department: Warehouse, title: Reach Truck Operator, manager: martijn.huisman}
+  - {username: ahmet.yilmaz, given_name: Ahmet, surname: Yilmaz, department: Warehouse, title: Warehouse Operative, manager: martijn.huisman}
+  - {username: jasper.vink, given_name: Jasper, surname: Vink, department: Warehouse, title: Warehouse Operative, manager: martijn.huisman}
+  - {username: olga.petrenko, given_name: Olga, surname: Petrenko, department: Warehouse, title: Warehouse Operative, manager: martijn.huisman, synced: false}
+  - {username: niels.vandermeer, given_name: Niels, surname: van der Meer, department: Warehouse, title: Forklift Driver, manager: sandra.veenstra}
+  - {username: tamara.bosch, given_name: Tamara, surname: Bosch, department: Warehouse, title: Inventory Clerk, manager: sandra.veenstra}
+  - {username: mehmet.demir, given_name: Mehmet, surname: Demir, department: Warehouse, title: Warehouse Operative, manager: sandra.veenstra}
+  - {username: rob.zwart, given_name: Rob, surname: Zwart, department: Warehouse, title: Warehouse Operative, manager: sandra.veenstra}
+  - {username: ferry.lammers, given_name: Ferry, surname: Lammers, department: Warehouse, title: Reach Truck Operator, manager: sandra.veenstra}
+  - {username: lisa.vanbeek, given_name: Lisa, surname: van Beek, department: Warehouse, title: Warehouse Operative, manager: sandra.veenstra}
+  - {username: andrzej.zielinski, given_name: Andrzej, surname: Zielinski, department: Warehouse, title: Warehouse Operative, manager: sandra.veenstra, synced: false}
+  - {username: joris.timmer, given_name: Joris, surname: Timmer, department: Warehouse, title: Warehouse Operative, manager: sandra.veenstra}
+  - {username: patrick.claassen, given_name: Patrick, surname: Claassen, department: Warehouse, title: Warehouse Operative, manager: martijn.huisman, description: seasonal 2025, left: 2025-12-20}
+
+  # Transport (25: the manager, 2 planners, 22 drivers, plus 1 leaver)
+  - {username: kees.visser, given_name: Kees, surname: Visser, department: Transport, title: Transport Manager, manager: pieter.vandam}
+  - {username: nicole.bergsma, given_name: Nicole, surname: Bergsma, department: Transport, title: Transport Planner, manager: kees.visser}
+  - {username: frank.vandersluis, given_name: Frank, surname: van der Sluis, department: Transport, title: Transport Planner, manager: kees.visser}
+  - {username: jan.devries, given_name: Jan, surname: de Vries, department: Transport, title: Driver, manager: kees.visser}
+  - {username: henk.bakker, given_name: Henk, surname: Bakker, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: johan.veenstra, given_name: Johan, surname: Veenstra, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: ronald.meijer, given_name: Ronald, surname: Meijer, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: marco.vanes, given_name: Marco, surname: van Es, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: willem.vos, given_name: Willem, surname: Vos, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: arjen.hofman, given_name: Arjen, surname: Hofman, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: tomas.novak, given_name: Tomas, surname: Novak, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: bogdan.ionescu, given_name: Bogdan, surname: Ionescu, department: Transport, title: Driver, manager: nicole.bergsma, synced: false}
+  - {username: sjoerd.terpstra, given_name: Sjoerd, surname: Terpstra, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: gerard.koning, given_name: Gerard, surname: Koning, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: peter.vandijk, given_name: Peter, surname: van Dijk, department: Transport, title: Driver, manager: nicole.bergsma}
+  - {username: mike.vandeven, given_name: Mike, surname: van de Ven, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: karim.benali, given_name: Karim, surname: Benali, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: ricardo.silva, given_name: Ricardo, surname: Silva, department: Transport, title: Driver, manager: frank.vandersluis, synced: false}
+  - {username: dirk.scholten, given_name: Dirk, surname: Scholten, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: rutger.smeets, given_name: Rutger, surname: Smeets, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: alex.dobrev, given_name: Alex, surname: Dobrev, department: Transport, title: Driver, manager: frank.vandersluis, synced: false}
+  - {username: vincent.bijl, given_name: Vincent, surname: Bijl, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: harm.wijnands, given_name: Harm, surname: Wijnands, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: erwin.kok, given_name: Erwin, surname: Kok, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: lucas.dekker, given_name: Lucas, surname: Dekker, department: Transport, title: Driver, manager: frank.vandersluis}
+  - {username: ad.vanloon, given_name: Ad, surname: van Loon, department: Transport, title: Driver, manager: kees.visser, description: contract ended, left: 2026-08-15}
+
+admins:
+  - {username: adm.ruben.mulder, person: ruben.mulder}
+
+groups:
+  # Department security groups. Three of them all mean "finance".
+  - name: SG-Finance
+    kind: department
+    owner: ilse.smit
+    description: Finance department
+    members: [ilse.smit, jan.devries2, marloes.vanleeuwen, bas.kramer, noor.elamrani, wouter.hoekstra, thomas.meijer]
+  - name: Finance_Users
+    kind: department
+    owner: null
+    description: Finance (old)
+    members: [ilse.smit, bas.kramer, marloes.vanleeuwen, thomas.meijer, floor.dewit]
+  - name: fin-readonly
+    kind: department
+    owner: null
+    members: [annemiek.bakker, pieter.vandam, bas.kramer, daan.bos, mark.dekker]
+  - name: SG-Sales
+    kind: department
+    owner: daan.bos
+    description: Sales department
+    members: [daan.bos, eva.peters, milan.vanderberg, sophie.koster, lars.brouwer, fleur.dijkstra, mark.dekker, lotte.hendriks]
+  - name: SG-CustomerService
+    kind: department
+    owner: esther.vermeulen
+    description: Customer Service department
+    members: [esther.vermeulen, sanne.jansen, rick.vandenbroek, yara.schouten, tim.vos, iris.molenaar, jeroen.prins]
+  - name: SG-HR
+    kind: department
+    owner: monique.vandijk
+    description: HR department
+    members: [monique.vandijk, kim.verhoeven, anouk.kok]
+  - name: SG-Management
+    kind: department
+    owner: annemiek.bakker
+    description: Management team
+    members: [annemiek.bakker, pieter.vandam, floor.dewit, linda.bosman, ilse.smit, monique.vandijk, esther.vermeulen, hans.groen, kees.visser, ruben.mulder]
+  - name: SG-Warehouse
+    kind: department
+    owner: hans.groen
+    description: Warehouse staff
+    members: [hans.groen, erik.dejong, martijn.huisman, sandra.veenstra, sanne.janssen, kevin.smits, dennis.post, mohamed.bouzid, piotr.nowak, marta.kowalska, tomasz.wisniewski, bram.vandenberg, stefan.wouters, nina.hermans, youssef.elhadi, gerrit.mol, robin.kuipers, ahmet.yilmaz, jasper.vink, olga.petrenko, niels.vandermeer, tamara.bosch, mehmet.demir, rob.zwart, ferry.lammers, lisa.vanbeek, andrzej.zielinski, joris.timmer, patrick.claassen]
+  - name: SG-Transport
+    kind: department
+    owner: kees.visser
+    description: Transport planners and drivers
+    members: [kees.visser, nicole.bergsma, frank.vandersluis, jan.devries, henk.bakker, johan.veenstra, ronald.meijer, marco.vanes, willem.vos, arjen.hofman, tomas.novak, bogdan.ionescu, sjoerd.terpstra, gerard.koning, peter.vandijk, mike.vandeven, karim.benali, ricardo.silva, dirk.scholten, rutger.smeets, alex.dobrev, vincent.bijl, harm.wijnands, erwin.kok, lucas.dekker, ad.vanloon]
+
+  # App access groups
+  - name: APP-ERP-Finance
+    kind: app
+    owner: ilse.smit
+    description: Finance ERP access
+    members: [SG-Finance, annemiek.bakker]
+  - name: APP-TMS-Users
+    kind: app
+    owner: kees.visser
+    description: Transport management system
+    members: [SG-Transport, esther.vermeulen, tim.vos, jeroen.prins]
+  - name: APP-WMS-Users
+    kind: app
+    owner: hans.groen
+    description: Warehouse management system
+    members: [SG-Warehouse]
+  - name: APP-CRM-Users
+    kind: app
+    owner: daan.bos
+    description: CRM access
+    members: [SG-Sales, SG-CustomerService]
+
+  # Shared drive groups, read and read/write pairs
+  - name: SHR-Finance-R
+    kind: share
+    owner: ilse.smit
+    description: Finance share, read
+    members: [SG-Management]
+  - name: SHR-Finance-RW
+    kind: share
+    owner: thomas.meijer
+    description: Finance share, read and write
+    members: [SG-Finance]
+  - name: SHR-Operations-R
+    kind: share
+    owner: null
+    description: Operations share, read
+    members: [SG-Warehouse, SG-Transport]
+  - name: SHR-Operations-RW
+    kind: share
+    owner: pieter.vandam
+    description: Operations share, read and write
+    members: [hans.groen, kees.visser, nicole.bergsma, frank.vandersluis, erik.dejong]
+
+  # Distribution lists
+  - name: allstaff
+    kind: distribution
+    owner: linda.bosman
+    description: Everyone at Noord
+    members: [SG-Management, SG-Finance, SG-Sales, SG-CustomerService, SG-HR, SG-Warehouse, SG-Transport]
+  - name: planning
+    kind: distribution
+    owner: kees.visser
+    description: Transport and warehouse planning
+    members: [kees.visser, nicole.bergsma, frank.vandersluis, hans.groen]
+  - name: customerservice
+    kind: distribution
+    owner: esther.vermeulen
+    description: Customer service shared inbox
+    members: [SG-CustomerService]
+
+  # Privileged: the agent must never touch this group or its members.
+  - name: SG-IT-Admins
+    kind: privileged
+    owner: null
+    description: IT administrators
+    members: [adm.ruben.mulder]
+    nested_into: [Domain Admins]

@@ -29,5 +29,8 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0005](0005-govulncheck-flags-go-toolchain.md) | 2026-10-17 | govulncheck fails the first run on the Go toolchain itself | #4 Coding standards & tooling | ~5 min | post |
 | [0006](0006-setup-go-ignores-toolchain-line.md) | 2026-10-17 | CI installs the go line's Go, not the toolchain line's | #4 Coding standards & tooling | ~5 min | no |
 | [0007](0007-edited-migration-breaks-local-down.md) | 2026-10-17 | Editing a migration that already ran locally breaks goose down | #5 Data model | ~5 min | no |
+| [0008](0008-samba-hangs-without-its-hostname.md) | 2026-10-18 | Samba starts but never listens unless the hostname is "samba" | #6 Noord directory & seeded mess | ~10 min | post |
+| [0009](0009-ldapsearch-cannot-check-ldaps-on-macos.md) | 2026-10-18 | ldapsearch on macOS cannot check our LDAPS cert | #6 Noord directory & seeded mess | ~8 min | post |
+| [0010](0010-gitleaks-flags-a-checksum-in-tools-sum.md) | 2026-10-18 | gitleaks flags a module checksum in tools.sum | #6 Noord directory & seeded mess | ~5 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

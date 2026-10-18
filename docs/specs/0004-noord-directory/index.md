@@ -1,7 +1,7 @@
 # 0004. Noord directory: Samba AD image, one YAML seed, fresh rebuilds
 
 **Date**: 2026-10-17
-**Status**: Proposed
+**Status**: Accepted
 
 ## Summary
 
@@ -228,6 +228,6 @@ Tracer Bullet inside this feature: first a thin thread from an empty clone to "o
 - [ ] **#17 GitOps install**: Samba as a StatefulSet in `noord-directory` at the baseline pod security level (or privileged if the AC-17 fallback was taken), cert-manager self signed CA Issuer plus a Certificate with the AC-12 SANs, a seed Job (ArgoCD PostSync hook, safe to rerun per AC-13), the Samba image pushed to GHCR for both arches, a NetworkPolicy so only the tool server and the seed Job reach 636, and `SEED_*` passwords as SealedSecrets.
 - [ ] **#19 and #20 Eval**: reseed with a fresh container per run (the `sambatest` helper or `make directory-reset`), read expected truth from `directory.Load`, and call `directory.Lock` right before any ticket that needs a locked user.
 - [ ] **#23 README**: "rebuild Noord" steps (`make certs`, `make directory-reset`) and the Samba versus Windows AD note.
-- [ ] **`/sync`**: add `cmd/seed`, the new make targets, `internal/seed`, and the `testcontainers-go` skill to `AGENTS.md`; record the declined ActiveDirectoryMCP server (it would hold admin credentials outside the tool server) on the `Declined:` line.
-- [ ] Verify early (step 1 or 2): Samba counts failed LDAP simple binds toward lockout, and the four schema GUID constants match the schema (`ldbsearch` for `schemaIDGUID`). If either fails, journal it and come back here.
+- [x] **`/sync`**: add `cmd/seed`, the new make targets, `internal/seed`, and the `testcontainers-go` skill to `AGENTS.md`; record the declined ActiveDirectoryMCP server (it would hold admin credentials outside the tool server) on the `Declined:` line.
+- [x] Verify early (step 1 or 2): Samba counts failed LDAP simple binds toward lockout, and the four schema GUID constants match the schema (`ldbsearch` for `schemaIDGUID`). If either fails, journal it and come back here.
 - [ ] Later, not needed by any AC: whether a user can bind by the `@noord.example` UPN (a suffix other than the realm). The tool server and seeder bind by DN, so only #10 or a demo might care.

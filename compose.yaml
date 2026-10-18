@@ -1,5 +1,6 @@
-# Local development environment. Samba AD joins in feature #6, Zammad in #8.
-# Credentials here are for a throwaway local database only.
+# Local development environment. Zammad joins in feature #8.
+# Credentials here are for a throwaway local database only; the Samba
+# passwords come from .env (spec 0004).
 name: noord
 
 services:
@@ -21,6 +22,36 @@ services:
       - pgdata:/var/lib/postgresql/data
       # Creates the app roles on a fresh volume; `make db-roles` does it for an existing one.
       - ./db/roles.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+
+  samba:
+    # Noord's fictional on prem directory (spec 0004). No volume on purpose:
+    # the container's own filesystem is the whole state, so `make
+    # directory-reset` replaces the container to rebuild from scratch.
+    build: seed/directory/samba
+    image: noord-samba:dev
+    hostname: samba
+    environment:
+      SAMBA_REALM: AD.NOORD.EXAMPLE
+      SAMBA_DOMAIN: NOORD
+      SAMBA_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SAMBA_SVC_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+      SAMBA_LOCKOUT_THRESHOLD: 5
+      SAMBA_LOCKOUT_DURATION: 15
+      SAMBA_LOCKOUT_WINDOW: 15
+    # Docker's default set already holds NET_BIND_SERVICE; NT ACLs live in
+    # user.NTACL, so no CAP_SYS_ADMIN (AC-17).
+    cap_add: []
+    ports:
+      # LDAPS only, on loopback (AC-12).
+      - "127.0.0.1:55636:636"
+    healthcheck:
+      test: ["CMD-SHELL", "LDAPTLS_CACERT=/certs/ca.pem ldapsearch -H ldaps://localhost:636 -x -b '' -s base >/dev/null"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+    volumes:
+      - ./.dev/certs:/certs:ro
 
 volumes:
   pgdata:

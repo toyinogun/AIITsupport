@@ -19,7 +19,9 @@ updates:
       actions-minor-patch:
         update-types: [minor, patch]
   - package-ecosystem: docker
-    directory: /
+    directories:
+      - /
+      - /seed/directory/samba
     schedule:
       interval: weekly
     groups:
