@@ -594,3 +594,119 @@ func TestLoadGraph(t *testing.T) {
 		t.Errorf("LoadSeedEntraMFA with nothing set = %v, want an error naming GRAPH_TENANT_ID", err)
 	}
 }
+
+// covers: AC-13 (spec 0006). Both Slack tokens or neither; each with its prefix.
+func TestLoadAgentSlackTokens(t *testing.T) {
+	cases := []struct {
+		name      string
+		bot, app  string
+		wantErr   []string
+		wantSlack bool
+	}{
+		{name: "neither set", wantSlack: false},
+		{name: "both set", bot: "xoxb-1-2-abc", app: "xapp-1-A1-abc", wantSlack: true},
+		{name: "only bot", bot: "xoxb-1-2-abc", wantErr: []string{"SLACK_APP_TOKEN is required"}},
+		{name: "only app", app: "xapp-1-A1-abc", wantErr: []string{"SLACK_BOT_TOKEN is required"}},
+		{name: "wrong prefixes", bot: "xoxp-secretvalue", app: "xoxb-secretvalue", wantErr: []string{"SLACK_BOT_TOKEN must", "SLACK_APP_TOKEN must"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := minimalAgentEnv()
+			env["SLACK_BOT_TOKEN"] = tc.bot
+			env["SLACK_APP_TOKEN"] = tc.app
+			cfg, err := LoadAgent(envFrom(env))
+			if len(tc.wantErr) == 0 {
+				if err != nil {
+					t.Fatalf("LoadAgent: %v", err)
+				}
+				if cfg.SlackConfigured() != tc.wantSlack {
+					t.Errorf("SlackConfigured() = %v, want %v", cfg.SlackConfigured(), tc.wantSlack)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("LoadAgent accepted the Slack tokens, want an error")
+			}
+			for _, want := range tc.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not mention %q", err, want)
+				}
+			}
+			if strings.Contains(err.Error(), "secretvalue") {
+				t.Errorf("error %q leaks a token value", err)
+			}
+		})
+	}
+}
+
+// covers: spec 0006 configuration. ZAMMAD_TOKEN, when set, is long and plain.
+func TestZammadTokenFormat(t *testing.T) {
+	cases := map[string]bool{
+		"":                                      true,
+		"dev-only-zammad-token-change-me-0001":  true,
+		"short-token":                           false,
+		"has spaces in it but is long enough!!": false,
+		"has-a-dollar-sign-$-and-long-enough-0": false,
+	}
+	for token, ok := range cases {
+		env := minimalToolServerEnv()
+		env["ZAMMAD_TOKEN"] = token
+		_, err := LoadToolServer(envFrom(env))
+		if ok && err != nil {
+			t.Errorf("token %q rejected: %v", token, err)
+		}
+		if !ok {
+			if err == nil || !strings.Contains(err.Error(), "ZAMMAD_TOKEN must") {
+				t.Errorf("token %q: got %v, want a ZAMMAD_TOKEN format error", token, err)
+			} else if strings.Contains(err.Error(), token) {
+				t.Errorf("error %q leaks the token", err)
+			}
+		}
+	}
+}
+
+func minimalSeedHelpdeskEnv() map[string]string {
+	return map[string]string{
+		"SEED_ADMIN_PASSWORD":        "admin-test",
+		"SEED_USER_PASSWORD":         "user-test",
+		"SEED_ZAMMAD_BIND_PASSWORD":  "bind-test",
+		"SEED_ZAMMAD_ADMIN_PASSWORD": "zammad-admin-test",
+		"ZAMMAD_URL":                 "http://127.0.0.1:58080",
+		"ZAMMAD_TOKEN":               "dev-only-zammad-token-change-me-0001",
+		"ZAMMAD_DEFAULT_GROUP":       "IT Support",
+	}
+}
+
+func TestLoadSeedHelpdesk(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg, err := LoadSeedHelpdesk(envFrom(minimalSeedHelpdeskEnv()))
+		if err != nil {
+			t.Fatalf("LoadSeedHelpdesk: %v", err)
+		}
+		if cfg.ZammadAdminEmail != "zammad-admin@noord.example" || cfg.ZammadWaitTimeout != 10*time.Minute ||
+			cfg.ZammadTimeout != 15*time.Second || cfg.HelpdeskDir != "seed/helpdesk" {
+			t.Errorf("unexpected defaults: %+v", cfg)
+		}
+	})
+	t.Run("reports every missing setting", func(t *testing.T) {
+		_, err := LoadSeedHelpdesk(envFrom(map[string]string{
+			"SEED_ADMIN_PASSWORD": "admin-test",
+			"SEED_USER_PASSWORD":  "user-test",
+		}))
+		if err == nil {
+			t.Fatal("LoadSeedHelpdesk accepted missing settings")
+		}
+		for _, name := range []string{"SEED_ZAMMAD_ADMIN_PASSWORD", "SEED_ZAMMAD_BIND_PASSWORD", "ZAMMAD_URL", "ZAMMAD_TOKEN", "ZAMMAD_DEFAULT_GROUP"} {
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("error %q does not name %s", err, name)
+			}
+		}
+	})
+	t.Run("rejects a bad wait timeout", func(t *testing.T) {
+		env := minimalSeedHelpdeskEnv()
+		env["SEED_ZAMMAD_WAIT_TIMEOUT"] = "-1s"
+		if _, err := LoadSeedHelpdesk(envFrom(env)); err == nil || !strings.Contains(err.Error(), "SEED_ZAMMAD_WAIT_TIMEOUT") {
+			t.Errorf("got %v, want a SEED_ZAMMAD_WAIT_TIMEOUT error", err)
+		}
+	})
+}

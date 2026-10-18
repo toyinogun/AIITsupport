@@ -17,6 +17,7 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/entra"
+	"github.com/toyinogun/AIITsupport/internal/seed/helpdesk"
 )
 
 const defaultCertDir = ".dev/certs"
@@ -64,8 +65,14 @@ func runValidate(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	content, err := helpdesk.Load(files.HelpdeskDir, m)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(out, "%s is valid: %d users, %d admins, %d groups, %d Entra demo users\n",
 		files.File, len(m.Users), len(m.Admins), len(m.Groups), len(demo.Users))
+	fmt.Fprintf(out, "%s is valid: %d KB categories, %d KB articles, %d tickets\n",
+		files.HelpdeskDir, len(content.Categories), len(content.Articles), len(content.Tickets))
 	return nil
 }
 
@@ -79,6 +86,11 @@ func runDirectory(ctx context.Context, args []string, out io.Writer) error {
 	s, err := loadSession()
 	if err != nil {
 		return err
+	}
+	// The Samba container creates svc-zammad from this value (spec 0006);
+	// without it the directory would be missing Zammad's bind account.
+	if s.cfg.ZammadBindPassword == "" {
+		return errors.New("seed config: SEED_ZAMMAD_BIND_PASSWORD is required")
 	}
 	admin, err := s.dialer.WaitAndBind(ctx, s.cfg.AdminUser, s.cfg.AdminPassword, s.cfg.WaitTimeout)
 	if err != nil {

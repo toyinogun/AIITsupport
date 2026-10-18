@@ -82,10 +82,7 @@ type ToolServer struct {
 	LDAPCACert       string `env:"LDAP_CA_CERT"`
 
 	Graph
-
-	ZammadURL          string `env:"ZAMMAD_URL"`
-	ZammadToken        string `env:"ZAMMAD_TOKEN"`
-	ZammadDefaultGroup string `env:"ZAMMAD_DEFAULT_GROUP"` // feature #8
+	Zammad
 
 	// ReadOnly is only the boot default for the kill switch; the mounted
 	// KillSwitchFile is read on every write call (feature #9).
@@ -108,6 +105,15 @@ type Graph struct {
 	GraphClientSecret string        `env:"GRAPH_CLIENT_SECRET"`
 	GraphMaxRetries   int           `env:"GRAPH_MAX_RETRIES" default:"5"`
 	GraphTimeout      time.Duration `env:"GRAPH_TIMEOUT" default:"30s"`
+}
+
+// Zammad is the helpdesk's REST API as the noord-assistant user (spec 0006).
+// The tool server holds it; cmd/seed holds it too, to install the token.
+type Zammad struct {
+	ZammadURL          string        `env:"ZAMMAD_URL"`
+	ZammadToken        string        `env:"ZAMMAD_TOKEN"`
+	ZammadDefaultGroup string        `env:"ZAMMAD_DEFAULT_GROUP"`
+	ZammadTimeout      time.Duration `env:"ZAMMAD_TIMEOUT" default:"15s"`
 }
 
 // SeedEntraMFA is what `seed entra mfa` reads: the tool server's Graph app,
@@ -139,6 +145,11 @@ type Seed struct {
 	UserPassword  string        `env:"SEED_USER_PASSWORD" required:"true"`
 	WaitTimeout   time.Duration `env:"SEED_WAIT_TIMEOUT" default:"90s"`
 
+	// ZammadBindPassword is svc-zammad's AD password (spec 0006). Optional
+	// here so LoadSeed callers that never touch Zammad keep working; `seed
+	// directory` and `seed helpdesk` each refuse to run without it.
+	ZammadBindPassword string `env:"SEED_ZAMMAD_BIND_PASSWORD"`
+
 	// The seed app registration (spec 0005), which may create, update,
 	// delete, and restore users. All three unset means Entra is not
 	// configured and `seed entra sync` skips; partly set is an error.
@@ -166,24 +177,88 @@ type SeedFiles struct {
 	File          string `env:"SEED_FILE" default:"seed/directory/noord.yaml"`
 	OverlayFile   string `env:"SEED_OVERLAY_FILE" default:"seed/directory/overlay.local.yaml"`
 	EntraDemoFile string `env:"SEED_ENTRA_DEMO_FILE" default:"seed/entra/demo.local.yaml"`
+	HelpdeskDir   string `env:"SEED_HELPDESK_DIR" default:"seed/helpdesk"`
+}
+
+// SeedHelpdesk is what `seed helpdesk` reads (spec 0006): the directory seed
+// settings for the svc-zammad bind check, the Zammad API settings for the
+// token it installs, and the local Zammad admin only cmd/seed uses.
+type SeedHelpdesk struct {
+	Seed
+	Zammad
+
+	ZammadAdminEmail    string        `env:"SEED_ZAMMAD_ADMIN_EMAIL" default:"zammad-admin@noord.example"`
+	ZammadAdminPassword string        `env:"SEED_ZAMMAD_ADMIN_PASSWORD" required:"true"`
+	ZammadWaitTimeout   time.Duration `env:"SEED_ZAMMAD_WAIT_TIMEOUT" default:"10m"`
+}
+
+// SlackConfigured reports whether the Slack tokens are set. LoadAgent has
+// already refused exactly one of them.
+func (a Agent) SlackConfigured() bool {
+	return a.SlackBotToken != "" && a.SlackAppToken != ""
 }
 
 // LoadAgent reads and validates the agent's settings.
 func LoadAgent(lookup LookupFunc) (Agent, error) {
 	var cfg Agent
-	if err := load(&cfg, lookup); err != nil {
+	err := load(&cfg, lookup)
+	err = errors.Join(err, checkSlack(cfg))
+	if err != nil {
 		return Agent{}, fmt.Errorf("agent config: %w", err)
 	}
 	return cfg, nil
 }
 
+// checkSlack accepts both Slack tokens or neither (spec 0006, AC-13), and
+// checks each token's prefix. Errors name the setting, never the value.
+func checkSlack(cfg Agent) error {
+	if cfg.SlackBotToken == "" && cfg.SlackAppToken == "" {
+		return nil
+	}
+	errs := missing(map[string]string{
+		"SLACK_BOT_TOKEN": cfg.SlackBotToken,
+		"SLACK_APP_TOKEN": cfg.SlackAppToken,
+	})
+	if cfg.SlackBotToken != "" && !strings.HasPrefix(cfg.SlackBotToken, "xoxb-") {
+		errs = append(errs, errors.New("SLACK_BOT_TOKEN must be a bot token starting xoxb-"))
+	}
+	if cfg.SlackAppToken != "" && !strings.HasPrefix(cfg.SlackAppToken, "xapp-") {
+		errs = append(errs, errors.New("SLACK_APP_TOKEN must be an app level token starting xapp-"))
+	}
+	return errors.Join(errs...)
+}
+
 // LoadToolServer reads and validates the tool server's settings.
 func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
-	if err := load(&cfg, lookup); err != nil {
+	err := load(&cfg, lookup)
+	err = errors.Join(err, checkZammadToken(cfg.ZammadToken))
+	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
 	return cfg, nil
+}
+
+// minZammadTokenLen is the shortest ZAMMAD_TOKEN accepted (spec 0006).
+const minZammadTokenLen = 32
+
+// checkZammadToken accepts an unset token, or one of at least 32 characters
+// from A-Za-z0-9_- (spec 0006). The error never holds the value.
+func checkZammadToken(token string) error {
+	if token == "" {
+		return nil
+	}
+	valid := len(token) >= minZammadTokenLen && strings.IndexFunc(token, func(r rune) bool {
+		return !isTokenRune(r)
+	}) < 0
+	if !valid {
+		return fmt.Errorf("ZAMMAD_TOKEN must be at least %d characters from A-Za-z0-9_-", minZammadTokenLen)
+	}
+	return nil
+}
+
+func isTokenRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-'
 }
 
 // LoadSeed reads and validates cmd/seed's settings.
@@ -219,6 +294,32 @@ func checkSeedEntra(cfg Seed) error {
 		errs = append(errs, errors.New("SEED_GRAPH_TIMEOUT must be positive"))
 	}
 	return errors.Join(errs...)
+}
+
+// LoadSeedHelpdesk reads and validates the settings for `seed helpdesk`. It
+// requires the Zammad API settings and the svc-zammad password on top of
+// LoadSeed's checks.
+func LoadSeedHelpdesk(lookup LookupFunc) (SeedHelpdesk, error) {
+	var cfg SeedHelpdesk
+	err := load(&cfg, lookup)
+	err = errors.Join(err, checkSeedEntra(cfg.Seed), checkZammadToken(cfg.ZammadToken))
+	errs := missing(map[string]string{
+		"SEED_ZAMMAD_BIND_PASSWORD": cfg.ZammadBindPassword,
+		"ZAMMAD_URL":                cfg.ZammadURL,
+		"ZAMMAD_TOKEN":              cfg.ZammadToken,
+		"ZAMMAD_DEFAULT_GROUP":      cfg.ZammadDefaultGroup,
+	})
+	if cfg.ZammadWaitTimeout <= 0 {
+		errs = append(errs, errors.New("SEED_ZAMMAD_WAIT_TIMEOUT must be positive"))
+	}
+	if cfg.ZammadTimeout <= 0 {
+		errs = append(errs, errors.New("ZAMMAD_TIMEOUT must be positive"))
+	}
+	err = errors.Join(err, errors.Join(errs...))
+	if err != nil {
+		return SeedHelpdesk{}, fmt.Errorf("seed config: %w", err)
+	}
+	return cfg, nil
 }
 
 // LoadGraph reads the tool server's Graph app and requires all of it. The
@@ -286,7 +387,7 @@ func LoadSeedFiles(lookup LookupFunc) (SeedFiles, error) {
 // drift test compares against it.
 func Names() []string {
 	var names []string
-	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed](), reflect.TypeFor[SeedEntraMFA]()} {
+	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed](), reflect.TypeFor[SeedEntraMFA](), reflect.TypeFor[SeedHelpdesk]()} {
 		walkFields(t, func(f reflect.StructField) {
 			names = append(names, f.Tag.Get("env"))
 		})

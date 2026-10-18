@@ -15,7 +15,7 @@ Mock FDE engagement. The plan lives in `docs/scope/scope.md`; start there.
 ## Stack
 
 - **Language / Runtime**: Go 1.27 (toolchain 1.27.2), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver`, plus the dev and ops tool `cmd/seed` (`cmd/eval` arrives with feature #20)
-- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests; later `anthropic-sdk-go`, MCP `go-sdk`, `slack-go`
+- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests, `slack-go` (Socket Mode) for the agent's Slack strand, `goldmark` for KB article Markdown; later `anthropic-sdk-go`, MCP `go-sdk`
 - **Dev tools**: `sqlc` and `goose` are `tool` entries in `go.mod` (`go tool sqlc`, `go tool goose`), nothing to install
 - **Lint, hook, and scan tools**: `golangci-lint` v2 (also runs gofumpt and goimports), `lefthook`, `gitleaks`, and `govulncheck` are `tool` entries in a separate `tools.mod` (`go tool -modfile=tools.mod <tool>`). Its `go` and `toolchain` lines must match `go.mod`. Dependabot can't see it, so bump these by hand. Decision: [docs/specs/0002-coding-standards-tooling/index.md](docs/specs/0002-coding-standards-tooling/index.md)
 - **Platform**: Docker Compose locally; k3s + ArgoCD + CloudNativePG in production
@@ -51,7 +51,11 @@ make certs     # dev CA and Samba server cert in .dev/certs (keeps existing file
 TEST_SAMBA=1 make test # also runs the live Samba directory tests (needs Docker)
 make entra-sync [ONLY=<username>] # make the Entra tenant match SYNC-Entra-Users (skips when SEED_GRAPH_* is unset)
 make entra-mfa NAME=<username> [CLEAR=1] # list (or clear) a user's MFA methods with the tool server app
-make noord-reset # directory-reset, then entra-sync
+make noord-reset # directory-reset, entra-sync, then helpdesk-reset (not atomic)
+make helpdesk-up    # start Zammad in Compose (profile helpdesk, http://127.0.0.1:58080) and wait until healthy
+make helpdesk-seed  # seed Zammad from seed/helpdesk/; says "already seeded" or asks for a reset
+make helpdesk-reset # fresh Zammad containers and volumes, then seed (Samba and pgdata untouched)
+TEST_ZAMMAD=1 go test -race -run Live ./internal/seed/helpdesk/ # live helpdesk tests after helpdesk-reset, .env loaded
 ```
 
 Hooks: pre commit runs a format check on staged Go files, lint, and gitleaks on the staged changes; pre push runs `go test -race` and `gen-check`. A Claude Code PostToolUse hook (`.claude/hooks/format-go.py`) formats each Go file after an edit.
@@ -72,6 +76,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - Never hardcode model ids, prices, or limits; they are config values or `eval/pricing.yaml`.
 - The credential boundary is checked twice: the depguard rule `agent-credential-boundary` in `.golangci.yml` and `cmd/agent/boundary_test.go`. A new client system package goes on both deny lists.
 - Only `cmd/seed` binds as the domain Administrator (`SEED_*` settings); `internal/seed` is on both deny lists, so the agent can never import it. See [internal/seed/AGENTS.md](internal/seed/AGENTS.md).
+- `internal/zammad` never writes a Zammad user, organization, or user token: its transport refuses them (`ErrUserWrite`), because Zammad lets any agent token do it. See [internal/zammad/AGENTS.md](internal/zammad/AGENTS.md).
 - Entra has two app registrations: only `cmd/seed` holds the seed app (`SEED_GRAPH_*`, user writes); the tool server app (`GRAPH_*`) reads users and changes phone methods only. `internal/graph` refuses any user without the `noord-sync` marker (`ErrNotManaged`). See [internal/graph/AGENTS.md](internal/graph/AGENTS.md).
 - Log with `log/slog` only; the standard `log` package is denied (depguard `no-std-log`). slog messages are static strings with snake_case keys (sloglint).
 - Silence a real false positive with `//nolint:<linter> // <reason>` on the narrowest line. A wider exclusion goes in `.golangci.yml` with a comment saying why.
@@ -95,14 +100,20 @@ Declined: Agent Skills for Microsoft Graph and Entra (`merill/msgraph`, `microso
 
 Declined: Microsoft Graph and Entra MCP servers (Microsoft's EnterpriseMCP is delegated only and needs admin provisioning rights; community ones would hold a client secret outside the tool server; spec 0005)
 
-MCP servers: `grafana/mcp-grafana` (recommended, feature #18 on), a community Zammad MCP (recommended, review first, feature #8 on)
+MCP servers: `grafana/mcp-grafana` (recommended, feature #18 on)
+
+Declined: Agent Skills for Slack and Zammad (none covers `slack-go` or Zammad's REST API; the Slack ones target Bolt for Python/JS) (2026-10-18, feature #8)
+
+Declined: Slack and Zammad MCP servers (Slack's official one needs user OAuth tokens; the community Zammad ones would hold a Zammad token outside the tool server) (2026-10-18, feature #8)
 
 ## Context files
 
 - [internal/config/AGENTS.md](internal/config/AGENTS.md) (how settings are declared, validated, and kept in sync with `.env.example`)
 - [db/AGENTS.md](db/AGENTS.md) (goose migrations, sqlc queries, and the generated code)
 - [internal/audit/AGENTS.md](internal/audit/AGENTS.md): the audit recorder and approvals, the only writer of `audit_log` and `approvals`
-- [internal/seed/AGENTS.md](internal/seed/AGENTS.md): the Noord directory seeder (`cmd/seed`, `seed/directory/`), its marker, locks, and live tests
+- [internal/seed/AGENTS.md](internal/seed/AGENTS.md): the Noord directory and helpdesk seeders (`cmd/seed`, `seed/directory/`, `seed/helpdesk/`), their markers, locks, and live tests
 - [internal/graph/AGENTS.md](internal/graph/AGENTS.md): the thin Microsoft Graph client, its managed marker fence, retries, and the fake Graph
+- [internal/zammad/AGENTS.md](internal/zammad/AGENTS.md): the thin Zammad REST client, its user write guard, and the fake Zammad
+- [internal/slack/AGENTS.md](internal/slack/AGENTS.md): the agent's Socket Mode listener, event dedup, and the holding reply
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

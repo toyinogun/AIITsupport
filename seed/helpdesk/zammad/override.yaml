@@ -1,0 +1,41 @@
+# Our changes on top of Zammad's vendored compose.yaml (spec 0006). Pulled in
+# by the include in the root compose.yaml, so relative paths resolve from
+# this directory (seed/helpdesk/zammad/).
+#
+# Every Zammad service gets the profile `helpdesk`, so plain `docker compose
+# up` (make dev, make db-up) never starts it. The backup service gets the
+# unused profile `disabled`, so it never starts at all. Only nginx publishes a
+# port, on loopback. Secrets never appear here: cmd/seed hands them to the
+# Rails steps as environment variables of `docker compose exec`.
+
+services:
+  zammad-backup:
+    profiles: [disabled]
+  zammad-elasticsearch:
+    profiles: [helpdesk]
+  zammad-init:
+    profiles: [helpdesk]
+  zammad-memcached:
+    profiles: [helpdesk]
+  zammad-nginx:
+    profiles: [helpdesk]
+    ports: !override
+      - "127.0.0.1:58080:8080"
+  zammad-postgresql:
+    profiles: [helpdesk]
+  zammad-railsserver:
+    profiles: [helpdesk]
+    # The Rails steps run here, and LDAP logins are checked here.
+    volumes:
+      - ../rails:/opt/noord-seed/rails:ro
+      - ../../../.dev/certs/ca.pem:/opt/noord-seed/ca.pem:ro
+  zammad-redis:
+    profiles: [helpdesk]
+  zammad-scheduler:
+    profiles: [helpdesk]
+    # The scheduler runs the LDAP sync, so it trusts our dev CA too.
+    volumes:
+      - ../rails:/opt/noord-seed/rails:ro
+      - ../../../.dev/certs/ca.pem:/opt/noord-seed/ca.pem:ro
+  zammad-websocket:
+    profiles: [helpdesk]

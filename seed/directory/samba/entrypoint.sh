@@ -46,7 +46,7 @@ install_certs() {
 }
 
 provision() {
-	require_env SAMBA_ADMIN_PASSWORD SAMBA_SVC_PASSWORD
+	require_env SAMBA_ADMIN_PASSWORD SAMBA_SVC_PASSWORD SAMBA_ZAMMAD_PASSWORD
 	rm -f /etc/samba/smb.conf
 	# stdout is progress chatter; errors go to stderr and still show.
 	samba-tool domain provision \
@@ -93,6 +93,12 @@ skeleton() {
 	samba-tool user add svc-itsupport "$SAMBA_SVC_PASSWORD" \
 		--userou="OU=Service Accounts,OU=Noord" -H "$SAM"
 	samba-tool user setexpiry svc-itsupport --noexpiry -H "$SAM"
+
+	# Zammad's LDAP bind (spec 0006). No ACEs of its own: it reads users as
+	# any authenticated account can, and every write fails.
+	samba-tool user add svc-zammad "$SAMBA_ZAMMAD_PASSWORD" \
+		--userou="OU=Service Accounts,OU=Noord" -H "$SAM"
+	samba-tool user setexpiry svc-zammad --noexpiry -H "$SAM"
 }
 
 # svc-itsupport may clear lockoutTime on users under OU=Users and write member

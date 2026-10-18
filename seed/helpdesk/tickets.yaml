@@ -1,0 +1,206 @@
+# Noord Logistics helpdesk backlog (spec 0006): 20 old tickets in IT Support.
+# Every person here is a user in seed/directory/noord.yaml. Times are
+# Europe/Amsterdam local time; a bare date means 09:00.
+#
+# The pattern is real life: most tickets are lockouts and password resets,
+# many raised on a Monday morning, and Ruben (the only IT person) answers all
+# of them. The first article is always from the customer.
+as_of: 2026-10-16
+tickets:
+  - key: hd-001
+    customer: eva.peters
+    title: Locked out after my holiday
+    state: closed
+    created: 2026-08-03 08:12
+    closed: 2026-08-03 08:40
+    articles:
+      - {from: eva.peters, at: 2026-08-03 08:12, body: "Hi, I'm back from holiday and my account says it is locked. I think I typed my old password a few times. Can you help?"}
+      - {from: ruben.mulder, at: 2026-08-03 08:31, body: "Morning Eva, I've unlocked your account. Please sign in with your current password. Welcome back!"}
+
+  - key: hd-002
+    customer: kevin.smits
+    title: Can't log in to the scanner PC
+    state: closed
+    created: 2026-08-10 07:05
+    closed: 2026-08-10 07:55
+    articles:
+      - {from: kevin.smits, at: 2026-08-10 07:05, body: "Scanner PC at dock 3 won't let me log in, it says account locked. Shift started at 7."}
+      - {from: ruben.mulder, at: 2026-08-10 07:48, body: "Unlocked now Kevin. The lock was from wrong passwords on Friday evening. Try again please."}
+
+  - key: hd-003
+    customer: sophie.koster
+    title: Password expired and I can't change it
+    state: closed
+    created: 2026-08-11 13:20
+    closed: 2026-08-11 14:15
+    articles:
+      - {from: sophie.koster, at: 2026-08-11 13:20, body: "Windows says my password expired. The KB says change it every 90 days but it won't accept my new one."}
+      - {from: ruben.mulder, at: 2026-08-11 14:02, body: "Hi Sophie, that KB article is old. The rule is now at least 14 characters. I've set a temporary password, I'll pass it to you at your desk."}
+      - {from: sophie.koster, at: 2026-08-11 14:10, body: "Works now, thanks!"}
+
+  - key: hd-004
+    customer: erik.dejong
+    title: Locked out again
+    state: closed
+    created: 2026-08-17 07:32
+    closed: 2026-08-17 08:10
+    articles:
+      - {from: erik.dejong, at: 2026-08-17 07:32, body: "Locked out again on the warehouse PC. Same as last month."}
+      - {from: ruben.mulder, at: 2026-08-17 08:04, body: "Unlocked. Erik, your phone still has the old password in its mail app, that keeps locking you. Please update it there."}
+
+  - key: hd-005
+    customer: noor.elamrani
+    title: Payroll system says my account is locked
+    state: closed
+    created: 2026-08-24 09:15
+    closed: 2026-08-24 09:50
+    articles:
+      - {from: noor.elamrani, at: 2026-08-24 09:15, body: "I can't open the payroll system, it says my account is locked. Payroll run is today."}
+      - {from: ruben.mulder, at: 2026-08-24 09:41, body: "Unlocked, Noor. It was your Windows account, the payroll system uses the same login."}
+
+  - key: hd-006
+    customer: jan.devries
+    title: Forgot my password
+    state: closed
+    created: 2026-08-26 16:40
+    closed: 2026-08-27 08:30
+    articles:
+      - {from: jan.devries, at: 2026-08-26 16:40, body: "Forgot my password for the route planner. Jan de Vries, transport (the driver, not finance)."}
+      - {from: ruben.mulder, at: 2026-08-27 08:22, body: "Hi Jan, I've given your planner a temporary password for you. Please choose a new one when you sign in."}
+
+  - key: hd-007
+    customer: tim.vos
+    title: Printer in the customs office prints blank pages
+    state: closed
+    created: 2026-08-27 10:05
+    closed: 2026-08-28 11:00
+    articles:
+      - {from: tim.vos, at: 2026-08-27 10:05, body: "The printer in the customs office prints blank pages since this morning."}
+      - {from: ruben.mulder, at: 2026-08-28 10:40, body: "The toner was empty. I've put in a new one, test page looks fine."}
+
+  - key: hd-008
+    customer: marta.kowalska
+    title: Account locked
+    state: closed
+    created: 2026-08-31 07:10
+    closed: 2026-08-31 07:40
+    articles:
+      - {from: marta.kowalska, at: 2026-08-31 07:10, body: "My account is locked, I cannot log in at the start of shift."}
+      - {from: ruben.mulder, at: 2026-08-31 07:35, body: "Unlocked, Marta. You can log in now."}
+
+  - key: hd-009
+    customer: lars.brouwer
+    title: VPN won't connect from home
+    state: closed
+    created: 2026-09-02 19:45
+    closed: 2026-09-03 09:10
+    articles:
+      - {from: lars.brouwer, at: 2026-09-02 19:45, body: "VPN won't connect from home. I followed the KB article and installed SecureLink but it can't find the server."}
+      - {from: ruben.mulder, at: 2026-09-03 08:20, body: "Hi Lars, SecureLink was retired in 2024. You need WireGuard and a tunnel file, I've emailed you the steps."}
+      - {from: lars.brouwer, at: 2026-09-03 09:02, body: "Connected, thanks. Maybe remove the old article?"}
+
+  - key: hd-010
+    customer: iris.molenaar
+    title: Password reset please
+    state: closed
+    created: 2026-09-07 08:02
+    closed: 2026-09-07 08:20
+    articles:
+      - {from: iris.molenaar, at: 2026-09-07 08:02, body: "Can you reset my password please? I changed it on Friday and can't remember the new one."}
+      - {from: ruben.mulder, at: 2026-09-07 08:16, body: "Done, Iris. I've rung you with a temporary password; you'll be asked to set a new one."}
+
+  - key: hd-011
+    customer: ilse.smit
+    title: New phone, sign in codes stopped
+    state: closed
+    created: 2026-09-08 11:30
+    closed: 2026-09-08 15:00
+    articles:
+      - {from: ilse.smit, at: 2026-09-08 11:30, body: "I have a new phone and the sign in codes don't arrive any more. I used text messages before."}
+      - {from: ruben.mulder, at: 2026-09-08 14:45, body: "Text message codes are switched off now. I've cleared your old methods; please set up the Authenticator app as in the KB."}
+
+  - key: hd-012
+    customer: robin.kuipers
+    title: Account locked after shift change
+    state: closed
+    created: 2026-09-14 07:18
+    closed: 2026-09-14 07:45
+    articles:
+      - {from: robin.kuipers, at: 2026-09-14 07:18, body: "Account locked after the shift change. Colleague says wait 30 minutes but it's been longer."}
+      - {from: ruben.mulder, at: 2026-09-14 07:41, body: "Unlocked. For next time, the lock clears itself after 15 minutes, not 30."}
+
+  - key: hd-013
+    customer: sanne.jansen
+    title: Says wrong password but it's right
+    state: closed
+    created: 2026-09-21 08:45
+    closed: 2026-09-21 09:05
+    articles:
+      - {from: sanne.jansen, at: 2026-09-21 08:45, body: "It keeps saying wrong password and now it's locked. I'm sure the password is right. Sanne Jansen, customer service."}
+      - {from: ruben.mulder, at: 2026-09-21 09:01, body: "Unlocked, Sanne. Caps Lock was on, so the password really was different."}
+
+  - key: hd-014
+    customer: nicole.bergsma
+    title: Locked out of the planning system
+    state: closed
+    created: 2026-09-22 07:50
+    closed: 2026-09-22 08:30
+    articles:
+      - {from: nicole.bergsma, at: 2026-09-22 07:50, body: "Locked out of the planning system, trucks are waiting for their routes."}
+      - {from: ruben.mulder, at: 2026-09-22 08:12, body: "Unlocked, Nicole. Sorry for the wait."}
+
+  - key: hd-015
+    customer: fleur.dijkstra
+    title: Sales shared mailbox not showing
+    state: closed
+    created: 2026-09-24 14:00
+    closed: 2026-09-25 10:30
+    articles:
+      - {from: fleur.dijkstra, at: 2026-09-24 14:00, body: "Daan asked me to help with the sales mailbox but I can't see it in Outlook."}
+      - {from: ruben.mulder, at: 2026-09-25 10:15, body: "Added you to the mailbox after Daan approved. Restart Outlook and it shows up within an hour."}
+
+  - key: hd-016
+    customer: dennis.post
+    title: Forgot my password after holiday
+    state: closed
+    created: 2026-09-28 07:40
+    closed: 2026-09-28 08:05
+    articles:
+      - {from: dennis.post, at: 2026-09-28 07:40, body: "Back from three weeks off and I forgot my password."}
+      - {from: ruben.mulder, at: 2026-09-28 08:01, body: "Temporary password given at the warehouse office. Choose a new one of at least 14 characters."}
+
+  - key: hd-017
+    customer: kim.verhoeven
+    title: Password reset for my new laptop
+    state: closed
+    created: 2026-10-05 09:30
+    closed: 2026-10-05 09:55
+    articles:
+      - {from: kim.verhoeven, at: 2026-10-05 09:30, body: "Got my new laptop but my password doesn't work on it. Can you reset it?"}
+      - {from: ruben.mulder, at: 2026-10-05 09:52, body: "Reset done, Kim. The new laptop needed to be online once; it works with your new password now."}
+
+  - key: hd-018
+    customer: mohamed.bouzid
+    title: Locked out
+    state: open
+    created: 2026-10-12 07:15
+    articles:
+      - {from: mohamed.bouzid, at: 2026-10-12 07:15, body: "Locked out at the start of my shift."}
+      - {from: mohamed.bouzid, at: 2026-10-12 07:50, body: "Still locked, anyone there?"}
+
+  - key: hd-019
+    customer: yara.schouten
+    title: Locked out and can't reach anyone
+    state: pending
+    created: 2026-10-14 08:20
+    articles:
+      - {from: yara.schouten, at: 2026-10-14 08:20, body: "I'm locked out and the phone number in the KB doesn't answer."}
+      - {from: ruben.mulder, at: 2026-10-14 11:05, body: "Hi Yara, before I unlock you, can you come by the IT desk with your badge? I need to confirm it is you."}
+
+  - key: hd-020
+    customer: floor.dewit
+    title: Laptop very slow since the update
+    state: open
+    created: 2026-10-15 10:12
+    articles:
+      - {from: floor.dewit, at: 2026-10-15 10:12, body: "My laptop has been very slow since the update on Tuesday. Takes ages to open Outlook."}

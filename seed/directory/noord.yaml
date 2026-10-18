@@ -182,6 +182,11 @@ groups:
     owner: daan.bos
     description: CRM access
     members: [SG-Sales, SG-CustomerService]
+  - name: APP-Helpdesk-Agents
+    kind: app
+    owner: ruben.mulder
+    description: Zammad helpdesk agents (Agent and Admin in Zammad)
+    members: [ruben.mulder]
 
   # Shared drive groups, read and read/write pairs
   - name: SHR-Finance-R

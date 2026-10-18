@@ -1,6 +1,8 @@
 // Command agent is the Slack facing IT support agent. It talks to Claude and
 // calls the tool server over MCP; it never holds client system credentials.
-// At this stage it only loads its config, reaches Postgres, and serves health.
+// At this stage it loads its config, reaches Postgres, serves health, and,
+// when both Slack tokens are set, answers Slack with a holding reply
+// (spec 0006) until the agent loop arrives (#10).
 package main
 
 import (
@@ -12,10 +14,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/db"
+	"github.com/toyinogun/AIITsupport/internal/db/queries"
 	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/server"
+	"github.com/toyinogun/AIITsupport/internal/slack"
 	"github.com/toyinogun/AIITsupport/internal/telemetry"
 )
 
@@ -54,5 +60,16 @@ func run() (err error) {
 	if err != nil {
 		return fmt.Errorf("listen on AGENT_HTTP_ADDR %s: %w", cfg.HTTPAddr, err)
 	}
-	return server.Run(ctx, ln, server.NewMux(), logger)
+
+	// A refused Slack token ends the listener with an error, which stops
+	// the health server too, so run() exits 1 naming the setting.
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return server.Run(ctx, ln, server.NewMux(), logger) })
+	if cfg.SlackConfigured() {
+		listener := slack.New(cfg.SlackBotToken, cfg.SlackAppToken, queries.New(pool), logger, cfg.SlackEventDedupTTL)
+		g.Go(func() error { return listener.Run(ctx) })
+	} else {
+		logger.Info("slack_disabled")
+	}
+	return g.Wait()
 }
