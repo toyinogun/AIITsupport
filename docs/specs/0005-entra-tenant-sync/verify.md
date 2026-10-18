@@ -13,7 +13,7 @@ _Steps derived from spec 0005 acceptance criteria and its Value sourcing table. 
 
 ## Tenant setup (tenant)
 - [ ] Both app registrations show exactly the AC-1 permissions with admin consent; `docs/runbooks/entra-tenant.md` holds no ids or secrets → AC-1
-- [ ] Security defaults on; your admin account signs in with MFA → AC-1
+- [ ] Security defaults off; your admin account signs in with your Microsoft account's two step verification; per user MFA shows Enabled on each demo user, and SMS in the authentication methods policy targets only the demo users group → AC-1, AC-8
 
 ## Thin thread (tenant)
 - [ ] `make directory-reset && make entra-sync ONLY=eva.peters` → `eva.peters` exists in Entra with `employeeType` `noord-sync`, UPN `eva.peters@<SEED_ENTRA_DOMAIN>`, and one `mobile` method; the log says `manager not in Entra yet` → AC-5, AC-4
@@ -36,8 +36,8 @@ _Steps derived from spec 0005 acceptance criteria and its Value sourcing table. 
 ## Demo users (tenant)
 - [ ] Copy `demo.example.yaml` to `demo.local.yaml` with your number on one user, set `SEED_ENTRA_DEMO_PASSWORD`, run `make noord-reset` → that user's mobile is your number; no log line shows it → AC-8, AC-15
 - [ ] A weak demo password, or one holding a staff name → the sync fails before any network call → AC-8
-- [ ] Sign in as the demo user at `myaccount.microsoft.com` → an MFA step appears (SMS to your phone or registration); record which in the journal → AC-8
-- [ ] `make entra-demo-password NAME=<demo user>` → one PATCH; signing in with the demo password works → AC-8
+- [ ] Sign in as the demo user at `myaccount.microsoft.com` in a private window → "Verify your identity" appears, and a code from the registered authenticator app signs you in (SMS is blocked by Microsoft, error 399287) → AC-8
+- [ ] For a demo user that already existed, reset its password in the portal (Users, the user, Reset password), sign in, and choose the demo password when asked → signing in with it works → AC-8
 
 ## Least privilege (tenant)
 - [ ] `DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_ENTRA=1 go test -race -run TestLiveSync ./internal/seed/entra/` → passes: `POST /users` and a Temporary Access Pass POST with `GRAPH_*` both get 403; the admin probe result is logged; write it into the runbook and the journal → AC-11

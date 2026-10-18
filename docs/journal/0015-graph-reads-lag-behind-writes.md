@@ -21,7 +21,7 @@ Graph is eventually consistent. For tens of seconds after a write, some reads re
 ## How I fixed it
 - The sync treats a listed user whose phone read returns 404 as gone for that run (the restore path takes over), and ignores one object listed as both live and deleted, so a lagging read can never stop a run with a false duplicate error.
 - The live drift and MFA tests now sync until a run makes no writes (at most 4 runs, 15 s apart), then check the totals: 1 restore, 0 creates, the department back, the same object id. The last run passed: run 1 saw nothing, run 2 repaired everything, run 3 made 0 writes.
-- AC-6 says "the next run puts it back"; on the real service, that means the next run that can see the drift. TODO (you): decide whether to clarify that in the spec.
+- AC-6 now says "the next run that can see the drift puts it back" (spec 0005, rationale fourth update).
 
 Not committed yet.
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -29,8 +28,6 @@ func runEntra(ctx context.Context, args []string, out io.Writer) error {
 		return runEntraSync(ctx, args[1:], out)
 	case "mfa":
 		return runEntraMFA(ctx, args[1:], out)
-	case "demo-password":
-		return runEntraDemoPassword(ctx, args[1:], out)
 	default:
 		return fmt.Errorf("unknown entra command %q\n%w", args[0], errUsage)
 	}
@@ -242,39 +239,4 @@ func phonesLeft(ctx context.Context, c *graph.Client, u graph.ManagedUser) (int,
 		}
 	}
 	return max(len(phones), listed), methods, nil
-}
-
-// runEntraDemoPassword sets SEED_ENTRA_DEMO_PASSWORD on one existing demo user.
-func runEntraDemoPassword(ctx context.Context, args []string, out io.Writer) error {
-	username, err := oneUsername(args)
-	if err != nil {
-		return err
-	}
-	cfg, err := config.LoadSeed(os.LookupEnv)
-	if err != nil {
-		return err
-	}
-	if !cfg.EntraConfigured() {
-		return errors.New("entra demo-password: Entra is not configured; set SEED_GRAPH_* (see docs/runbooks/entra-tenant.md)")
-	}
-	_, demo, err := loadEntraModel(cfg)
-	if err != nil {
-		return err
-	}
-	if !demo.IsDemo(username) {
-		return fmt.Errorf("%s is not a demo user in %s", username, cfg.EntraDemoFile)
-	}
-	client, err := seedGraphClient(cfg)
-	if err != nil {
-		return err
-	}
-	u, err := client.UserByUsername(ctx, username)
-	if err != nil {
-		return err
-	}
-	if err := entra.SetPassword(ctx, client, u, cfg.EntraDemoPassword); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "set the demo password on %s\n", username)
-	return nil
 }

@@ -82,6 +82,20 @@ Options weighed:
 
 The engineer chose the drama range. The format keeps the one space shape the demo file already validates (`+44 7700900NNN`), with a 3 digit position instead of 4.
 
+### Sixth update (Oct 18, 2026): how the demo sign in reaches MFA
+
+The first demo sign in went straight in with no second step: security defaults only challenge ordinary users when a sign in looks risky. Options weighed: per user MFA on the demo users (free, permanent, needs security defaults off; chosen), the P1 trial with a Conditional Access policy (realistic, but the trial ends around Nov 17 and the policy with it), or recording "no MFA step" and skipping it in the video. With per user MFA on and SMS enabled in the authentication methods policy, the sign in reached "Verify your identity" offering a text to the seeded number, but Microsoft refused to send it (error 399287, which Microsoft staff on Q&A tie to telephony fraud protection, a "bad reputation" block that no admin setting lifts). The engineer chose to register an authenticator app on the demo user instead (journal 0017). AC-1 also now records the Default Directory as Noord's tenant (journal 0012).
+
+### Fifth update (Oct 18, 2026): no password reset command
+
+`seed entra demo-password` got `403 Authorization_RequestDenied` on the real tenant. Graph's Update user docs: `User.ReadWrite.All` covers every user property except `passwordProfile`; changing an existing user's password needs `User-PasswordProfile.ReadWrite.All`, and in app only mode also at least the User Administrator directory role. Setting a password at create needs neither, which is why creates worked (journal 0016).
+
+Options weighed: give the seed app that permission and the role (one command resets demo passwords, but the seed app could then reset any non admin password in the tenant); recreate the demo user instead of resetting it (no new rights, more code, a new object id each time); or drop the command (chosen). Demo users still get the demo password at create, and the rare reset of an existing demo user is a manual portal step, so the seed app keeps exactly the rights AC-1 lists.
+
+### Fourth update (Oct 18, 2026): AC-6 and Graph's read lag
+
+The live drift test showed that for tens of seconds after a write, Graph's reads still return the old state, and its read paths catch up at different times (journal 0015). A sync cannot fix drift it cannot see, so "the next run puts it back" was not something any code could promise. AC-6 now says the next run that can see the drift puts it back, and the live test syncs until a run makes no writes, then checks the totals.
+
 ### Third update (Oct 18, 2026): the AC-2 time limit
 
 The first full run on the real tenant took 119,018 ms: 78 creates, 78 phones, and 78 manager links (234 writes), one call at a time. A read only rerun took 24,926 ms, so the writes cost about 0.4 s each, which is normal Graph latency rather than retries. That passes a 2 minute limit by about a second, so a slower day would fail it at random. The engineer raised the limit to 3 minutes, as AC-2 allows, instead of adding concurrency the spec ruled out.

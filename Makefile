@@ -10,7 +10,7 @@ GIT_HOOKS := pre-commit pre-push
 .PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
-	entra-sync entra-mfa entra-demo-password noord-reset
+	entra-sync entra-mfa noord-reset
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -76,11 +76,6 @@ entra-sync: .env
 entra-mfa: .env
 	@test -n "$(NAME)" || { echo "usage: make entra-mfa NAME=<username> [CLEAR=1]" >&2; exit 1; }
 	@$(LOAD_ENV) && go run ./cmd/seed entra mfa $(if $(CLEAR),--clear) "$(NAME)"
-
-## entra-demo-password: set SEED_ENTRA_DEMO_PASSWORD on one demo user (NAME=<username>)
-entra-demo-password: .env
-	@test -n "$(NAME)" || { echo "usage: make entra-demo-password NAME=<username>" >&2; exit 1; }
-	@$(LOAD_ENV) && go run ./cmd/seed entra demo-password "$(NAME)"
 
 ## noord-reset: a fresh Samba directory, then an Entra sync (Postgres untouched)
 noord-reset:

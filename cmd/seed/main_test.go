@@ -112,19 +112,12 @@ func TestRunEntraSyncUnconfigured(t *testing.T) {
 }
 
 // covers: AC-9, AC-12 (spec 0005). The MFA proof needs the tool server app
-// and says which setting is missing; demo-password refuses an unconfigured tenant.
+// and says which setting is missing.
 func TestRunEntraNamesMissingSettings(t *testing.T) {
 	unsetEntra(t)
 	err := run([]string{"entra", "mfa", "eva.peters"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "GRAPH_TENANT_ID") {
 		t.Errorf("entra mfa = %v, want an error naming GRAPH_TENANT_ID", err)
-	}
-
-	t.Setenv("SEED_ADMIN_PASSWORD", "admin-test")
-	t.Setenv("SEED_USER_PASSWORD", "user-test")
-	err = run([]string{"entra", "demo-password", "eva.peters"}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "SEED_GRAPH_") {
-		t.Errorf("entra demo-password = %v, want an error naming SEED_GRAPH_*", err)
 	}
 }
 

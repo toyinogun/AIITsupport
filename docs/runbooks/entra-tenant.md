@@ -21,10 +21,8 @@ Never put a tenant id, client id, client secret, or a real phone number in this 
 
 ## 2. Protect your admin account
 
-1. Open **Overview**, then **Properties**, then **Manage security defaults**, and make sure security defaults are **enabled**.
-2. Sign out and in again as your admin. Register MFA (the Authenticator app is fine) when asked.
-
-If security defaults later force Authenticator registration on the demo users and block the SMS step (AC-8), switch security defaults off, enable SMS in **Authentication methods**, then **Policies**, and write a journal entry.
+1. Turn on two step verification for the Microsoft account you signed up with: **https://account.microsoft.com/security**, **Advanced security options**, **Two step verification** on. That account is the tenant's admin, and this is what protects it.
+2. Turn security defaults **off**: **Overview**, **Properties**, **Manage security defaults**, **Disabled**. They only ask ordinary users for MFA when a sign in looks risky, and they cannot run alongside the per user MFA the demo users need (section 7). Spec 0005's Security model records the risk this accepts and why.
 
 ## 3. Register the two apps
 
@@ -111,9 +109,15 @@ Users without the marker, your own admin account included, are never edited, res
 ## 7. Demo users (for the video)
 
 1. Copy `seed/entra/demo.example.yaml` to `seed/entra/demo.local.yaml` (gitignored) and put your own number on at most 2 synced users.
-2. Set `SEED_ENTRA_DEMO_PASSWORD` in `.env`: at least 12 characters, 3 of upper, lower, digit, and symbol, and no part of any staff name.
-3. Run `make noord-reset` (new demo users get the password at create) or, for a demo user that already exists, `make entra-demo-password NAME=<username>`.
-4. Sign in as that user at `myaccount.microsoft.com` in a private window. You should reach an MFA step: a code sent to your phone, or MFA registration. Record which one in the journal; that is AC-8's pass condition.
+2. Set `SEED_ENTRA_DEMO_PASSWORD` in `.env`: at least 12 characters, 3 of upper, lower, digit, and symbol, and no part of any staff name. Use only letters, digits, `-`, `_`, and `!` (other symbols break how `make` loads `.env`), and never put 3 letters in a row: that is the easy way past the staff name rule, since 85 names hold many short parts like `van` or `bos`.
+3. Run `make noord-reset`. New demo users get the password at create. A demo user that already exists keeps its old password, because the seed app has no right to reset passwords (spec 0005). Reset it yourself: in the Entra admin center, **Users**, the user, **Reset password**. Microsoft shows a temporary password; at the first sign in you are asked for a new one, and you choose the demo password.
+4. Make each demo user ask for MFA on every sign in. These steps are manual, once per demo user, and they survive `make noord-reset` (only deleting the user from Entra loses them):
+   - **Users**, **All users**, **Per-user multifactor authentication** (under **...** in the toolbar), tick the user, **Enable MFA**.
+   - Create a cloud security group `Noord demo users` (**Groups**, **New group**) and add the demo users to it.
+   - **Authentication methods**, **Policies**, **SMS**: enable it, target the `Noord demo users` group only, and leave **Use for sign-in** unticked.
+5. Register an authenticator app on the demo user. Microsoft blocks texts on this tenant (error 399287, journal 0017), so a code app is the second factor that works: run `make entra-mfa NAME=<username> CLEAR=1`, sign in as the user in a private window, follow **More information required**, and add Microsoft Authenticator or another code app. Then `make entra-sync` puts the seeded mobile back.
+6. Sign in as that user at `myaccount.microsoft.com` in a private window. You should get **Verify your identity**, and a code from the app signs you in. That is AC-8's pass condition.
+7. When a user leaves the demo file, undo step 4 for it (disable per user MFA, remove it from the group).
 
 Every other user gets a random 32 character password at create that nobody ever sees.
 

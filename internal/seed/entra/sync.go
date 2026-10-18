@@ -369,16 +369,3 @@ func (r *run) clearManager(ctx context.Context, a Action) error {
 func phonesPath(id string) string { return graph.UserPath(id) + "/authentication/phoneMethods" }
 
 func sortedKeys(m map[string]any) []string { return slices.Sorted(maps.Keys(m)) }
-
-// SetPassword sets a managed user's password with no forced change. Only
-// `seed entra demo-password` calls it; a sync never rewrites a password.
-func SetPassword(ctx context.Context, c *graph.Client, u graph.ManagedUser, password string) error {
-	body := map[string]any{"passwordProfile": map[string]any{
-		"password":                      password,
-		"forceChangePasswordNextSignIn": false,
-	}}
-	if err := c.Do(ctx, graph.Request{Method: http.MethodPatch, Path: graph.UserPath(u.ID()), Body: body}); err != nil {
-		return fmt.Errorf("set the password of %s: %w", u.User().MailNickname, err)
-	}
-	return nil
-}

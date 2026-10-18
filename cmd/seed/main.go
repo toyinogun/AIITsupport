@@ -9,7 +9,6 @@
 //	seed lock <user>                     lock a user by failed binds
 //	seed entra sync [--only U]           make Entra match SYNC-Entra-Users (spec 0005)
 //	seed entra mfa [--clear] <user>      list or clear a user's phone methods (tool server app)
-//	seed entra demo-password <user>      set the demo password on a demo user
 package main
 
 import (
@@ -31,8 +30,7 @@ const usage = `usage:
   seed login [--password P] <username>
   seed lock <username>
   seed entra sync [--only <username>]
-  seed entra mfa [--clear] <username>
-  seed entra demo-password <username>`
+  seed entra mfa [--clear] <username>`
 
 // errUsage marks a mistake in how the command was called.
 var errUsage = errors.New(usage)
