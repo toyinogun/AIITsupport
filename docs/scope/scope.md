@@ -124,7 +124,7 @@ A free Entra test tenant with a subset of users synced, so the hybrid, mid migra
   - [x] Evening two: full reconcile with guards, restore, and deletes, demo users, `make noord-reset`, live and hygiene tests (AC-2, AC-3, AC-6 to AC-8, AC-13, AC-15, AC-16)
   - [x] Manager pass, built last and cut first (AC-4)
   - [x] Oct 21 checkpoint: green, or the fallback taken and journaled (AC-14)
-- [ ] Verify it: `/check verify entra tenant & sync`
+- [x] Verify it: `/check verify entra tenant & sync`
 - [ ] Test it: `/test entra tenant & sync`
 spec [0005](../specs/0005-entra-tenant-sync/index.md) · code in `internal/graph/`, `internal/seed/entra/`, `cmd/seed/`, `seed/entra/`, `Makefile`, `docs/runbooks/entra-tenant.md`
 
