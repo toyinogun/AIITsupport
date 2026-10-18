@@ -31,7 +31,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 4 | Coding standards & tooling | Foundation | done |
 | 5 | Data model | Foundation | done |
 | 6 | Noord directory & seeded mess | Client environment | done |
-| 7 | Entra tenant & sync (timeboxed) | Client environment | in-progress |
+| 7 | Entra tenant & sync (timeboxed) | Client environment | done |
 | 8 | Ticketing, knowledge base & Slack workspace | Client environment | planned |
 | 9 | Tool server & risk tiers | Slice 1 | planned |
 | 10 | Locked out user, end to end | Slice 1 | planned |
@@ -115,7 +115,7 @@ A containerised on prem directory with 80 users, OUs, and groups, rebuilt from o
 - [x] Test it: `/test noord directory`
 spec [0004](../specs/0004-noord-directory/index.md) · code in `seed/directory/`, `cmd/seed/`, `internal/seed/`, `compose.yaml`, `Makefile`
 
-### 7. Entra tenant & sync (timeboxed) · in-progress
+### 7. Entra tenant & sync (timeboxed) · done
 A free Entra test tenant with a subset of users synced, so the hybrid, mid migration story and MFA tickets are real. Timeboxed to Oct 21; AD only fallback after that.
 **Done when:** a subset of users appear in Entra, a few are deliberately left unsynced (the sync gap), and MFA methods can be cleared through the API; or the fallback is taken and recorded in the journal.
 - [x] Design it (spec): `/architect entra tenant & sync`
@@ -125,7 +125,7 @@ A free Entra test tenant with a subset of users synced, so the hybrid, mid migra
   - [x] Manager pass, built last and cut first (AC-4)
   - [x] Oct 21 checkpoint: green, or the fallback taken and journaled (AC-14)
 - [x] Verify it: `/check verify entra tenant & sync`
-- [ ] Test it: `/test entra tenant & sync`
+- [x] Test it: `/test entra tenant & sync`
 spec [0005](../specs/0005-entra-tenant-sync/index.md) · code in `internal/graph/`, `internal/seed/entra/`, `cmd/seed/`, `seed/entra/`, `Makefile`, `docs/runbooks/entra-tenant.md`
 
 ### 8. Ticketing, knowledge base & Slack workspace · needs a decision

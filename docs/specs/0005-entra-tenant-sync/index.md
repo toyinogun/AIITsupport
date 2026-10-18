@@ -1,7 +1,7 @@
 # 0005. Entra tenant and a Graph sync from Samba AD
 
 **Date**: 2026-10-18
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

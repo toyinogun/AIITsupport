@@ -15,7 +15,7 @@ Mock FDE engagement. The plan lives in `docs/scope/scope.md`; start there.
 ## Stack
 
 - **Language / Runtime**: Go 1.27 (toolchain 1.27.2), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver`, plus the dev and ops tool `cmd/seed` (`cmd/eval` arrives with feature #20)
-- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `testcontainers-go` for throwaway Postgres and Samba in tests; later `anthropic-sdk-go`, MCP `go-sdk`, `slack-go`
+- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests; later `anthropic-sdk-go`, MCP `go-sdk`, `slack-go`
 - **Dev tools**: `sqlc` and `goose` are `tool` entries in `go.mod` (`go tool sqlc`, `go tool goose`), nothing to install
 - **Lint, hook, and scan tools**: `golangci-lint` v2 (also runs gofumpt and goimports), `lefthook`, `gitleaks`, and `govulncheck` are `tool` entries in a separate `tools.mod` (`go tool -modfile=tools.mod <tool>`). Its `go` and `toolchain` lines must match `go.mod`. Dependabot can't see it, so bump these by hand. Decision: [docs/specs/0002-coding-standards-tooling/index.md](docs/specs/0002-coding-standards-tooling/index.md)
 - **Platform**: Docker Compose locally; k3s + ArgoCD + CloudNativePG in production
@@ -49,6 +49,9 @@ make directory-login NAME=<username> # bind as a seeded user and show the lock s
 make directory-lock NAME=<username>  # lock a seeded user by failed binds
 make certs     # dev CA and Samba server cert in .dev/certs (keeps existing files)
 TEST_SAMBA=1 make test # also runs the live Samba directory tests (needs Docker)
+make entra-sync [ONLY=<username>] # make the Entra tenant match SYNC-Entra-Users (skips when SEED_GRAPH_* is unset)
+make entra-mfa NAME=<username> [CLEAR=1] # list (or clear) a user's MFA methods with the tool server app
+make noord-reset # directory-reset, then entra-sync
 ```
 
 Hooks: pre commit runs a format check on staged Go files, lint, and gitleaks on the staged changes; pre push runs `go test -race` and `gen-check`. A Claude Code PostToolUse hook (`.claude/hooks/format-go.py`) formats each Go file after an edit.
@@ -69,6 +72,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - Never hardcode model ids, prices, or limits; they are config values or `eval/pricing.yaml`.
 - The credential boundary is checked twice: the depguard rule `agent-credential-boundary` in `.golangci.yml` and `cmd/agent/boundary_test.go`. A new client system package goes on both deny lists.
 - Only `cmd/seed` binds as the domain Administrator (`SEED_*` settings); `internal/seed` is on both deny lists, so the agent can never import it. See [internal/seed/AGENTS.md](internal/seed/AGENTS.md).
+- Entra has two app registrations: only `cmd/seed` holds the seed app (`SEED_GRAPH_*`, user writes); the tool server app (`GRAPH_*`) reads users and changes phone methods only. `internal/graph` refuses any user without the `noord-sync` marker (`ErrNotManaged`). See [internal/graph/AGENTS.md](internal/graph/AGENTS.md).
 - Log with `log/slog` only; the standard `log` package is denied (depguard `no-std-log`). slog messages are static strings with snake_case keys (sloglint).
 - Silence a real false positive with `//nolint:<linter> // <reason>` on the narrowest line. A wider exclusion goes in `.golangci.yml` with a comment saying why.
 - CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match.
@@ -87,6 +91,10 @@ Declined: Agent Skills and MCP servers for `golangci-lint`, `lefthook`, `gitleak
 
 Declined: ActiveDirectoryMCP (it would hold admin credentials outside the tool server; spec 0004)
 
+Declined: Agent Skills for Microsoft Graph and Entra (`merill/msgraph`, `microsoft/azure-skills` entra-app-registration, `github/awesome-copilot` msgraph-sdk; none covers the Azure SDK for Go) (2026-10-18, spec 0005)
+
+Declined: Microsoft Graph and Entra MCP servers (Microsoft's EnterpriseMCP is delegated only and needs admin provisioning rights; community ones would hold a client secret outside the tool server; spec 0005)
+
 MCP servers: `grafana/mcp-grafana` (recommended, feature #18 on), a community Zammad MCP (recommended, review first, feature #8 on)
 
 ## Context files
@@ -95,5 +103,6 @@ MCP servers: `grafana/mcp-grafana` (recommended, feature #18 on), a community Za
 - [db/AGENTS.md](db/AGENTS.md) (goose migrations, sqlc queries, and the generated code)
 - [internal/audit/AGENTS.md](internal/audit/AGENTS.md): the audit recorder and approvals, the only writer of `audit_log` and `approvals`
 - [internal/seed/AGENTS.md](internal/seed/AGENTS.md): the Noord directory seeder (`cmd/seed`, `seed/directory/`), its marker, locks, and live tests
+- [internal/graph/AGENTS.md](internal/graph/AGENTS.md): the thin Microsoft Graph client, its managed marker fence, retries, and the fake Graph
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
