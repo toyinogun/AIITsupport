@@ -1,0 +1,19 @@
+# Noord Logistics IT knowledge base (spec 0006). Every person and system here
+# is fictional. `make helpdesk-reset` rebuilds Zammad from this directory.
+#
+# The KB is out of date on purpose: two pairs of articles contradict each
+# other, two describe retired systems, two name people who have left, and two
+# describe the same password reset. The truth fields in each article's header
+# (status, contradicts, retired_system, dead_contact, duplicate_of) are for the
+# eval only and never reach Zammad.
+name: Noord IT Help
+# The fiction's "today". tickets.yaml carries the same date.
+as_of: 2026-10-16
+# In portal order. icon is a Font Awesome code (Zammad's category_icon).
+categories:
+  - {name: Accounts and passwords, icon: f023}
+  - {name: MFA and sign in, icon: f084}
+  - {name: VPN and remote work, icon: f0ac}
+  - {name: Email and Microsoft 365, icon: f0e0}
+  - {name: Printers and hardware, icon: f02f}
+  - {name: Starters and leavers, icon: f0c0}

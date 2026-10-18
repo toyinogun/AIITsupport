@@ -6,11 +6,17 @@ BINARIES := agent toolserver
 LOAD_ENV := set -a && . ./.env && set +a
 TOOL := go tool -modfile=tools.mod
 GIT_HOOKS := pre-commit pre-push
+# Zammad's services and named volumes (spec 0006). helpdesk-reset removes
+# exactly these, never pgdata and never Samba.
+ZAMMAD_SERVICES := zammad-init zammad-elasticsearch zammad-memcached zammad-postgresql \
+	zammad-redis zammad-railsserver zammad-scheduler zammad-websocket zammad-nginx
+ZAMMAD_VOLUMES := noord_elasticsearch-data noord_postgresql-data noord_redis-data \
+	noord_zammad-backup noord_zammad-storage
 
 .PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
-	entra-sync entra-mfa noord-reset
+	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -77,9 +83,24 @@ entra-mfa: .env
 	@test -n "$(NAME)" || { echo "usage: make entra-mfa NAME=<username> [CLEAR=1]" >&2; exit 1; }
 	@$(LOAD_ENV) && go run ./cmd/seed entra mfa $(if $(CLEAR),--clear) "$(NAME)"
 
-## noord-reset: a fresh Samba directory, then an Entra sync (Postgres untouched)
+## noord-reset: a fresh Samba directory, an Entra sync, then a fresh helpdesk (Postgres untouched; not atomic)
 noord-reset:
-	@$(MAKE) --no-print-directory directory-reset entra-sync
+	@$(MAKE) --no-print-directory directory-reset entra-sync helpdesk-reset
+
+## helpdesk-up: start Zammad in Compose (profile helpdesk) and wait until it is healthy
+helpdesk-up: .env certs
+	@$(LOAD_ENV) && docker compose --profile helpdesk up -d --wait $(ZAMMAD_SERVICES)
+
+## helpdesk-seed: fill Zammad from seed/helpdesk/ (says "already seeded", or asks for a reset)
+helpdesk-seed: .env
+	@$(LOAD_ENV) && go run ./cmd/seed helpdesk
+
+## helpdesk-reset: a fresh Zammad, seeded from seed/helpdesk/ (Samba and pgdata untouched)
+helpdesk-reset: .env certs
+	@$(MAKE) --no-print-directory directory-up seed
+	docker compose --profile helpdesk rm -sfv $(ZAMMAD_SERVICES)
+	docker volume rm -f $(ZAMMAD_VOLUMES)
+	@$(MAKE) --no-print-directory helpdesk-up helpdesk-seed
 
 ## build: compile both binaries into bin/
 build:

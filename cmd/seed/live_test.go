@@ -18,6 +18,7 @@ func TestCommandsAgainstALiveDirectory(t *testing.T) {
 	t.Setenv("SEED_ADMIN_USER", sambatest.AdminDN)
 	t.Setenv("SEED_ADMIN_PASSWORD", sambatest.AdminPassword)
 	t.Setenv("SEED_USER_PASSWORD", sambatest.UserPassword)
+	t.Setenv("SEED_ZAMMAD_BIND_PASSWORD", sambatest.ZammadPassword)
 	t.Setenv("SEED_FILE", "../../seed/directory/noord.yaml")
 	t.Setenv("SEED_OVERLAY_FILE", "../../seed/directory/does-not-exist.yaml")
 
@@ -45,7 +46,7 @@ func TestCommandsAgainstALiveDirectory(t *testing.T) {
 		if err := run([]string{"directory"}, &out); err != nil {
 			t.Fatalf("directory: %v", err)
 		}
-		for _, want := range []string{`"msg":"directory seeded"`, `"users":85`, `"admins":1`, `"groups":22`, `"locked":3`, `"duration_ms":`} {
+		for _, want := range []string{`"msg":"directory seeded"`, `"users":85`, `"admins":1`, `"groups":23`, `"locked":3`, `"duration_ms":`} {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("log %q lacks %s", out.String(), want)
 			}

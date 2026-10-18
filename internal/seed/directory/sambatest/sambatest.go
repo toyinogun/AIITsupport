@@ -26,9 +26,10 @@ import (
 // down. Each meets Samba's complexity rule (upper, lower, digits) and the hex
 // part holds no staff name token.
 var (
-	AdminPassword = newPassword()
-	SvcPassword   = newPassword()
-	UserPassword  = newPassword()
+	AdminPassword  = newPassword()
+	SvcPassword    = newPassword()
+	ZammadPassword = newPassword()
+	UserPassword   = newPassword()
 )
 
 func newPassword() string {
@@ -39,9 +40,10 @@ func newPassword() string {
 
 // Fixed names inside every container our image provisions.
 const (
-	BaseDN  = "DC=ad,DC=noord,DC=example"
-	AdminDN = "CN=Administrator,CN=Users," + BaseDN
-	SvcDN   = "CN=svc-itsupport,OU=Service Accounts,OU=Noord," + BaseDN
+	BaseDN   = "DC=ad,DC=noord,DC=example"
+	AdminDN  = "CN=Administrator,CN=Users," + BaseDN
+	SvcDN    = "CN=svc-itsupport,OU=Service Accounts,OU=Noord," + BaseDN
+	ZammadDN = "CN=svc-zammad,OU=Service Accounts,OU=Noord," + BaseDN
 )
 
 const startupTimeout = 4 * time.Minute
@@ -96,8 +98,9 @@ func Start(ctx context.Context, buildContext string) (*Samba, error) {
 			KeepImage: true,
 		}),
 		testcontainers.WithEnv(map[string]string{
-			"SAMBA_ADMIN_PASSWORD": AdminPassword,
-			"SAMBA_SVC_PASSWORD":   SvcPassword,
+			"SAMBA_ADMIN_PASSWORD":  AdminPassword,
+			"SAMBA_SVC_PASSWORD":    SvcPassword,
+			"SAMBA_ZAMMAD_PASSWORD": ZammadPassword,
 		}),
 		testcontainers.WithFiles(
 			testcontainers.ContainerFile{HostFilePath: filepath.Join(certDir, certs.CAFile), ContainerFilePath: "/certs/" + certs.CAFile, FileMode: 0o644},

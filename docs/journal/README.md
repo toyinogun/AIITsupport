@@ -40,5 +40,14 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0016](0016-password-reset-needs-a-directory-role.md) | 2026-10-18 | Resetting a password needs a directory role, not just a Graph permission | #7 Entra tenant & sync | ~10 min | post |
 | [0017](0017-demo-sign-in-and-blocked-texts.md) | 2026-10-18 | The demo sign in skipped MFA, then Microsoft refused to send the text | #7 Entra tenant & sync | ~40 min | both |
 | [0018](0018-tool-app-can-read-the-admins-phones.md) | 2026-10-18 | The tool server app can read the tenant admin's phone methods | #7 Entra tenant & sync | ~0 min | post |
+| [0019](0019-zammad-ldap-has-one-base-dn.md) | 2026-10-18 | Zammad's LDAP source has one base DN for users and groups | #8 Ticketing, knowledge base & Slack workspace | ~15 min | post |
+| [0020](0020-zammad-agents-can-create-users.md) | 2026-10-18 | Any Zammad agent can create users, so the assistant token can too | #8 Ticketing, knowledge base & Slack workspace | ~10 min | both |
+| [0021](0021-zammad-kb-translation-already-exists.md) | 2026-10-18 | The first bootstrap run stopped at the knowledge base | #8 Ticketing, knowledge base & Slack workspace | ~5 min | no |
+| [0022](0022-zammad-signin-needs-csrf.md) | 2026-10-18 | Wrong Zammad passwords seemed not to count toward the AD lockout | #8 Ticketing, knowledge base & Slack workspace | ~5 min | no |
+| [0023](0023-helpdesk-marker-depends-on-cwd.md) | 2026-10-18 | The helpdesk marker changed with the working directory | #8 Ticketing, knowledge base & Slack workspace | ~5 min | post |
+| [0024](0024-zammad-open-tickets-stay-new.md) | 2026-10-18 | Seeded open tickets stayed in Zammad state "new" | #8 Ticketing, knowledge base & Slack workspace | ~5 min | no |
+| [0025](0025-zammad-user-search-lags-a-reset.md) | 2026-10-18 | Zammad's user search found nobody right after a reset | #8 Ticketing, knowledge base & Slack workspace | ~5 min | no |
+| [0026](0026-kb-content-rows-have-no-dates.md) | 2026-10-18 | Zammad's KB content rows have no dates to backdate | #8 Ticketing, knowledge base & Slack workspace | ~2 min | no |
+| [0027](0027-tidy-check-needs-tools-mod-too.md) | 2026-10-18 | tidy-check failed on tools.mod after adding app dependencies | #8 Ticketing, knowledge base & Slack workspace | ~2 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

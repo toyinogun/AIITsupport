@@ -15,6 +15,7 @@ func TestRunUsageErrors(t *testing.T) {
 		{"lock"},
 		{"lock", "a.b", "c.d"},
 		{"validate", "extra"},
+		{"helpdesk", "extra"},
 	}
 	for _, args := range cases {
 		err := run(args, &bytes.Buffer{})
@@ -29,12 +30,18 @@ func TestRunValidate(t *testing.T) {
 	t.Setenv("SEED_FILE", "../../seed/directory/noord.yaml")
 	t.Setenv("SEED_OVERLAY_FILE", "../../seed/directory/does-not-exist.yaml")
 	t.Setenv("SEED_ENTRA_DEMO_FILE", "../../seed/entra/does-not-exist.yaml")
+	t.Setenv("SEED_HELPDESK_DIR", "../../seed/helpdesk")
 	var out bytes.Buffer
 	if err := run([]string{"validate"}, &out); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	if !strings.Contains(out.String(), "is valid: 85 users, 1 admins, 22 groups, 0 Entra demo users") {
-		t.Errorf("output = %q", out.String())
+	for _, want := range []string{
+		"is valid: 85 users, 1 admins, 23 groups, 0 Entra demo users",
+		"is valid: 6 KB categories, 15 KB articles, 20 tickets",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want %q", out.String(), want)
+		}
 	}
 }
 

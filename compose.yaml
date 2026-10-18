@@ -1,7 +1,15 @@
-# Local development environment. Zammad joins in feature #8.
+# Local development environment. Zammad (spec 0006) comes in through the
+# include below; every Zammad service carries the profile `helpdesk`, so
+# `make dev` and `make db-up` never start it.
 # Credentials here are for a throwaway local database only; the Samba
 # passwords come from .env (spec 0004).
 name: noord
+
+include:
+  - path:
+      - seed/helpdesk/zammad/compose.yaml
+      - seed/helpdesk/zammad/override.yaml
+    env_file: seed/helpdesk/zammad/zammad.env
 
 services:
   postgres:
@@ -35,6 +43,7 @@ services:
       SAMBA_DOMAIN: NOORD
       SAMBA_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       SAMBA_SVC_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+      SAMBA_ZAMMAD_PASSWORD: ${SEED_ZAMMAD_BIND_PASSWORD:-}
       SAMBA_LOCKOUT_THRESHOLD: 5
       SAMBA_LOCKOUT_DURATION: 15
       SAMBA_LOCKOUT_WINDOW: 15
