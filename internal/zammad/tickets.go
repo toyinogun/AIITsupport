@@ -57,12 +57,21 @@ type Article struct {
 	TicketID int `json:"ticket_id"`
 }
 
-// TicketUpdate changes a ticket's state, owner, or pending reminder. Empty
-// fields are left alone.
+// TicketUpdate changes a ticket's state, owner, or pending reminder, and can
+// add an article in the same request, so the two succeed or fail together.
+// Empty fields are left alone.
 type TicketUpdate struct {
-	State       string     `json:"state,omitempty"`
-	OwnerID     int        `json:"owner_id,omitempty"`
-	PendingTime *time.Time `json:"pending_time,omitempty"`
+	State       string      `json:"state,omitempty"`
+	OwnerID     int         `json:"owner_id,omitempty"`
+	PendingTime *time.Time  `json:"pending_time,omitempty"`
+	Article     *NewArticle `json:"article,omitempty"`
+}
+
+// TicketState is one of Zammad's ticket states, such as open or closed.
+type TicketState struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
 }
 
 type newTicketBody struct {
@@ -97,5 +106,12 @@ func (c *Client) CreateArticle(ctx context.Context, a NewArticle, from string) (
 func (c *Client) GetTicket(ctx context.Context, id int) (Ticket, error) {
 	var out Ticket
 	err := c.Do(ctx, Request{Method: http.MethodGet, Path: fmt.Sprintf("/api/v1/tickets/%d", id), Out: &out})
+	return out, err
+}
+
+// TicketStates lists Zammad's ticket states, to map names to ids.
+func (c *Client) TicketStates(ctx context.Context) ([]TicketState, error) {
+	var out []TicketState
+	err := c.Do(ctx, Request{Method: http.MethodGet, Path: "/api/v1/ticket_states", Out: &out})
 	return out, err
 }

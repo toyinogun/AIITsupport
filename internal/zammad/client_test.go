@@ -101,3 +101,63 @@ func TestNoRedirects(t *testing.T) {
 		t.Errorf("err = %v, want the 302 itself", err)
 	}
 }
+
+// covers: AC-10, AC-11 (spec 0007). The search is loose, so only an exact,
+// active login is kept.
+func TestUsersByLoginKeepsOnlyTheExactActiveLogin(t *testing.T) {
+	f := zammadtest.New(t)
+	eva := f.AddUser("eva.peters")
+	f.AddUser("eva.peters2")
+	f.AddUser("x.eva.peters")
+	c := tokenClient(t, f)
+
+	users, err := c.UsersByLogin(t.Context(), "eva.peters")
+	if err != nil {
+		t.Fatalf("UsersByLogin: %v", err)
+	}
+	if len(users) != 1 || users[0].ID != eva {
+		t.Fatalf("users = %+v, want only eva.peters (%d)", users, eva)
+	}
+	if q := f.Requests()[0]; !strings.Contains(q.Path, "/users/search") {
+		t.Errorf("request = %+v, want a user search", q)
+	}
+
+	f.Deactivate(eva)
+	if users, err := c.UsersByLogin(t.Context(), "eva.peters"); err != nil || len(users) != 0 {
+		t.Errorf("UsersByLogin for an inactive user = %+v, %v; want none", users, err)
+	}
+}
+
+// covers: AC-11 (spec 0007). State and note travel in one request.
+func TestUpdateTicketCarriesItsArticleInOneRequest(t *testing.T) {
+	f := zammadtest.New(t)
+	customer := f.AddUser("eva.peters")
+	c := tokenClient(t, f)
+	tk, err := c.CreateTicket(t.Context(), zammad.NewTicket{
+		Title: "x", Group: "IT Support", CustomerID: customer,
+		Article: zammad.NewArticle{Body: "b", ContentType: "text/plain", Type: zammad.ArticleNote, Sender: zammad.SenderCustomer},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(f.Requests())
+	_, err = c.UpdateTicket(t.Context(), tk.ID, zammad.TicketUpdate{
+		State:   "closed",
+		Article: &zammad.NewArticle{Body: "done", ContentType: "text/plain", Type: zammad.ArticleNote, Sender: zammad.SenderAgent, Internal: true},
+	}, "")
+	if err != nil {
+		t.Fatalf("UpdateTicket: %v", err)
+	}
+	if n := len(f.Requests()) - before; n != 1 {
+		t.Fatalf("UpdateTicket sent %d requests, want 1", n)
+	}
+	got, err := c.GetTicket(t.Context(), tk.ID)
+	if err != nil || got.StateID != 4 || len(got.ArticleIDs) != 2 {
+		t.Fatalf("ticket = %+v, %v; want closed (4) with two articles", got, err)
+	}
+
+	states, err := c.TicketStates(t.Context())
+	if err != nil || len(states) == 0 || states[3].Name != "closed" {
+		t.Errorf("TicketStates = %+v, %v", states, err)
+	}
+}

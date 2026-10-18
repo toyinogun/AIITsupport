@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 )
 
 func TestGenerateMakesAVerifiableServerCert(t *testing.T) {
@@ -20,7 +22,7 @@ func TestGenerateMakesAVerifiableServerCert(t *testing.T) {
 		t.Fatalf("first run wrote %v, skipped %v; want all four written", res.Written, res.Skipped)
 	}
 
-	pool, err := Pool(filepath.Join(dir, CAFile))
+	pool, err := noordldap.LoadCA(filepath.Join(dir, CAFile))
 	if err != nil {
 		t.Fatalf("Pool: %v", err)
 	}
@@ -85,7 +87,7 @@ func TestGenerateSignsANewServerCertWithTheExistingCA(t *testing.T) {
 	if !slices.Contains(res.Written, ServerFile) || slices.Contains(res.Written, CAFile) {
 		t.Fatalf("wrote %v, want only the server pair", res.Written)
 	}
-	pool, err := Pool(filepath.Join(dir, CAFile))
+	pool, err := noordldap.LoadCA(filepath.Join(dir, CAFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,35 +174,6 @@ func TestGenerateRefusesADamagedCA(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestPool(t *testing.T) {
-	t.Run("reads the generated CA", func(t *testing.T) {
-		dir := t.TempDir()
-		if _, err := Generate(dir, nil); err != nil {
-			t.Fatal(err)
-		}
-		pool, err := Pool(filepath.Join(dir, CAFile))
-		if err != nil || pool == nil {
-			t.Fatalf("Pool = %v, %v; want a pool", pool, err)
-		}
-	})
-
-	t.Run("a missing CA points at make certs", func(t *testing.T) {
-		_, err := Pool(filepath.Join(t.TempDir(), "missing.pem"))
-		if err == nil || !strings.Contains(err.Error(), "run make certs") {
-			t.Fatalf("Pool = %v, want an error pointing at make certs", err)
-		}
-	})
-
-	t.Run("a file with no certificate is refused", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "ca.pem")
-		writeFile(t, path, "nothing to see here")
-		_, err := Pool(path)
-		if err == nil || !strings.Contains(err.Error(), "holds no PEM certificate") {
-			t.Fatalf("Pool = %v, want a no certificate error", err)
-		}
-	})
 }
 
 func writeFile(t *testing.T, path, content string) {

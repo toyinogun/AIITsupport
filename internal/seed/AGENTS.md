@@ -8,13 +8,12 @@ Builds Noord's fictional on prem Active Directory (spec 0004): a Samba AD contai
 
 | File | Owns |
 |---|---|
-| `certs/certs.go` | `Generate` (dev CA and Samba server cert, keeps files that exist), `Pool`, the cert SANs |
+| `certs/certs.go` | `Generate` (dev CA and Samba server cert, keeps files that exist), the cert SANs; the CA loader is `ldap.LoadCA` |
 | `directory/model.go` | `Load` / `Parse`: the seed file plus the optional overlay into a `Model`; eval truth (`Left`, `Locked`, `Synced`) lives here only |
 | `directory/validate.go` | every seed file rule, reported together in one error |
-| `directory/dn.go` | the OU layout and DN builders (values are escaped) |
-| `directory/conn.go` | `Dialer` (LDAPS verified against our CA), `WaitAndBind`, `BaseDN` |
+| `directory/dn.go` | `Model.UserDN`, `Model.GroupDN` (values are escaped); the OU layout, `Dialer`, `WaitAndBind`, and `BaseDN` live in `internal/ldap` (spec 0007) |
 | `directory/apply.go` | `Apply`: fills a fresh directory, writes the marker last, returns `ErrNeedsReset` on any other seeded content |
-| `directory/lock.go` | `Lock`, `LockAndConfirm`, `State` |
+| `directory/lock.go` | `Lock`, `LockAndConfirm`, `LockoutThreshold`; lock state is `ldap.State` |
 | `directory/sambatest/` | starts a throwaway Samba container for tests (`TEST_SAMBA`) |
 | `entra/scope.go` | `ReadScope`: the direct members of `SYNC-Entra-Users` with their AD managers; refuses any member outside `OU=Users,OU=Noord` (spec 0005) |
 | `entra/plan.go` | `MakePlan`: diffs the AD scope against Entra (live and recycle bin) into actions; every guard (delete limit, collisions, duplicates) fails before any write |

@@ -23,14 +23,25 @@ func minimalAgentEnv() map[string]string {
 	return map[string]string{
 		"AGENT_DATABASE_URL": "postgres://u:p@localhost:5432/noord",
 		"TOOLSERVER_URL":     "http://localhost:8080/mcp",
-		"TOOLSERVER_TOKEN":   "test-token",
+		"TOOLSERVER_TOKEN":   testToolServerToken,
 	}
 }
+
+// testToolServerToken is 32 characters, the shortest either binary accepts.
+const testToolServerToken = "test-token-0123456789abcdefghijk"
 
 func minimalToolServerEnv() map[string]string {
 	return map[string]string{
 		"TOOLSERVER_DATABASE_URL": "postgres://u:p@localhost:5432/noord",
-		"TOOLSERVER_TOKEN":        "test-token",
+		"TOOLSERVER_TOKEN":        testToolServerToken,
+		"LDAP_URL":                "ldaps://localhost:55636",
+		"LDAP_BASE_DN":            "DC=ad,DC=noord,DC=example",
+		"LDAP_BIND_DN":            "CN=svc-itsupport,OU=Service Accounts,OU=Noord,DC=ad,DC=noord,DC=example",
+		"LDAP_BIND_PASSWORD":      "bind-test",
+		"LDAP_CA_CERT":            ".dev/certs/ca.pem",
+		"ZAMMAD_URL":              "http://127.0.0.1:58080",
+		"ZAMMAD_TOKEN":            "dev-only-zammad-token-change-me-0001",
+		"ZAMMAD_DEFAULT_GROUP":    "IT Support",
 	}
 }
 
@@ -218,7 +229,10 @@ func TestLoadToolServerReportsEveryMissingSetting(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for missing required settings")
 	}
-	for _, name := range []string{"TOOLSERVER_DATABASE_URL", "TOOLSERVER_TOKEN"} {
+	for _, name := range []string{
+		"TOOLSERVER_DATABASE_URL", "TOOLSERVER_TOKEN", "LDAP_URL", "LDAP_BASE_DN", "LDAP_BIND_DN",
+		"LDAP_BIND_PASSWORD", "LDAP_CA_CERT", "ZAMMAD_URL", "ZAMMAD_TOKEN", "ZAMMAD_DEFAULT_GROUP",
+	} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name missing setting %s", err, name)
 		}
@@ -282,9 +296,9 @@ func TestUnsetSettingWithoutDefaultStaysZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadToolServer: %v", err)
 	}
-	if cfg.TicketRetentionDays != 0 || cfg.ApprovalTimeout != 0 || cfg.LDAPURL != "" {
-		t.Errorf("unset settings should stay zero, got TicketRetentionDays=%d ApprovalTimeout=%v LDAPURL=%q",
-			cfg.TicketRetentionDays, cfg.ApprovalTimeout, cfg.LDAPURL)
+	if cfg.TicketRetentionDays != 0 || cfg.ApprovalTimeout != 0 || cfg.KillSwitchFile != "" {
+		t.Errorf("unset settings should stay zero, got TicketRetentionDays=%d ApprovalTimeout=%v KillSwitchFile=%q",
+			cfg.TicketRetentionDays, cfg.ApprovalTimeout, cfg.KillSwitchFile)
 	}
 }
 
@@ -642,7 +656,6 @@ func TestLoadAgentSlackTokens(t *testing.T) {
 // covers: spec 0006 configuration. ZAMMAD_TOKEN, when set, is long and plain.
 func TestZammadTokenFormat(t *testing.T) {
 	cases := map[string]bool{
-		"":                                      true,
 		"dev-only-zammad-token-change-me-0001":  true,
 		"short-token":                           false,
 		"has spaces in it but is long enough!!": false,
@@ -709,4 +722,104 @@ func TestLoadSeedHelpdesk(t *testing.T) {
 			t.Errorf("got %v, want a SEED_ZAMMAD_WAIT_TIMEOUT error", err)
 		}
 	})
+}
+
+// covers: AC-16 (spec 0007). The tool layer's defaults.
+func TestToolLayerDefaults(t *testing.T) {
+	cfg, err := LoadToolServer(envFrom(minimalToolServerEnv()))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	checks := []struct {
+		name      string
+		got, want any
+	}{
+		{"ToolCallTimeout", cfg.ToolCallTimeout, 15 * time.Second},
+		{"LDAPTimeout", cfg.LDAPTimeout, 5 * time.Second},
+		{"MaxRequestBytes", cfg.MaxRequestBytes, 65536},
+		{"ToolWriteLimit", cfg.ToolWriteLimit, 3},
+		{"ToolWriteWindow", cfg.ToolWriteWindow, time.Hour},
+		{"TicketCreateLimit", cfg.TicketCreateLimit, 5},
+		{"TicketMaxPending", cfg.TicketMaxPending, 720 * time.Hour},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
+		}
+	}
+	if !slices.Equal(cfg.ToolUserOUs, []string{"OU=Users,OU=Noord"}) || !slices.Equal(cfg.ToolGroupOUs, []string{"OU=Groups,OU=Noord"}) {
+		t.Errorf("OUs = %v and %v, want the Noord users and groups OUs", cfg.ToolUserOUs, cfg.ToolGroupOUs)
+	}
+	if !slices.Equal(cfg.ToolDeniedGroups, []string{"SG-IT-Admins", "APP-Helpdesk-Agents", "SYNC-Entra-Users"}) {
+		t.Errorf("ToolDeniedGroups = %v", cfg.ToolDeniedGroups)
+	}
+}
+
+// covers: AC-16 (spec 0007). A sep list splits on its separator and keeps a
+// blank entry, so the OU check can refuse it.
+func TestSemicolonListsKeepBlankEntries(t *testing.T) {
+	env := minimalToolServerEnv()
+	env["TOOL_USER_OUS"] = "OU=Users,OU=Noord; OU=Contractors,OU=Noord ;"
+	cfg, err := LoadToolServer(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	want := []string{"OU=Users,OU=Noord", "OU=Contractors,OU=Noord", ""}
+	if !slices.Equal(cfg.ToolUserOUs, want) {
+		t.Errorf("ToolUserOUs = %q, want %q", cfg.ToolUserOUs, want)
+	}
+}
+
+// covers: AC-16 (spec 0007). TOOLSERVER_TOKEN is at least 32 characters on
+// both binaries, and the error never holds the value.
+func TestToolServerTokenLength(t *testing.T) {
+	short := "short-token-only-31-characters!"
+	agentEnv := minimalAgentEnv()
+	agentEnv["TOOLSERVER_TOKEN"] = short
+	toolEnv := minimalToolServerEnv()
+	toolEnv["TOOLSERVER_TOKEN"] = short
+
+	_, agentErr := LoadAgent(envFrom(agentEnv))
+	_, toolErr := LoadToolServer(envFrom(toolEnv))
+	for name, err := range map[string]error{"agent": agentErr, "tool server": toolErr} {
+		if err == nil || !strings.Contains(err.Error(), "TOOLSERVER_TOKEN must be at least 32") {
+			t.Errorf("%s: got %v, want a token length error", name, err)
+		} else if strings.Contains(err.Error(), short) {
+			t.Errorf("%s: error %q leaks the token", name, err)
+		}
+	}
+}
+
+// covers: AC-16 (spec 0007). Out of range tool layer settings stop startup.
+func TestToolLayerRanges(t *testing.T) {
+	for name, value := range map[string]string{
+		"TOOL_WRITE_LIMIT":             "0",
+		"TICKET_CREATE_LIMIT":          "-1",
+		"TOOLSERVER_MAX_REQUEST_BYTES": "0",
+		"TOOL_CALL_TIMEOUT":            "0s",
+		"LDAP_TIMEOUT":                 "-5s",
+		"TOOL_WRITE_WINDOW":            "0s",
+		"TICKET_MAX_PENDING":           "-1h",
+	} {
+		env := minimalToolServerEnv()
+		env[name] = value
+		if _, err := LoadToolServer(envFrom(env)); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s=%s: got %v, want an error naming it", name, value, err)
+		}
+	}
+}
+
+// covers: AC-16 (spec 0007). The dialer refuses anything but LDAPS on every
+// call, so startup refuses it first, naming the setting but not the value.
+func TestLDAPURLMustBeLDAPS(t *testing.T) {
+	for _, value := range []string{"ldap://dc.noord.example:389", "ldaps://", "dc.noord.example:636", "https://dc.noord.example", "ldaps://%zz"} {
+		env := minimalToolServerEnv()
+		env["LDAP_URL"] = value
+		if _, err := LoadToolServer(envFrom(env)); err == nil || !strings.Contains(err.Error(), "LDAP_URL must be an ldaps:// URL") {
+			t.Errorf("LDAP_URL=%s: got %v, want an ldaps error", value, err)
+		}
+	}
+	if _, err := LoadToolServer(envFrom(minimalToolServerEnv())); err != nil {
+		t.Errorf("the default ldaps URL was refused: %v", err)
+	}
 }

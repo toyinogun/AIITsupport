@@ -148,17 +148,17 @@ spec [0006](../specs/0006-helpdesk-kb-slack/index.md) · code in `seed/helpdesk/
 The only path into client systems. Every tool has a risk tier enforced in code: read, low, medium, blocked. Allow list of OUs and groups, deny list of privileged groups, kill switch to read only, and an audit row for every call.
 **Done when:** `user_lookup`, `account_unlock`, and `ticket_create` / `ticket_update` work through it; a call against a denied group fails at the tool layer whatever the prompt says; flipping the kill switch blocks every account change; every call writes an audit row.
 - [x] Design it (spec): `/architect tool server & risk tiers`
-- [ ] Build it: `/develop tool server & risk tiers`
-  - [ ] Tracer thread: `internal/ldap`, the MCP server, dispatcher, and client, with `user_lookup` end to end to live Samba and its audit pair (AC-1 to AC-6, AC-15 to AC-17, AC-19 to AC-21)
-  - [ ] `account_unlock` with the kill switch and the rate limit (AC-7 to AC-9, AC-21)
-  - [ ] Ticket tools on Zammad, with the one ticket per thread rule and the live run (AC-9 to AC-11, AC-19)
-  - [ ] The rest of the fence: `privileged_access_change`, the group guard, medium routing (AC-12 to AC-14, AC-21)
-  - [ ] Boundaries, outage and hygiene tests, docs (AC-15, AC-18 to AC-20)
-- [ ] Verify it: `/check verify tool server & risk tiers`
-- [ ] Test it: `/test tool server & risk tiers`
-- [ ] Review it (fresh model): `/check review tool server & risk tiers`
-- [ ] Document it: `/document tool server & risk tiers`
-spec [0007](../specs/0007-tool-server-risk-tiers/index.md)
+- [x] Build it: `/develop tool server & risk tiers`
+  - [x] Tracer thread: `internal/ldap`, the MCP server, dispatcher, and client, with `user_lookup` end to end to live Samba and its audit pair (AC-1 to AC-6, AC-15 to AC-17, AC-19 to AC-21)
+  - [x] `account_unlock` with the kill switch and the rate limit (AC-7 to AC-9, AC-21)
+  - [x] Ticket tools on Zammad, with the one ticket per thread rule and the live run (AC-9 to AC-11, AC-19)
+  - [x] The rest of the fence: `privileged_access_change`, the group guard, medium routing (AC-12 to AC-14, AC-21)
+  - [x] Boundaries, outage and hygiene tests, docs (AC-15, AC-18 to AC-20)
+- [x] Verify it: `/check verify tool server & risk tiers`
+- [x] Test it: `/test tool server & risk tiers`
+- [x] Review it (fresh model): `/check review tool server & risk tiers`
+- [x] Document it: `/document tool server & risk tiers`
+spec [0007](../specs/0007-tool-server-risk-tiers/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/ldap`
 
 ### 10. Locked out user, end to end · needs a decision · GA
 The thinnest real thread: a user says they are locked out in Slack, the agent confirms the Slack user matches the directory user, unlocks, opens and closes a ticket with a summary, and the audit log shows it all. This is the walking skeleton.

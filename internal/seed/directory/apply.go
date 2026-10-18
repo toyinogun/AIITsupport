@@ -9,6 +9,8 @@ import (
 	"unicode/utf16"
 
 	"github.com/go-ldap/ldap/v3"
+
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 )
 
 // ErrNeedsReset means the directory already holds seeded content that is not
@@ -27,7 +29,7 @@ type Options struct {
 	// UserPassword is set on every seeded user and admin account.
 	UserPassword string
 	// Dialer is used to lock users by failed binds as themselves.
-	Dialer Dialer
+	Dialer noordldap.Dialer
 }
 
 // Result counts what Apply wrote.
@@ -49,7 +51,7 @@ func Apply(ctx context.Context, conn ldap.Client, m Model, opts Options) (Result
 	if opts.UserPassword == "" {
 		return Result{}, errors.New("no user password; set SEED_USER_PASSWORD")
 	}
-	base, err := BaseDN(conn)
+	base, err := noordldap.BaseDN(conn)
 	if err != nil {
 		return Result{}, err
 	}
@@ -65,7 +67,7 @@ func Apply(ctx context.Context, conn ldap.Client, m Model, opts Options) (Result
 			return a.res, err
 		}
 	}
-	if err := a.replace(NoordDN(base), "description", m.Marker); err != nil {
+	if err := a.replace(noordldap.NoordDN(base), "description", m.Marker); err != nil {
 		return a.res, fmt.Errorf("write seed marker: %w", err)
 	}
 	return a.res, nil
@@ -74,18 +76,18 @@ func Apply(ctx context.Context, conn ldap.Client, m Model, opts Options) (Result
 // checkSeedState reports true when the marker matches, and ErrNeedsReset when
 // the directory holds seeded content under any other marker or none.
 func checkSeedState(conn ldap.Client, base, want string) (bool, error) {
-	top, err := readOne(conn, NoordDN(base), "description")
+	top, err := noordldap.ReadOne(conn, noordldap.NoordDN(base), "description")
 	if err != nil {
 		return false, err
 	}
 	if top == nil {
-		return false, fmt.Errorf("%s is missing; the directory was not provisioned by our image", NoordDN(base))
+		return false, fmt.Errorf("%s is missing; the directory was not provisioned by our image", noordldap.NoordDN(base))
 	}
 	got := top.GetAttributeValue("description")
 	if got == want {
 		return true, nil
 	}
-	for _, ou := range []string{UsersDN(base), GroupsDN(base), AdminsDN(base)} {
+	for _, ou := range []string{noordldap.UsersDN(base), noordldap.GroupsDN(base), noordldap.AdminsDN(base)} {
 		has, err := hasChildren(conn, ou)
 		if err != nil {
 			return false, err
@@ -123,7 +125,7 @@ type applier struct {
 
 func (a *applier) departments() error {
 	for _, d := range a.m.Departments {
-		if err := a.add(DepartmentDN(a.base, d), [][2]any{
+		if err := a.add(noordldap.DepartmentDN(a.base, d), [][2]any{
 			{"objectClass", []string{"top", "organizationalUnit"}},
 			{"ou", d},
 		}); err != nil {

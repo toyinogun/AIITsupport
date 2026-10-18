@@ -14,6 +14,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countRecentOKOutcomes = `-- name: CountRecentOKOutcomes :one
+SELECT count(*) FROM audit_log
+WHERE kind = 'outcome' AND outcome = 'ok'
+  AND tool_name = $1 AND requester_slack_id = $2
+  AND occurred_at > $3
+`
+
+type CountRecentOKOutcomesParams struct {
+	ToolName         string
+	RequesterSlackID string
+	Since            time.Time
+}
+
+// CountRecentOKOutcomes counts a requester's ok outcomes for one tool since a
+// time: the tool server's rate limit (spec 0007).
+func (q *Queries) CountRecentOKOutcomes(ctx context.Context, arg CountRecentOKOutcomesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentOKOutcomes, arg.ToolName, arg.RequesterSlackID, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const insertAuditIntent = `-- name: InsertAuditIntent :one
 
 INSERT INTO audit_log (
@@ -216,4 +238,27 @@ func (q *Queries) ListUnconfirmedCalls(ctx context.Context, arg ListUnconfirmedC
 		return nil, err
 	}
 	return items, nil
+}
+
+const threadHasOKOutcome = `-- name: ThreadHasOKOutcome :one
+SELECT EXISTS (
+    SELECT 1 FROM audit_log
+    WHERE slack_channel_id = $1 AND slack_thread_ts = $2
+      AND kind = 'outcome' AND outcome = 'ok' AND tool_name = $3
+)
+`
+
+type ThreadHasOKOutcomeParams struct {
+	SlackChannelID pgtype.Text
+	SlackThreadTs  pgtype.Text
+	ToolName       string
+}
+
+// ThreadHasOKOutcome reports whether a tool already succeeded in a Slack
+// thread: one ticket per conversation (spec 0007).
+func (q *Queries) ThreadHasOKOutcome(ctx context.Context, arg ThreadHasOKOutcomeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, threadHasOKOutcome, arg.SlackChannelID, arg.SlackThreadTs, arg.ToolName)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

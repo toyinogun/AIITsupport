@@ -18,6 +18,8 @@ It came back later the same day (while building AC-17): the test, already retryi
 That the search query form was wrong (a login with a dot). The session tried `eva.peters`, `eva`, `login:eva.peters`: all worked by then.
 
 ## What it actually was
+Later found to be most likely a race, not a lag: see [0028](0028-helpdesk-seed-raced-zammad-init.md).
+
 Zammad's search index (Elasticsearch, fed by background jobs) lags the LDAP import. Usually by seconds, but on a fresh reset, with Elasticsearch just started, by more than a minute. The spec already warned about it, which is why the seed takes user ids from bootstrap's map and never from search.
 
 ## How I fixed it

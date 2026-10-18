@@ -436,3 +436,66 @@ func TestPgDecidingAnUnknownApprovalFails(t *testing.T) {
 		t.Fatalf("err = %v, want ErrApprovalNotFound", err)
 	}
 }
+
+// --- history reads (spec 0007) ---
+
+// covers: AC-9 (spec 0007). Only this requester's ok outcomes for this tool
+// after since count; refusals and errors do not.
+func TestPgCountRecentOK(t *testing.T) {
+	r, _ := pgRecorder(t)
+	c := unlockCall()
+	since := time.Now().Add(-time.Hour)
+
+	for range 2 {
+		if _, err := r.Run(t.Context(), c, okAction(Result{})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Refuse(t.Context(), c, OutcomeReadOnly, "account changes are paused"); err != nil {
+		t.Fatal(err)
+	}
+	other := c
+	other.RequesterSlackID = "U09SOMEONE"
+	if _, err := r.Run(t.Context(), other, okAction(Result{})); err != nil {
+		t.Fatal(err)
+	}
+	otherTool := c
+	otherTool.Tool = "ticket_create"
+	if _, err := r.Run(t.Context(), otherTool, okAction(Result{})); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := r.CountRecentOK(t.Context(), c.Tool, c.RequesterSlackID, since)
+	if err != nil || n != 2 {
+		t.Fatalf("CountRecentOK = %d, %v; want 2", n, err)
+	}
+	if n, err := r.CountRecentOK(t.Context(), c.Tool, c.RequesterSlackID, time.Now().Add(time.Minute)); err != nil || n != 0 {
+		t.Errorf("CountRecentOK from a future since = %d, %v; want 0", n, err)
+	}
+}
+
+// covers: AC-10 (spec 0007)
+func TestPgThreadHasOK(t *testing.T) {
+	r, _ := pgRecorder(t)
+	c := unlockCall()
+	c.Tool = "ticket_create"
+
+	if has, err := r.ThreadHasOK(t.Context(), c.Tool, c.ChannelID, c.ThreadTS); err != nil || has {
+		t.Fatalf("ThreadHasOK on an empty thread = %v, %v; want false", has, err)
+	}
+	if err := r.Refuse(t.Context(), c, OutcomeDeniedPolicy, "rate limited"); err != nil {
+		t.Fatal(err)
+	}
+	if has, _ := r.ThreadHasOK(t.Context(), c.Tool, c.ChannelID, c.ThreadTS); has {
+		t.Fatal("a refused call counted as a ticket")
+	}
+	if _, err := r.Run(t.Context(), c, okAction(Result{})); err != nil {
+		t.Fatal(err)
+	}
+	if has, err := r.ThreadHasOK(t.Context(), c.Tool, c.ChannelID, c.ThreadTS); err != nil || !has {
+		t.Fatalf("ThreadHasOK after an ok ticket_create = %v, %v; want true", has, err)
+	}
+	if has, _ := r.ThreadHasOK(t.Context(), c.Tool, c.ChannelID, "1700000000.000999"); has {
+		t.Error("another thread saw this thread's ticket")
+	}
+}

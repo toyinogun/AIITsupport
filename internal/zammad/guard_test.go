@@ -48,6 +48,14 @@ var everyMethod = map[string]func(ctx context.Context, c *zammad.Client, custome
 		_, err := c.SearchUsers(ctx, "eva", 10)
 		return err
 	},
+	"UsersByLogin": func(ctx context.Context, c *zammad.Client, _ int) error {
+		_, err := c.UsersByLogin(ctx, "eva.peters")
+		return err
+	},
+	"TicketStates": func(ctx context.Context, c *zammad.Client, _ int) error {
+		_, err := c.TicketStates(ctx)
+		return err
+	},
 	"CreateTicket": func(ctx context.Context, c *zammad.Client, customer int) error {
 		_, err := c.CreateTicket(ctx, zammad.NewTicket{
 			Title: "Locked out", Group: "IT Support", CustomerID: customer, Tags: []string{"t-01"},
@@ -60,7 +68,10 @@ var everyMethod = map[string]func(ctx context.Context, c *zammad.Client, custome
 		if err != nil {
 			return err
 		}
-		_, err = c.UpdateTicket(ctx, tk.ID, zammad.TicketUpdate{State: "closed", OwnerID: customer}, "ruben.mulder")
+		_, err = c.UpdateTicket(ctx, tk.ID, zammad.TicketUpdate{
+			State: "closed", OwnerID: customer,
+			Article: &zammad.NewArticle{Body: "done", ContentType: "text/plain", Type: zammad.ArticleNote, Sender: zammad.SenderAgent, Internal: true},
+		}, "ruben.mulder")
 		return err
 	},
 	"GetTicket": func(ctx context.Context, c *zammad.Client, customer int) error {

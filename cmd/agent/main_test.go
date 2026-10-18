@@ -25,7 +25,7 @@ func clearEnv(t *testing.T) {
 func requiredEnv(t *testing.T, databaseURL string) {
 	t.Helper()
 	t.Setenv("AGENT_DATABASE_URL", databaseURL)
-	t.Setenv("TOOLSERVER_TOKEN", "test-token")
+	t.Setenv("TOOLSERVER_TOKEN", "test-token-0123456789abcdefghijk")
 	t.Setenv("TOOLSERVER_URL", "http://localhost:18081/mcp")
 }
 

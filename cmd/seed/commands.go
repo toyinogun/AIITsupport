@@ -13,6 +13,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/toyinogun/AIITsupport/internal/config"
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
@@ -169,7 +170,7 @@ func runLock(ctx context.Context, args []string, out io.Writer) error {
 	}
 	defer admin.Close()
 
-	base, err := directory.BaseDN(admin)
+	base, err := noordldap.BaseDN(admin)
 	if err != nil {
 		return err
 	}
@@ -195,7 +196,7 @@ func oneUsername(args []string) (string, error) {
 type session struct {
 	cfg    config.Seed
 	model  directory.Model
-	dialer directory.Dialer
+	dialer noordldap.Dialer
 }
 
 func loadSession() (session, error) {
@@ -207,11 +208,11 @@ func loadSession() (session, error) {
 	if err != nil {
 		return session{}, err
 	}
-	pool, err := certs.Pool(cfg.CACert)
+	pool, err := noordldap.LoadCA(cfg.CACert)
 	if err != nil {
 		return session{}, err
 	}
-	return session{cfg: cfg, model: m, dialer: directory.Dialer{URL: cfg.LDAPURL, RootCAs: pool}}, nil
+	return session{cfg: cfg, model: m, dialer: noordldap.Dialer{URL: cfg.LDAPURL, RootCAs: pool}}, nil
 }
 
 // userDN derives the bind DN from the model; users bind by DN, never by UPN.
@@ -221,7 +222,7 @@ func (s session) userDN(username string) (string, error) {
 		return "", err
 	}
 	defer admin.Close()
-	base, err := directory.BaseDN(admin)
+	base, err := noordldap.BaseDN(admin)
 	if err != nil {
 		return "", err
 	}
@@ -233,16 +234,16 @@ func (s session) userDN(username string) (string, error) {
 }
 
 // state reads the lock state as the Administrator, never from bind errors.
-func (s session) state(userDN string) (directory.LockState, error) {
+func (s session) state(userDN string) (noordldap.LockState, error) {
 	admin, err := s.dialer.Bind(s.cfg.AdminUser, s.cfg.AdminPassword)
 	if err != nil {
-		return directory.LockState{}, err
+		return noordldap.LockState{}, err
 	}
 	defer admin.Close()
-	return directory.State(admin, userDN)
+	return noordldap.State(admin, userDN)
 }
 
-func bindOnce(d directory.Dialer, dn, password string) error {
+func bindOnce(d noordldap.Dialer, dn, password string) error {
 	conn, err := d.Dial()
 	if err != nil {
 		return err

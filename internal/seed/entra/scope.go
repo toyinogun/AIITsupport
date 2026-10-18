@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-ldap/ldap/v3"
 
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 )
 
@@ -40,7 +41,7 @@ var adAttributes = []string{
 // ReadScope reads the direct members of SYNC-Entra-Users and their
 // attributes. conn must be bound as the domain Administrator.
 func ReadScope(conn ldap.Client, m directory.Model) ([]ADUser, error) {
-	base, err := directory.BaseDN(conn)
+	base, err := noordldap.BaseDN(conn)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +72,7 @@ func BuildScope(base string, members []string, entries []*ldap.Entry) []ADUser {
 	for _, e := range entries {
 		byDN[strings.ToLower(e.DN)] = e
 	}
-	usersOU, _ := ldap.ParseDN(directory.UsersDN(base))
+	usersOU, _ := ldap.ParseDN(noordldap.UsersDN(base))
 
 	out := make([]ADUser, 0, len(members))
 	for _, dn := range members {

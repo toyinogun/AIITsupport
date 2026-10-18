@@ -19,6 +19,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 )
 
@@ -128,7 +129,7 @@ func Start(ctx context.Context, buildContext string) (*Samba, error) {
 		return nil, errors.Join(fmt.Errorf("find the LDAPS port: %w", err), s.Terminate())
 	}
 	s.URL = endpoint
-	s.RootCAs, err = certs.Pool(s.CAPath)
+	s.RootCAs, err = noordldap.LoadCA(s.CAPath)
 	if err != nil {
 		return nil, errors.Join(err, s.Terminate())
 	}
