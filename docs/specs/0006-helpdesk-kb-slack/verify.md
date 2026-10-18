@@ -34,39 +34,45 @@ Build paused here for `/architect` to settle the LDAP base and AC-6 (2026-10-18)
 _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `/test` locks the durable ones._
 
 ### UI / manual
-- [ ] Open `http://127.0.0.1:58080`, sign in as `eva.peters` with `SEED_USER_PASSWORD`, raise a ticket in IT Support → ticket created, Eva sees only her own tickets → AC-5
-- [ ] At the Zammad login, type a wrong password for `eva.peters` five times, then run `make directory-login NAME=eva.peters` → locked; Zammad now refuses her right password too → AC-5
-- [ ] Run `make directory-lock NAME=yara.schouten`, then sign in to Zammad as her → refused → AC-5
-- [ ] Open `http://127.0.0.1:58080/help/en-us` signed out → "Noord IT Help", 6 categories, 15 articles, including the SecureLink VPN and SMS sign in articles → AC-7
-- [ ] Search the KB for `SecureLink` → finds the retired VPN article (search index rebuilt) → AC-7
-- [ ] In the agent view, check tickets: hd-019 is pending reminder (owner Ruben), hd-018 and hd-020 are open with no owner, the rest closed by Ruben; dates run from August to October 2026 → AC-8
+- [x] Open `http://127.0.0.1:58080`, sign in as `eva.peters` with `SEED_USER_PASSWORD`, raise a ticket in IT Support → ticket created, Eva sees only her own tickets → AC-5
+- [x] At the Zammad login, type a wrong password for `eva.peters` five times, then run `make directory-login NAME=eva.peters` → locked; Zammad now refuses her right password too → AC-5
+- [x] Run `make directory-lock NAME=yara.schouten`, then sign in to Zammad as her → refused → AC-5 (checked by `TestLiveSignInFollowsAD`, which locks her by failed binds and gets 401 from Zammad)
+- [x] Open `http://127.0.0.1:58080/help/en-us` signed out → "Noord IT Help", 6 categories, 15 articles, including the SecureLink VPN and SMS sign in articles → AC-7
+- [x] Search the KB for `SecureLink` → finds the retired VPN article (search index rebuilt) → AC-7
+- [x] In the agent view, check tickets: hd-019 is pending reminder (owner Ruben), hd-018 and hd-020 are open with no owner, the rest closed by Ruben; dates run from August to October 2026 → AC-8
 - [x] Create the workspace, app, and channels per `docs/runbooks/slack-workspace.md`; check the app settings match the manifest → AC-11 (done by hand 2026-10-18; the bot is in `#it-help`; demo accounts skipped for now, they matter from #10)
 - [x] With both Slack tokens in `.env`, run `make dev` and DM the bot "hello" → one threaded holding reply within 5 seconds (record the time here); the agent log has one `slack_event_received` line with event id, channel id, and event type, and no message text → AC-12 (2026-10-18: `slack_connected` on the first attempt; reply 0.5 s after the message by Slack's own timestamps; one `message.im` log line, no text)
 - [x] Mention the bot in `#it-help` → it answers in that message's thread; edit the message → no new reply → AC-12 (2026-10-18: one threaded reply, shown within 5 s; one `app_mention` log line; after the edit still 1 reply and no new log line. The exact gap is not readable: the bot has no `channels:history` scope, by design)
 - [x] DM the bot a message that also mentions it → exactly one reply → AC-12 (2026-10-18: one reply 0.4 s later, one `message.im` log line)
 
 ### Commands
-- [ ] `make helpdesk-reset` → logs `helpdesk seeded` with users 85, tickets 20, categories 6, answers 15 → AC-1, AC-3, AC-4
-- [ ] `make helpdesk-seed` right after → `already seeded`, exit 0, no writes → AC-9
-- [ ] `docker compose ps` after `make dev` alone (Zammad down first) → no Zammad service starts → AC-1
-- [ ] `go run ./cmd/seed validate` → `seed/helpdesk is valid: 6 KB categories, 15 KB articles, 20 tickets` → AC-10
-- [ ] `set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -count=1 -run Live ./internal/seed/helpdesk/` after a reset → all pass → AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-16
-- [ ] `make directory-reset`, then `make helpdesk-seed` → `already seeded`; Eva still signs in to Zammad → AC-9
-- [ ] Change one KB article's text, run `make helpdesk-seed` → exit 1 asking for `make helpdesk-reset` (revert the change after) → AC-9
-- [ ] Set `ZAMMAD_TOKEN` to another valid value, run `make helpdesk-seed` → exit 1 asking for `make helpdesk-reset` (revert after) → AC-9
-- [ ] With Zammad stopped, `SEED_ZAMMAD_WAIT_TIMEOUT=20s make helpdesk-seed` → fails naming the URL and the timeout → AC-14
-- [ ] Run the agent with only `SLACK_BOT_TOKEN` set → refuses to start, naming `SLACK_APP_TOKEN`; with a bot token not starting `xoxb-` → fails naming the setting, never the value → AC-13
-- [ ] Run the agent with both Slack tokens unset → logs `slack_disabled`, `curl 127.0.0.1:<AGENT_HTTP_ADDR port>/healthz` → 200 → AC-13
-- [ ] Revoke the app level token, start the agent → exits 1 naming `SLACK_APP_TOKEN` → AC-13
-- [ ] `make check` → passes (unit tests with no network, including the user write guard and the fiction check) → AC-6, AC-15, AC-16
+- [x] `make helpdesk-reset` → logs `helpdesk seeded` with users 85, tickets 20, categories 6, answers 15 → AC-1, AC-3, AC-4
+- [x] `make helpdesk-seed` right after → `already seeded`, exit 0, no writes → AC-9
+- [x] `docker compose ps` after `make dev` alone (Zammad down first) → no Zammad service starts → AC-1 (checked with `docker compose config --services`, which lists only `postgres` and `samba` without the profile; `make dev` also starts `postgres` by name)
+- [x] `go run ./cmd/seed validate` → `seed/helpdesk is valid: 6 KB categories, 15 KB articles, 20 tickets` → AC-10
+- [x] `set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -count=1 -run Live ./internal/seed/helpdesk/` after a reset → all pass → AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-16
+- [x] `make directory-reset`, then `make helpdesk-seed` → `already seeded`; Eva still signs in to Zammad → AC-9
+- [x] Change one KB article's text, run `make helpdesk-seed` → exit 1 asking for `make helpdesk-reset` (revert the change after) → AC-9
+- [x] Set `ZAMMAD_TOKEN` to another valid value, run `make helpdesk-seed` → exit 1 asking for `make helpdesk-reset` (revert after) → AC-9
+- [x] With Zammad stopped, `SEED_ZAMMAD_WAIT_TIMEOUT=20s make helpdesk-seed` → fails naming the URL and the timeout → AC-14
+- [x] Run the agent with only `SLACK_BOT_TOKEN` set → refuses to start, naming `SLACK_APP_TOKEN`; with a bot token not starting `xoxb-` → fails naming the setting, never the value → AC-13
+- [x] Run the agent with both Slack tokens unset → logs `slack_disabled`, `curl 127.0.0.1:<AGENT_HTTP_ADDR port>/healthz` → 200 → AC-13
+- [x] Revoke the app level token, start the agent → exits 1 naming `SLACK_APP_TOKEN` → AC-13
+- [x] `make check` → passes (unit tests with no network, including the user write guard and the fiction check) → AC-6, AC-15, AC-16
 
 ### Value sourcing
-- [ ] Pending reminder: hd-019's `pending_time` is the reset time plus 30 days, not a file date → Seed, pending reminder
-- [ ] Dates: an article written in the files as `2026-08-03 08:12` shows 08:12 in Zammad (Europe/Amsterdam), not 06:12 → Backdate, dates
-- [ ] KB title is `Noord IT Help` and categories carry their `kb.yaml` icons → Bootstrap, KB title; category icons
-- [ ] Ticket authors: customer articles are `web` from the customer, replies are `note` from `ruben.mulder`, none internal → Seed, From header; article type
-- [ ] Assistant token value equals `ZAMMAD_TOKEN` after every reset (`GET /api/v1/users/me` with it → `noord-assistant`) → Bootstrap, assistant token value
-- [ ] Holding reply text equals the constant in `internal/slack`, posted in the event's thread (`thread_ts`, else `ts`) → Slack listener, channel and thread; holding reply text
+- [x] Pending reminder: hd-019's `pending_time` is the reset time plus 30 days, not a file date → Seed, pending reminder
+- [x] Dates: an article written in the files as `2026-08-03 08:12` shows 08:12 in Zammad (Europe/Amsterdam), not 06:12 → Backdate, dates
+- [x] KB title is `Noord IT Help` and categories carry their `kb.yaml` icons → Bootstrap, KB title; category icons
+- [x] Ticket authors: customer articles are `web` from the customer, replies are `note` from `ruben.mulder`, none internal → Seed, From header; article type
+- [x] Assistant token value equals `ZAMMAD_TOKEN` after every reset (`GET /api/v1/users/me` with it → `noord-assistant`) → Bootstrap, assistant token value
+- [x] Holding reply text equals the constant in `internal/slack`, posted in the event's thread (`thread_ts`, else `ts`) → Slack listener, channel and thread; holding reply text
 
 ### Acceptance criteria coverage
 - AC-1 compose test, reset, `make dev` check · AC-2 directory reset and live sign in · AC-3 reset command · AC-4 reset counts and live content test · AC-5 manual sign in and lockout, live sign in test · AC-6 live assistant rights, guard unit tests · AC-7 portal, KB search, live content test · AC-8 ticket checks, live content test · AC-9 rerun, changed file, changed token, directory reset · AC-10 validate · AC-11 runbook and app settings · AC-12 Slack DM and mention steps · AC-13 agent token steps · AC-14 wait timeout, unit tests for step errors · AC-15 `make check` fiction and redaction tests · AC-16 `make check` and the live tests
+
+## /check verify run · 2026-10-18 · PASS
+
+Every step above ran in this pass, from a fresh `make helpdesk-reset` (seeded in 103 s after Zammad was healthy). Highlights: five wrong passwords at the Zammad web login locked `eva.peters` in AD and Zammad then refused her right password; the public portal lists all 15 answers (7, 2, 3, 1, 1, 1 by category); a KB search for SecureLink finds the retired article; the pending reminder is the reset time plus 30 days; Slack DMs got their threaded reply in 0.57 s and 0.52 s, an `#it-help` mention got one, an edit got none, and the reply text equals the constant; the bot holds exactly the five manifest scopes and sits in the private `#it-escalations`; a bogus app token ends the agent naming `SLACK_APP_TOKEN`; `make check` passes.
+
+Side effect: the hand made ticket #40023 ("Verify test: cannot open the shared drive", Eva) now sits in Zammad, so `TestLiveContentMatchesFiles` fails until the next `make helpdesk-reset`.
