@@ -132,12 +132,13 @@ spec [0005](../specs/0005-entra-tenant-sync/index.md) · code in `internal/graph
 The client's helpdesk as you find it: a ticketing system with an API, a deliberately outdated knowledge base, and the Noord Slack workspace with the bot app registered.
 **Done when:** you can log in as a Noord user, get locked out, and raise a ticket by hand; the KB holds articles that contradict each other or reference old systems; the bot can receive a Slack message.
 - [x] Design it (spec): `/architect ticketing, knowledge base & slack`
-- [x] Build it: `/develop ticketing, knowledge base & slack`
+- [ ] Build it: `/develop ticketing, knowledge base & slack`
   - [x] Thin helpdesk thread: settings, Zammad in Compose, `svc-zammad`, AD sign in and lockout through Zammad, the assistant token, probe results recorded (AC-1 to AC-6, AC-13 to AC-15)
   - [x] Slack strand: workspace, app manifest, runbook, the Socket Mode listener with dedup and holding reply (AC-11 to AC-14)
   - [x] Content: 15 KB articles with the planted mess, 20 old tickets, validation, backdating, marker last (AC-7 to AC-10)
   - [x] Rebuild and hygiene: already seeded and reset paths, `make noord-reset`, fiction check, CI and live tests (AC-9, AC-15, AC-16)
-- [x] Verify it: `/check verify ticketing, knowledge base & slack`
+  - [ ] Close the side doors: self signup and password reset off in `bootstrap.rb`, live test, one `make helpdesk-reset` (AC-17)
+- [ ] Verify it: `/check verify ticketing, knowledge base & slack`
 - [ ] Test it: `/test ticketing, knowledge base & slack`
 spec [0006](../specs/0006-helpdesk-kb-slack/index.md) · code in `seed/helpdesk/`, `internal/zammad/`, `internal/seed/helpdesk/`, `internal/slack/`, `cmd/seed/`, `cmd/agent/`, `deploy/slack/`, `docs/runbooks/slack-workspace.md`, `compose.yaml`, `Makefile`
 

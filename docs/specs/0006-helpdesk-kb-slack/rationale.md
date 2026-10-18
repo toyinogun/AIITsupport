@@ -67,6 +67,8 @@ The credential boundary decides the LDAP bind account: a new read only `svc-zamm
 | Live tests | against the running Compose stack, `TEST_ZAMMAD=1` | a Zammad of ten services in testcontainers is minutes per test run | the testcontainers Compose module |
 | Elasticsearch | on locally | matches the cluster and real KB search | Zammad's disable scenario |
 | Fiction's today | `as_of` 2026-10-16 in the seed files | dates stay stable whatever day you reset | the reset day |
+| Self signup and password reset (added Oct 18) | both off in `bootstrap.rb` (`user_create_account`, `user_lost_password`) | the verify run found both links on the login page; a local account or a reset password would sign in without AD and outlive an AD lockout. Zammad checks both settings on the server, not only in the UI | signup off and the reset link kept (harmless only while mail stays off), or both on with the risk recorded |
+| Live test helpers (added Oct 18) | two more Rails scripts, `report.rb` (read only snapshot) and `ldapsync.rb` (one more import) | the live tests compare Zammad with the files and check a second sync changes nothing; Rails sees what REST does not (dates, sources, the marker) | REST reads plus a raw SQL query against Zammad's Postgres |
 
 ## Landscape check (Oct 18, 2026)
 
@@ -83,6 +85,10 @@ One capped web check (5 searches, 8 pages) before the Zammad questions. Full not
 ## Build probes and spec update (Oct 18, 2026)
 
 Build step 2 ran the Follow-up probes against a real Zammad 7.2.2 (results in [verify.md](verify.md)). Two facts broke the spec as written. Zammad's LDAP source has one search base for users and groups (journal 0019), and Zammad's user policy lets every `ticket.agent` create and update users, so AC-6's 403 on `POST /api/v1/users` could not hold (journal 0020). You chose the recommended answer to each: search `OU=Noord` with a `department` filter, and move the guard into our client, with the organization membership moving into `bootstrap.rb` and the LDAP import running inline instead of a Go poll. Two smaller facts were folded in too: the `From` header replaces `X-On-Behalf-Of`, and the KB itself is made in Rails. One wrong Zammad password costs exactly one AD bind, so AC-5 kept its five. A second model cross check of the update then raised 14 gaps (the missing login check reading user search, the Rails timeout not stopping Ruby, the organization's `shared` flag, the date sources, the `From` ordering, a transport level guard, and more); you applied every recommended fix.
+
+## Build and verify findings (Oct 18, 2026)
+
+The build and the verify run folded four facts back in. The assistant token gets 403 editing an Admin, so the residual risk is customer accounts only. Zammad's KB content rows hold only the body, so the backdated column list names the answer and translation dates instead (journal 0026). Two read only helper scripts back the live tests. And the login page offered self signup and a password reset, which you chose to turn off (AC-17).
 
 ## Cross check (Oct 18, 2026)
 
