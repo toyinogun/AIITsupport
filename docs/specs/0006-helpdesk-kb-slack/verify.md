@@ -29,8 +29,9 @@ Build paused here for `/architect` to settle the LDAP base and AC-6 (2026-10-18)
 - `TEST_ZAMMAD=1` live tests pass: content equals the files (ticket states, owners, authors, article types, every date), assistant rights, AD sign in and lockout through Zammad, and a second LDAP import that changes nothing.
 - After `make directory-reset` alone: `make helpdesk-seed` still says "already seeded", Eva signs in to Zammad, and a further LDAP import changes nothing (AC-9).
 - Two read only helpers joined the Rails steps for the live tests: `report.rb` (a content snapshot) and `ldapsync.rb` (one more LDAP import). Both are inside the marker hash.
+- AC-17 side doors (build plan step 6, 2026-10-18). Before the change, against the old Zammad: an anonymous `POST /api/v1/users` with `signup: true` got **201** `{"message":"ok"}` and made a user with source `signup`; `POST /api/v1/users/password_reset` for `eva.peters` got **200** `{"message":"ok"}` and made a `PasswordReset` token. After `bootstrap.rb` set both settings false and one `make helpdesk-reset` (the old Zammad read `needs_reset` first, as expected): both requests get **422** `{"error":"This feature is not enabled."}` (with a CSRF token from `/api/v1/signshow`, so the refusal comes from the setting, not the CSRF check); no new user, no new reset token. `TestLiveSideDoorsClosed` checks all of this. The login page at `/#login` shows neither "Register as a new customer" nor "Forgot password" (checked by hand). `report.rb` now also reports the reset token count and every login not from LDAP, which the test needs for "no new user, no reset token".
 
-## Verify steps · updated 2026-10-18
+## Verify steps · updated 2026-10-18 (AC-17 added)
 _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `/test` locks the durable ones._
 
 ### UI / manual
@@ -44,6 +45,7 @@ _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `
 - [x] With both Slack tokens in `.env`, run `make dev` and DM the bot "hello" → one threaded holding reply within 5 seconds (record the time here); the agent log has one `slack_event_received` line with event id, channel id, and event type, and no message text → AC-12 (2026-10-18: `slack_connected` on the first attempt; reply 0.5 s after the message by Slack's own timestamps; one `message.im` log line, no text)
 - [x] Mention the bot in `#it-help` → it answers in that message's thread; edit the message → no new reply → AC-12 (2026-10-18: one threaded reply, shown within 5 s; one `app_mention` log line; after the edit still 1 reply and no new log line. The exact gap is not readable: the bot has no `channels:history` scope, by design)
 - [x] DM the bot a message that also mentions it → exactly one reply → AC-12 (2026-10-18: one reply 0.4 s later, one `message.im` log line)
+- [ ] Open `http://127.0.0.1:58080/#login` signed out → no "Register as a new customer" link and no "Forgot password" link → AC-17
 
 ### Commands
 - [x] `make helpdesk-reset` → logs `helpdesk seeded` with users 85, tickets 20, categories 6, answers 15 → AC-1, AC-3, AC-4
@@ -59,6 +61,7 @@ _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `
 - [x] Run the agent with both Slack tokens unset → logs `slack_disabled`, `curl 127.0.0.1:<AGENT_HTTP_ADDR port>/healthz` → 200 → AC-13
 - [x] Revoke the app level token, start the agent → exits 1 naming `SLACK_APP_TOKEN` → AC-13
 - [x] `make check` → passes (unit tests with no network, including the user write guard and the fiction check) → AC-6, AC-15, AC-16
+- [ ] `set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -count=1 -run LiveSideDoors ./internal/seed/helpdesk/` after a reset → passes: both settings false, an anonymous signup and a password reset for `eva.peters` each get 422, no new user, no new reset token → AC-17
 
 ### Value sourcing
 - [x] Pending reminder: hd-019's `pending_time` is the reset time plus 30 days, not a file date → Seed, pending reminder
@@ -69,7 +72,7 @@ _Steps derived from spec 0006 acceptance criteria. `/check verify` runs these; `
 - [x] Holding reply text equals the constant in `internal/slack`, posted in the event's thread (`thread_ts`, else `ts`) → Slack listener, channel and thread; holding reply text
 
 ### Acceptance criteria coverage
-- AC-1 compose test, reset, `make dev` check · AC-2 directory reset and live sign in · AC-3 reset command · AC-4 reset counts and live content test · AC-5 manual sign in and lockout, live sign in test · AC-6 live assistant rights, guard unit tests · AC-7 portal, KB search, live content test · AC-8 ticket checks, live content test · AC-9 rerun, changed file, changed token, directory reset · AC-10 validate · AC-11 runbook and app settings · AC-12 Slack DM and mention steps · AC-13 agent token steps · AC-14 wait timeout, unit tests for step errors · AC-15 `make check` fiction and redaction tests · AC-16 `make check` and the live tests
+- AC-1 compose test, reset, `make dev` check · AC-2 directory reset and live sign in · AC-3 reset command · AC-4 reset counts and live content test · AC-5 manual sign in and lockout, live sign in test · AC-6 live assistant rights, guard unit tests · AC-7 portal, KB search, live content test · AC-8 ticket checks, live content test · AC-9 rerun, changed file, changed token, directory reset · AC-10 validate · AC-11 runbook and app settings · AC-12 Slack DM and mention steps · AC-13 agent token steps · AC-14 wait timeout, unit tests for step errors · AC-15 `make check` fiction and redaction tests · AC-16 `make check` and the live tests · AC-17 login page check, `TestLiveSideDoorsClosed`
 
 ## /check verify run · 2026-10-18 · PASS
 

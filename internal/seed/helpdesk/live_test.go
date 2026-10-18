@@ -1,10 +1,13 @@
 package helpdesk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"slices"
 	"strings"
@@ -72,7 +75,13 @@ type report struct {
 	OrgMembers int      `json:"org_members"`
 	LDAPUsers  int      `json:"ldap_users"`
 	RubenRoles []string `json:"ruben_roles"`
-	Tickets    []struct {
+	// The AC-17 side doors: both settings, reset tokens, and every login
+	// that did not come from LDAP (a signup has source "signup").
+	UserCreateAccount bool     `json:"user_create_account"`
+	UserLostPassword  bool     `json:"user_lost_password"`
+	ResetTokens       int      `json:"reset_tokens"`
+	LocalUsers        []string `json:"local_users"`
+	Tickets           []struct {
 		Tags     []string   `json:"tags"`
 		Title    string     `json:"title"`
 		State    string     `json:"state"`
@@ -224,9 +233,10 @@ func TestLiveAssistantRights(t *testing.T) {
 		break
 	}
 
-	// The user search index lags a fresh import by a few seconds.
+	// The user search index lags a fresh import, by more than a minute right
+	// after make helpdesk-reset, so wait up to 3 minutes.
 	var users []zammad.User
-	for range 30 {
+	for range 90 {
 		users, err = e.admin.SearchUsers(ctx, "eva.peters", 5)
 		if err != nil || len(users) > 0 {
 			break
@@ -306,6 +316,91 @@ func TestLiveSignInFollowsAD(t *testing.T) {
 	if err := signIn("yara.schouten"); !zammad.IsUnauthorized(err) {
 		t.Errorf("locked yara.schouten with the right password: %v, want 401", err)
 	}
+}
+
+// covers: AC-17. Zammad offers no way around AD sign in: self signup and
+// password reset are off in the settings and refused on the server. The
+// requests go through a plain net/http client, because internal/zammad
+// refuses any non GET under /api/v1/users.
+func TestLiveSideDoorsClosed(t *testing.T) {
+	e := live(t)
+	before := e.report(t)
+	if before.UserCreateAccount || before.UserLostPassword {
+		t.Errorf("settings user_create_account=%v user_lost_password=%v, want both false", before.UserCreateAccount, before.UserLostPassword)
+	}
+
+	signupEmail := "signup.probe@noord.example"
+	status, body := e.anonymousPost(t, "/api/v1/users", map[string]any{
+		"signup": true, "firstname": "Signup", "lastname": "Probe", "email": signupEmail,
+		"password": fmt.Sprintf("Np7!%dQz", time.Now().UnixNano()),
+	})
+	t.Logf("signup: %d %s", status, body)
+	if accepted(status, body) {
+		t.Errorf("signup accepted: %d %s", status, body)
+	}
+	status, body = e.anonymousPost(t, "/api/v1/users/password_reset", map[string]any{"username": "eva.peters"})
+	t.Logf("password reset: %d %s", status, body)
+	if accepted(status, body) {
+		t.Errorf("password reset accepted: %d %s", status, body)
+	}
+
+	after := e.report(t)
+	if slices.Contains(after.LocalUsers, signupEmail) {
+		t.Errorf("signup made the local user %s", signupEmail)
+	}
+	if after.ResetTokens != before.ResetTokens {
+		t.Errorf("reset tokens %d, then %d: a reset token was made", before.ResetTokens, after.ResetTokens)
+	}
+}
+
+// accepted is true when Zammad accepted the request: a 2xx status without
+// a failure body.
+func accepted(status int, body string) bool {
+	return status/100 == 2 && !strings.Contains(body, `"failed"`)
+}
+
+// anonymousPost sends a JSON POST with no credentials, the way the login page
+// does: it first takes a CSRF token and session cookie from /api/v1/signshow,
+// so a refusal comes from Zammad's settings, not from the CSRF check.
+func (e liveEnv) anonymousPost(t *testing.T, path string, payload map[string]any) (int, string) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, Timeout: e.cfg.ZammadTimeout}
+	send := func(method, path string, body []byte, csrf string) (int, http.Header, string) {
+		req, err := http.NewRequestWithContext(t.Context(), method, e.cfg.ZammadURL+path, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		if csrf != "" {
+			req.Header.Set("X-CSRF-Token", csrf)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("%s %s: read body: %v", method, path, err)
+		}
+		return resp.StatusCode, resp.Header, string(raw)
+	}
+	_, header, _ := send(http.MethodGet, "/api/v1/signshow", nil, "")
+	csrf := header.Get("CSRF-Token")
+	if csrf == "" {
+		t.Fatal("signshow gave no CSRF token")
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _, raw := send(http.MethodPost, path, body, csrf)
+	return status, raw
 }
 
 // covers: AC-16. A later LDAP sync leaves the organization, Ruben's roles,

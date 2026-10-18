@@ -46,7 +46,7 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0022](0022-zammad-signin-needs-csrf.md) | 2026-10-18 | Wrong Zammad passwords seemed not to count toward the AD lockout | #8 Ticketing, knowledge base & Slack workspace | ~5 min | no |
 | [0023](0023-helpdesk-marker-depends-on-cwd.md) | 2026-10-18 | The helpdesk marker changed with the working directory | #8 Ticketing, knowledge base & Slack workspace | ~5 min | post |
 | [0024](0024-zammad-open-tickets-stay-new.md) | 2026-10-18 | Seeded open tickets stayed in Zammad state "new" | #8 Ticketing, knowledge base & Slack workspace | ~5 min | no |
-| [0025](0025-zammad-user-search-lags-a-reset.md) | 2026-10-18 | Zammad's user search found nobody right after a reset | #8 Ticketing, knowledge base & Slack workspace | ~5 min | no |
+| [0025](0025-zammad-user-search-lags-a-reset.md) | 2026-10-18 | Zammad's user search found nobody right after a reset | #8 Ticketing, knowledge base & Slack workspace | ~10 min | no |
 | [0026](0026-kb-content-rows-have-no-dates.md) | 2026-10-18 | Zammad's KB content rows have no dates to backdate | #8 Ticketing, knowledge base & Slack workspace | ~2 min | no |
 | [0027](0027-tidy-check-needs-tools-mod-too.md) | 2026-10-18 | tidy-check failed on tools.mod after adding app dependencies | #8 Ticketing, knowledge base & Slack workspace | ~2 min | no |
 

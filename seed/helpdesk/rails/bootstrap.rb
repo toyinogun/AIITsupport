@@ -77,6 +77,9 @@ module NoordBootstrap
     Setting.set('http_type', 'http')
     Setting.set('locale_default', KB_LOCALE)
     Setting.set('timezone_default', 'Europe/Amsterdam')
+    # AC-17: no self signup and no password reset, so AD is the only way in.
+    Setting.set('user_create_account', false)
+    Setting.set('user_lost_password', false)
     Setting.set('organization', ORG_NAME)
     Setting.set('kb_active', true)
     Setting.set('kb_active_publicly', true)

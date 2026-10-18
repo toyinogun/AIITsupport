@@ -16,6 +16,10 @@ module NoordReport
       org_members: org ? User.where(organization_id: org.id).count : 0,
       ldap_users: User.where('source LIKE ?', 'Ldap::%').count,
       ruben_roles: User.find_by(login: 'ruben.mulder')&.roles&.map(&:name)&.sort,
+      user_create_account: Setting.get('user_create_account'),
+      user_lost_password: Setting.get('user_lost_password'),
+      reset_tokens: Token.where(action: 'PasswordReset').count,
+      local_users: User.where("source IS NULL OR source NOT LIKE 'Ldap::%'").pluck(:login).sort,
       tickets: Ticket.order(:id).map { |t| ticket(t) },
       answers: KnowledgeBase::Answer.order(:id).map { |a| answer(a) },
       categories: KnowledgeBase::Category.order(:id).map { |c| { title: c.translations.first&.title, icon: c.category_icon } }
