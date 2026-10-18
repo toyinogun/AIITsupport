@@ -402,3 +402,89 @@ func TestEachBinaryReadsItsOwnDatabaseURL(t *testing.T) {
 		t.Error("the shared DATABASE_URL should be gone; each binary has its own")
 	}
 }
+
+func TestLoadSeed(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg, err := LoadSeed(envFrom(map[string]string{
+			"SEED_ADMIN_PASSWORD": "admin-test",
+			"SEED_USER_PASSWORD":  "user-test",
+		}))
+		if err != nil {
+			t.Fatalf("LoadSeed: %v", err)
+		}
+		checks := []struct {
+			name string
+			got  any
+			want any
+		}{
+			{"LDAPURL", cfg.LDAPURL, "ldaps://localhost:55636"},
+			{"CACert", cfg.CACert, ".dev/certs/ca.pem"},
+			{"AdminUser", cfg.AdminUser, "CN=Administrator,CN=Users,DC=ad,DC=noord,DC=example"},
+			{"File", cfg.File, "seed/directory/noord.yaml"},
+			{"OverlayFile", cfg.OverlayFile, "seed/directory/overlay.local.yaml"},
+			{"WaitTimeout", cfg.WaitTimeout, 90 * time.Second},
+		}
+		for _, c := range checks {
+			if c.got != c.want {
+				t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
+			}
+		}
+	})
+
+	t.Run("both passwords required", func(t *testing.T) {
+		_, err := LoadSeed(envFrom(map[string]string{}))
+		if err == nil {
+			t.Fatal("LoadSeed with no passwords: want an error")
+		}
+		for _, name := range []string{"SEED_ADMIN_PASSWORD", "SEED_USER_PASSWORD"} {
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("error %q does not name %s", err, name)
+			}
+		}
+		if !strings.HasPrefix(err.Error(), "seed config: ") {
+			t.Errorf("error = %q, want prefix %q", err, "seed config: ")
+		}
+	})
+}
+
+// covers: AC-14 (spec 0004). seed validate loads only the file paths, so it
+// runs with no passwords set.
+func TestLoadSeedFiles(t *testing.T) {
+	t.Run("defaults with no passwords set", func(t *testing.T) {
+		files, err := LoadSeedFiles(envFrom(map[string]string{}))
+		if err != nil {
+			t.Fatalf("LoadSeedFiles: %v", err)
+		}
+		if files.File != "seed/directory/noord.yaml" {
+			t.Errorf("File = %q, want the committed seed", files.File)
+		}
+		if files.OverlayFile != "seed/directory/overlay.local.yaml" {
+			t.Errorf("OverlayFile = %q, want the gitignored overlay", files.OverlayFile)
+		}
+	})
+
+	t.Run("overrides win", func(t *testing.T) {
+		files, err := LoadSeedFiles(envFrom(map[string]string{
+			"SEED_FILE":         "scratch/seed.yaml",
+			"SEED_OVERLAY_FILE": "scratch/overlay.yaml",
+		}))
+		if err != nil {
+			t.Fatalf("LoadSeedFiles: %v", err)
+		}
+		if files.File != "scratch/seed.yaml" || files.OverlayFile != "scratch/overlay.yaml" {
+			t.Errorf("files = %+v, want the overrides", files)
+		}
+	})
+}
+
+// The Administrator password is cmd/seed's alone: neither long running binary
+// may declare a SEED_ setting (spec 0004).
+func TestOnlyTheSeederReadsSeedSettings(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer]()} {
+		walkFields(typ, func(f reflect.StructField) {
+			if name := f.Tag.Get("env"); strings.HasPrefix(name, "SEED_") {
+				t.Errorf("%s declares %s; seed settings belong to cmd/seed only", typ.Name(), name)
+			}
+		})
+	}
+}

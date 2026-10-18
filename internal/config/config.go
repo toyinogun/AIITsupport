@@ -108,6 +108,27 @@ type Migrate struct {
 	DatabaseURL string `env:"MIGRATE_DATABASE_URL" required:"true"` // connects as noord_owner
 }
 
+// Seed holds the settings for cmd/seed, which builds Noord's directory as the
+// domain Administrator (spec 0004). Only cmd/seed reads it; the Administrator
+// password never reaches the agent or the tool server.
+type Seed struct {
+	SeedFiles
+
+	LDAPURL       string        `env:"SEED_LDAP_URL" default:"ldaps://localhost:55636"`
+	CACert        string        `env:"SEED_CA_CERT" default:".dev/certs/ca.pem"`
+	AdminUser     string        `env:"SEED_ADMIN_USER" default:"CN=Administrator,CN=Users,DC=ad,DC=noord,DC=example"`
+	AdminPassword string        `env:"SEED_ADMIN_PASSWORD" required:"true"`
+	UserPassword  string        `env:"SEED_USER_PASSWORD" required:"true"`
+	WaitTimeout   time.Duration `env:"SEED_WAIT_TIMEOUT" default:"90s"`
+}
+
+// SeedFiles locates the seed file and the optional overlay. `seed validate`
+// reads only these, so it runs with no passwords and no network.
+type SeedFiles struct {
+	File        string `env:"SEED_FILE" default:"seed/directory/noord.yaml"`
+	OverlayFile string `env:"SEED_OVERLAY_FILE" default:"seed/directory/overlay.local.yaml"`
+}
+
 // LoadAgent reads and validates the agent's settings.
 func LoadAgent(lookup LookupFunc) (Agent, error) {
 	var cfg Agent
@@ -126,11 +147,29 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	return cfg, nil
 }
 
-// Names lists every setting the binaries and migrations know, sorted. The .env.example
+// LoadSeed reads and validates cmd/seed's settings.
+func LoadSeed(lookup LookupFunc) (Seed, error) {
+	var cfg Seed
+	if err := load(&cfg, lookup); err != nil {
+		return Seed{}, fmt.Errorf("seed config: %w", err)
+	}
+	return cfg, nil
+}
+
+// LoadSeedFiles reads only the seed file locations.
+func LoadSeedFiles(lookup LookupFunc) (SeedFiles, error) {
+	var cfg SeedFiles
+	if err := load(&cfg, lookup); err != nil {
+		return SeedFiles{}, fmt.Errorf("seed config: %w", err)
+	}
+	return cfg, nil
+}
+
+// Names lists every setting the binaries, migrations, and the seeder know, sorted. The .env.example
 // drift test compares against it.
 func Names() []string {
 	var names []string
-	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate]()} {
+	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed]()} {
 		walkFields(t, func(f reflect.StructField) {
 			names = append(names, f.Tag.Get("env"))
 		})

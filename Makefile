@@ -8,7 +8,8 @@ TOOL := go tool -modfile=tools.mod
 GIT_HOOKS := pre-commit pre-push
 
 .PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
-	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check
+	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
+	certs directory-up seed directory-reset directory-login directory-lock
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -38,6 +39,33 @@ db-roles: db-up
 migrate: .env db-roles
 	@$(LOAD_ENV) && go tool goose -dir db/migrations postgres \
 		"$${MIGRATE_DATABASE_URL:?is not set; copy the database lines from .env.example into .env}" up
+
+## certs: make the dev CA and the Samba server cert in .dev/certs (keeps existing files)
+certs:
+	go run ./cmd/seed certs
+
+## directory-up: start Samba AD in Compose and wait until LDAPS answers
+directory-up: .env certs
+	@$(LOAD_ENV) && docker compose up -d --build --wait samba
+
+## seed: fill the directory from seed/directory/noord.yaml (safe to rerun)
+seed: .env
+	@$(LOAD_ENV) && go run ./cmd/seed directory
+
+## directory-reset: replace the Samba container with a fresh one and seed it (Postgres untouched)
+directory-reset: .env certs
+	docker compose rm -sf samba
+	@$(MAKE) --no-print-directory directory-up seed
+
+## directory-login: bind as a seeded user and show the lock state (NAME=<username>)
+directory-login: .env
+	@test -n "$(NAME)" || { echo "usage: make directory-login NAME=<username>" >&2; exit 1; }
+	@$(LOAD_ENV) && go run ./cmd/seed login "$(NAME)"
+
+## directory-lock: lock a seeded user by failed binds (NAME=<username>)
+directory-lock: .env
+	@test -n "$(NAME)" || { echo "usage: make directory-lock NAME=<username>" >&2; exit 1; }
+	@$(LOAD_ENV) && go run ./cmd/seed lock "$(NAME)"
 
 ## build: compile both binaries into bin/
 build:

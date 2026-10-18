@@ -16,3 +16,6 @@ bin/
 
 # Agent scratch cache
 docs/.agent-cache/
+# Generated dev certs and keys (make certs), and the demo mail overlay (spec 0004)
+.dev/
+seed/directory/overlay.local.yaml

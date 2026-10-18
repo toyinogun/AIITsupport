@@ -17,6 +17,7 @@ var deniedImports = []string{
 	"github.com/toyinogun/AIITsupport/internal/ldap",
 	"github.com/toyinogun/AIITsupport/internal/graph",
 	"github.com/toyinogun/AIITsupport/internal/zammad",
+	"github.com/toyinogun/AIITsupport/internal/seed",
 	"github.com/go-ldap/ldap",
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity",
 }

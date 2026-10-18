@@ -8,3 +8,9 @@ useDefault = true
 [[allowlists]]
 description = "Vendored Agent Skill docs carry example keys"
 paths = ['''^\.claude/skills/''']
+
+[[allowlists]]
+# The default config skips go.mod and go.sum by name only, so the tool
+# module's checksum file (journal 0010) needs the same pass.
+description = "tools.mod and tools.sum hold module checksums, not secrets"
+paths = ['''(?:^|/)tools\.(?:mod|sum)$''']

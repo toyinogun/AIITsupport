@@ -1,0 +1,7 @@
+# Copy this to overlay.local.yaml (gitignored) to point 2 or 3 demo users at
+# the Slack test accounts you sign in with, so the agent's identity check
+# (#10) matches them. Only mail can be replaced. The values here are fictional.
+users:
+  - {username: eva.peters, mail: eva.demo@example.com}
+  - {username: jan.devries, mail: jan.demo@example.com}
+  - {username: ruben.mulder, mail: ruben.demo@example.com}
