@@ -15,6 +15,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -80,9 +81,7 @@ type ToolServer struct {
 	LDAPBindPassword string `env:"LDAP_BIND_PASSWORD"`
 	LDAPCACert       string `env:"LDAP_CA_CERT"`
 
-	GraphTenantID     string `env:"GRAPH_TENANT_ID"`
-	GraphClientID     string `env:"GRAPH_CLIENT_ID"`
-	GraphClientSecret string `env:"GRAPH_CLIENT_SECRET"`
+	Graph
 
 	ZammadURL          string `env:"ZAMMAD_URL"`
 	ZammadToken        string `env:"ZAMMAD_TOKEN"`
@@ -98,6 +97,25 @@ type ToolServer struct {
 	AuditOutcomeRetries  int           `env:"AUDIT_OUTCOME_RETRIES" default:"3"`
 	AuditWriteTimeout    time.Duration `env:"AUDIT_WRITE_TIMEOUT" default:"5s"`
 	AuditMaxPayloadBytes int           `env:"AUDIT_MAX_PAYLOAD_BYTES" default:"4096"`
+}
+
+// Graph is the tool server's Entra app registration (spec 0005). It may read
+// users and their MFA methods and change only phone methods. The tool server
+// boots with it empty (the AD only fallback); LoadGraph requires it.
+type Graph struct {
+	GraphTenantID     string        `env:"GRAPH_TENANT_ID"`
+	GraphClientID     string        `env:"GRAPH_CLIENT_ID"`
+	GraphClientSecret string        `env:"GRAPH_CLIENT_SECRET"`
+	GraphMaxRetries   int           `env:"GRAPH_MAX_RETRIES" default:"5"`
+	GraphTimeout      time.Duration `env:"GRAPH_TIMEOUT" default:"30s"`
+}
+
+// SeedEntraMFA is what `seed entra mfa` reads: the tool server's Graph app,
+// never the seed app, and how long a phone clear may take to settle.
+type SeedEntraMFA struct {
+	Graph
+
+	ClearWait time.Duration `env:"SEED_ENTRA_CLEAR_WAIT" default:"30s"`
 }
 
 // Migrate holds the settings for running migrations as the table owner role.
@@ -120,13 +138,34 @@ type Seed struct {
 	AdminPassword string        `env:"SEED_ADMIN_PASSWORD" required:"true"`
 	UserPassword  string        `env:"SEED_USER_PASSWORD" required:"true"`
 	WaitTimeout   time.Duration `env:"SEED_WAIT_TIMEOUT" default:"90s"`
+
+	// The seed app registration (spec 0005), which may create, update,
+	// delete, and restore users. All three unset means Entra is not
+	// configured and `seed entra sync` skips; partly set is an error.
+	GraphTenantID     string        `env:"SEED_GRAPH_TENANT_ID"`
+	GraphClientID     string        `env:"SEED_GRAPH_CLIENT_ID"`
+	GraphClientSecret string        `env:"SEED_GRAPH_CLIENT_SECRET"`
+	GraphMaxRetries   int           `env:"SEED_GRAPH_MAX_RETRIES" default:"5"`
+	GraphTimeout      time.Duration `env:"SEED_GRAPH_TIMEOUT" default:"30s"`
+
+	EntraDomain       string `env:"SEED_ENTRA_DOMAIN"`
+	EntraDemoPassword string `env:"SEED_ENTRA_DEMO_PASSWORD"`
+	EntraDeleteLimit  int    `env:"SEED_ENTRA_DELETE_LIMIT" default:"10"`
 }
 
-// SeedFiles locates the seed file and the optional overlay. `seed validate`
-// reads only these, so it runs with no passwords and no network.
+// EntraConfigured reports whether any SEED_GRAPH_* credential is set.
+// LoadSeed has already refused a partial set.
+func (s Seed) EntraConfigured() bool {
+	return s.GraphTenantID != "" || s.GraphClientID != "" || s.GraphClientSecret != ""
+}
+
+// SeedFiles locates the seed file, the optional overlay, and the optional
+// Entra demo file. `seed validate` reads only these, so it runs with no
+// passwords and no network.
 type SeedFiles struct {
-	File        string `env:"SEED_FILE" default:"seed/directory/noord.yaml"`
-	OverlayFile string `env:"SEED_OVERLAY_FILE" default:"seed/directory/overlay.local.yaml"`
+	File          string `env:"SEED_FILE" default:"seed/directory/noord.yaml"`
+	OverlayFile   string `env:"SEED_OVERLAY_FILE" default:"seed/directory/overlay.local.yaml"`
+	EntraDemoFile string `env:"SEED_ENTRA_DEMO_FILE" default:"seed/entra/demo.local.yaml"`
 }
 
 // LoadAgent reads and validates the agent's settings.
@@ -150,10 +189,88 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 // LoadSeed reads and validates cmd/seed's settings.
 func LoadSeed(lookup LookupFunc) (Seed, error) {
 	var cfg Seed
-	if err := load(&cfg, lookup); err != nil {
+	err := load(&cfg, lookup)
+	err = errors.Join(err, checkSeedEntra(cfg))
+	if err != nil {
 		return Seed{}, fmt.Errorf("seed config: %w", err)
 	}
 	return cfg, nil
+}
+
+// checkSeedEntra refuses a partial SEED_GRAPH_* set and, once Entra is
+// configured, a missing domain or out of range limits.
+func checkSeedEntra(cfg Seed) error {
+	if !cfg.EntraConfigured() {
+		return nil
+	}
+	errs := missing(map[string]string{
+		"SEED_GRAPH_TENANT_ID":     cfg.GraphTenantID,
+		"SEED_GRAPH_CLIENT_ID":     cfg.GraphClientID,
+		"SEED_GRAPH_CLIENT_SECRET": cfg.GraphClientSecret,
+		"SEED_ENTRA_DOMAIN":        cfg.EntraDomain,
+	})
+	if cfg.EntraDeleteLimit < 0 {
+		errs = append(errs, errors.New("SEED_ENTRA_DELETE_LIMIT must not be negative"))
+	}
+	if cfg.GraphMaxRetries < 0 {
+		errs = append(errs, errors.New("SEED_GRAPH_MAX_RETRIES must not be negative"))
+	}
+	if cfg.GraphTimeout <= 0 {
+		errs = append(errs, errors.New("SEED_GRAPH_TIMEOUT must be positive"))
+	}
+	return errors.Join(errs...)
+}
+
+// LoadGraph reads the tool server's Graph app and requires all of it. The
+// tool server itself boots without it; callers that talk to Entra use this.
+func LoadGraph(lookup LookupFunc) (Graph, error) {
+	var cfg Graph
+	err := load(&cfg, lookup)
+	err = errors.Join(err, checkGraph(cfg))
+	if err != nil {
+		return Graph{}, fmt.Errorf("graph config: %w", err)
+	}
+	return cfg, nil
+}
+
+// LoadSeedEntraMFA reads the settings for `seed entra mfa`.
+func LoadSeedEntraMFA(lookup LookupFunc) (SeedEntraMFA, error) {
+	var cfg SeedEntraMFA
+	err := load(&cfg, lookup)
+	err = errors.Join(err, checkGraph(cfg.Graph))
+	if cfg.ClearWait <= 0 {
+		err = errors.Join(err, errors.New("SEED_ENTRA_CLEAR_WAIT must be positive"))
+	}
+	if err != nil {
+		return SeedEntraMFA{}, fmt.Errorf("seed config: %w", err)
+	}
+	return cfg, nil
+}
+
+func checkGraph(cfg Graph) error {
+	errs := missing(map[string]string{
+		"GRAPH_TENANT_ID":     cfg.GraphTenantID,
+		"GRAPH_CLIENT_ID":     cfg.GraphClientID,
+		"GRAPH_CLIENT_SECRET": cfg.GraphClientSecret,
+	})
+	if cfg.GraphMaxRetries < 0 {
+		errs = append(errs, errors.New("GRAPH_MAX_RETRIES must not be negative"))
+	}
+	if cfg.GraphTimeout <= 0 {
+		errs = append(errs, errors.New("GRAPH_TIMEOUT must be positive"))
+	}
+	return errors.Join(errs...)
+}
+
+// missing returns one error per blank value, sorted by setting name.
+func missing(values map[string]string) []error {
+	var errs []error
+	for _, name := range slices.Sorted(maps.Keys(values)) {
+		if values[name] == "" {
+			errs = append(errs, fmt.Errorf("%s is required but not set", name))
+		}
+	}
+	return errs
 }
 
 // LoadSeedFiles reads only the seed file locations.
@@ -169,7 +286,7 @@ func LoadSeedFiles(lookup LookupFunc) (SeedFiles, error) {
 // drift test compares against it.
 func Names() []string {
 	var names []string
-	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed]()} {
+	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed](), reflect.TypeFor[SeedEntraMFA]()} {
 		walkFields(t, func(f reflect.StructField) {
 			names = append(names, f.Tag.Get("env"))
 		})

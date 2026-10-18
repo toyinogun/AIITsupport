@@ -19,3 +19,5 @@ docs/.agent-cache/
 # Generated dev certs and keys (make certs), and the demo mail overlay (spec 0004)
 .dev/
 seed/directory/overlay.local.yaml
+# The Entra demo users and their real MFA phone (spec 0005)
+seed/entra/demo.local.yaml
