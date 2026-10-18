@@ -15,7 +15,7 @@ Mock FDE engagement. The plan lives in `docs/scope/scope.md`; start there.
 ## Stack
 
 - **Language / Runtime**: Go 1.27 (toolchain 1.27.2), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver`, plus the dev and ops tool `cmd/seed` (`cmd/eval` arrives with feature #20)
-- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests, `slack-go` (Socket Mode) for the agent's Slack strand, `goldmark` for KB article Markdown; later `anthropic-sdk-go`, MCP `go-sdk`
+- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests, `slack-go` (Socket Mode) for the agent's Slack strand, `goldmark` for KB article Markdown, MCP `go-sdk` (the tool server and the agent's client, streamable HTTP, stateless); later `anthropic-sdk-go`
 - **Dev tools**: `sqlc` and `goose` are `tool` entries in `go.mod` (`go tool sqlc`, `go tool goose`), nothing to install
 - **Lint, hook, and scan tools**: `golangci-lint` v2 (also runs gofumpt and goimports), `lefthook`, `gitleaks`, and `govulncheck` are `tool` entries in a separate `tools.mod` (`go tool -modfile=tools.mod <tool>`). Its `go` and `toolchain` lines must match `go.mod`. Dependabot can't see it, so bump these by hand. Decision: [docs/specs/0002-coding-standards-tooling/index.md](docs/specs/0002-coding-standards-tooling/index.md)
 - **Platform**: Docker Compose locally; k3s + ArgoCD + CloudNativePG in production
@@ -106,6 +106,8 @@ Declined: Agent Skills for Slack and Zammad (none covers `slack-go` or Zammad's 
 
 Declined: Slack and Zammad MCP servers (Slack's official one needs user OAuth tokens; the community Zammad ones would hold a Zammad token outside the tool server) (2026-10-18, feature #8)
 
+Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, `doc-scout/mcp-server` mcp-builder-go; none official, and `mcp-server-patterns` already covers the generic part; use the `go-sdk` examples and pkg.go.dev) (2026-10-18, feature #9)
+
 ## Context files
 
 - [internal/config/AGENTS.md](internal/config/AGENTS.md) (how settings are declared, validated, and kept in sync with `.env.example`)
@@ -115,5 +117,7 @@ Declined: Slack and Zammad MCP servers (Slack's official one needs user OAuth to
 - [internal/graph/AGENTS.md](internal/graph/AGENTS.md): the thin Microsoft Graph client, its managed marker fence, retries, and the fake Graph
 - [internal/zammad/AGENTS.md](internal/zammad/AGENTS.md): the thin Zammad REST client, its user write guard, and the fake Zammad
 - [internal/slack/AGENTS.md](internal/slack/AGENTS.md): the agent's Socket Mode listener, event dedup, and the holding reply
+- [internal/tools/AGENTS.md](internal/tools/AGENTS.md): the tool layer (registry, risk tiers, the dispatcher pipeline, kill switch, fence), plus `internal/mcpserver` and `internal/mcpclient`
+- [internal/ldap/AGENTS.md](internal/ldap/AGENTS.md): the one LDAPS layer (dialer, DN helpers, lock state, the tool server's directory reads and its one write)
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

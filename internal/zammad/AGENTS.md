@@ -10,8 +10,8 @@ A thin client for Zammad's REST API (spec 0006): tickets, articles, and the know
 |---|---|
 | `client.go` | `New`, `Options`, `TokenAuth`, `BasicAuth`, `Request` (with the `From` header), `Client.Do` (one attempt, per request timeout, no redirects), the `guard` transport, `Guarded`, `ErrUserWrite` |
 | `errors.go` | `Error` (method, path, status, Zammad's message; never the token or the query), `Status`, `IsForbidden`, `IsUnauthorized` |
-| `users.go` | `User`, `Me`, `SearchUsers` (reads only) |
-| `tickets.go` | `NewTicket`, `NewArticle`, `TicketUpdate`, `CreateTicket`, `UpdateTicket`, `CreateArticle`, `GetTicket` |
+| `users.go` | `User`, `Me`, `SearchUsers`, `UsersByLogin` (exact, active login, filtered client side; reads only) |
+| `tickets.go` | `NewTicket`, `NewArticle`, `TicketUpdate` (with an optional embedded article, so state and note are one request), `TicketState`, `CreateTicket`, `UpdateTicket`, `CreateArticle`, `GetTicket`, `TicketStates` |
 | `kb.go` | `CreateCategory`, `CreateAnswer`, `PublishAnswer`, `GetAnswer` |
 | `zammadtest/fake.go` | an `httptest` fake Zammad (token and admin auth, tickets, articles, KB, 403s the assistant gets, request log with `From`, faults) |
 
@@ -25,7 +25,7 @@ A thin client for Zammad's REST API (spec 0006): tickets, articles, and the know
 
 ## Gotchas
 
-- Zammad's search index lags writes and a fresh LDAP import by seconds, and by more than a minute right after `make helpdesk-reset` (journal 0025). Never use `SearchUsers` to confirm a write; the seed takes user ids from bootstrap's login map instead.
+- Zammad's search index lags writes by seconds. A seed that starts before `zammad-init` has configured Elasticsearch leaves its LDAP users out of the index for good, so `helpdesk-up` waits for `zammad-init` to exit (journal 0028). Never use `SearchUsers` to confirm a write; the seed takes user ids from bootstrap's login map instead.
 - KB writes return `{id, assets}`, not the object. The assistant token gets 403 on any KB write and on `/api/v1/settings`, but it **can** create and edit customer users at the Zammad level; it cannot edit an Admin (403, probed 2026-10-18).
 
 ## Commands

@@ -88,8 +88,11 @@ noord-reset:
 	@$(MAKE) --no-print-directory directory-reset entra-sync helpdesk-reset
 
 ## helpdesk-up: start Zammad in Compose (profile helpdesk) and wait until it is healthy
+# and zammad-init has finished: it configures Elasticsearch last, and a seed that
+# starts before that leaves its LDAP users out of the search index (journal 0028).
 helpdesk-up: .env certs
-	@$(LOAD_ENV) && docker compose --profile helpdesk up -d --wait $(ZAMMAD_SERVICES)
+	@$(LOAD_ENV) && docker compose --profile helpdesk up -d --wait $(ZAMMAD_SERVICES) && \
+		docker compose --profile helpdesk wait zammad-init
 
 ## helpdesk-seed: fill Zammad from seed/helpdesk/ (says "already seeded", or asks for a reset)
 helpdesk-seed: .env

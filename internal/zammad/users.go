@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // User is a Zammad user as the API returns it. This package only reads users.
@@ -39,4 +40,23 @@ func (c *Client) SearchUsers(ctx context.Context, query string, limit int) ([]Us
 	var users []User
 	err := c.Do(ctx, Request{Method: http.MethodGet, Path: "/api/v1/users/search?" + q.Encode(), Out: &users})
 	return users, err
+}
+
+// UsersByLogin returns the active users whose login equals login exactly.
+// It searches for the quoted login, then filters client side, because
+// Zammad's search matches loosely. The search index lags a fresh LDAP import,
+// so a new user can be missing for a while (spec 0006).
+func (c *Client) UsersByLogin(ctx context.Context, login string) ([]User, error) {
+	quoted := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(login)
+	found, err := c.SearchUsers(ctx, `login:"`+quoted+`"`, maxSearchLimit)
+	if err != nil {
+		return nil, err
+	}
+	var out []User
+	for _, u := range found {
+		if u.Login == login && u.Active {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }

@@ -36,6 +36,10 @@ linters:
               desc: only the tool server may talk to Zammad (AGENTS.md, Rules)
             - pkg: github.com/toyinogun/AIITsupport/internal/seed
               desc: the seeder binds as the domain Administrator; the agent never holds it (spec 0004)
+            - pkg: github.com/toyinogun/AIITsupport/internal/tools
+              desc: the tool layer runs only in the tool server; the agent calls it through internal/mcpclient (spec 0007)
+            - pkg: github.com/toyinogun/AIITsupport/internal/mcpserver
+              desc: the MCP server runs only in the tool server; the agent calls it through internal/mcpclient (spec 0007)
             - pkg: github.com/go-ldap/ldap
               desc: only the tool server may talk to AD (AGENTS.md, Rules)
             - pkg: github.com/Azure/azure-sdk-for-go/sdk/azidentity

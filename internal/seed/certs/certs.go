@@ -181,19 +181,6 @@ func writePair(certPath, keyPath string, der []byte, key *ecdsa.PrivateKey) erro
 	return nil
 }
 
-// Pool reads a CA file into a pool for verifying the server.
-func Pool(caPath string) (*x509.CertPool, error) {
-	pemBytes, err := os.ReadFile(caPath) //nolint:gosec // G304: the path comes from config
-	if err != nil {
-		return nil, fmt.Errorf("read CA %s (run make certs): %w", caPath, err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(pemBytes) {
-		return nil, fmt.Errorf("CA %s holds no PEM certificate", caPath)
-	}
-	return pool, nil
-}
-
 func serial() *big.Int {
 	n, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
 	if err != nil {

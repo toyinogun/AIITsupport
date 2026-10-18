@@ -11,6 +11,7 @@ The only way the tool server writes `audit_log` and `approvals` (spec 0003). `Re
 | `audit.go` | `Call`, `Result`, `Tier`, `Outcome`, `Config`, `Recorder`, `Run`, `Refuse`, the outcome retry, panic and cancel handling |
 | `approvals.go` | `Defer`, `Decide`, `Expire`, and the audit pair each approval move writes |
 | `payload.go` | the allow list filter (`encodeKept`, `"_omitted"` count, size cap) and `WithReason` |
+| `history.go` | `CountRecentOK` and `ThreadHasOK`, the reads behind the tool server's rate limits and one ticket per thread (spec 0007); they count only `ok` outcomes and fail with `ErrAuditUnavailable` |
 | `store.go` | `Store` / `Queries` interfaces and `PgStore` (pool connected as `noord_toolserver`) |
 | `audit_test.go` | unit tests on a fake store |
 | `audit_pg_test.go` | the same behaviors against real Postgres as `noord_toolserver` (needs `TEST_DATABASE_URL`) |
@@ -33,5 +34,6 @@ The only way the tool server writes `audit_log` and `approvals` (spec 0003). `Re
 ## Related specs
 
 - [0003 data model](../../docs/specs/0003-data-model/index.md) (audit log, approvals, the recorder, AC-2 to AC-8 and AC-15)
+- [0007 tool server and risk tiers](../../docs/specs/0007-tool-server-risk-tiers/index.md) (the history reads, AC-9 and AC-10)
 
 _Drafted by /sync from the introducing change, worth a quick human pass._

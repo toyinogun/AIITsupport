@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-ldap/ldap/v3"
 
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory/sambatest"
 )
@@ -63,8 +64,8 @@ func loadNoord() directory.Model {
 	return m
 }
 
-func dialer(s *sambatest.Samba) directory.Dialer {
-	return directory.Dialer{URL: s.URL, RootCAs: s.RootCAs}
+func dialer(s *sambatest.Samba) noordldap.Dialer {
+	return noordldap.Dialer{URL: s.URL, RootCAs: s.RootCAs}
 }
 
 func seed(ctx context.Context, s *sambatest.Samba, m directory.Model) error {
@@ -131,13 +132,13 @@ func checkContent(t *testing.T, admin ldap.Client, m directory.Model) {
 				want++
 			}
 		}
-		got := search(t, admin, directory.DepartmentDN(base, dept), ldap.ScopeSingleLevel, "(objectClass=user)", "1.1")
+		got := search(t, admin, noordldap.DepartmentDN(base, dept), ldap.ScopeSingleLevel, "(objectClass=user)", "1.1")
 		if len(got) != want {
 			t.Errorf("OU %s holds %d users, want %d", dept, len(got), want)
 		}
 	}
 
-	users := search(t, admin, directory.UsersDN(base), ldap.ScopeWholeSubtree, "(objectClass=user)",
+	users := search(t, admin, noordldap.UsersDN(base), ldap.ScopeWholeSubtree, "(objectClass=user)",
 		"sAMAccountName", "userPrincipalName", "mail", "manager", "userAccountControl", "title", "description")
 	byName := map[string]*ldap.Entry{}
 	for _, e := range users {
@@ -166,7 +167,7 @@ func checkContent(t *testing.T, admin ldap.Client, m directory.Model) {
 		t.Errorf("look alike DNs = %s and %s", jan1, jan2)
 	}
 
-	groups := search(t, admin, directory.GroupsDN(base), ldap.ScopeSingleLevel, "(objectClass=group)",
+	groups := search(t, admin, noordldap.GroupsDN(base), ldap.ScopeSingleLevel, "(objectClass=group)",
 		"cn", "groupType", "mail", "managedBy")
 	var unowned int
 	for _, e := range groups {
@@ -220,7 +221,7 @@ func checkPrivileged(t *testing.T, admin ldap.Client, m directory.Model) {
 	}
 
 	for _, privileged := range []string{domainAdmins, itAdmins, "CN=Administrators,CN=Builtin," + base} {
-		nested := search(t, admin, directory.GroupsDN(base), ldap.ScopeWholeSubtree,
+		nested := search(t, admin, noordldap.GroupsDN(base), ldap.ScopeWholeSubtree,
 			"(memberOf:"+inChain+":="+ldap.EscapeFilter(privileged)+")", "1.1")
 		if len(nested) != 0 {
 			t.Errorf("%d objects in OU=Groups are members of %s, want none", len(nested), privileged)
@@ -282,7 +283,7 @@ var compareAttrs = []string{
 func snapshot(t *testing.T, admin ldap.Client) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	for _, e := range search(t, admin, directory.NoordDN(base), ldap.ScopeWholeSubtree, "(objectClass=*)", compareAttrs...) {
+	for _, e := range search(t, admin, noordldap.NoordDN(base), ldap.ScopeWholeSubtree, "(objectClass=*)", compareAttrs...) {
 		var parts []string
 		for _, attr := range compareAttrs {
 			values := slices.Clone(e.GetAttributeValues(attr))
@@ -290,7 +291,7 @@ func snapshot(t *testing.T, admin ldap.Client) map[string]string {
 			parts = append(parts, attr+"="+strings.Join(values, "|"))
 		}
 		// Only accounts carry the computed lock flag; State fails on anything else.
-		if state, err := directory.State(admin, e.DN); err == nil {
+		if state, err := noordldap.State(admin, e.DN); err == nil {
 			parts = append(parts, fmt.Sprintf("locked=%t", state.Locked))
 		}
 		out[strings.ToLower(e.DN)] = strings.Join(parts, "; ")
@@ -325,7 +326,7 @@ func checkRerun(t *testing.T, admin ldap.Client, m directory.Model) {
 
 func setMarker(t *testing.T, admin ldap.Client, values []string) {
 	t.Helper()
-	req := ldap.NewModifyRequest(directory.NoordDN(base), nil)
+	req := ldap.NewModifyRequest(noordldap.NoordDN(base), nil)
 	req.Replace("description", values)
 	if err := admin.Modify(req); err != nil {
 		t.Fatalf("set marker: %v", err)
@@ -336,7 +337,7 @@ func setMarker(t *testing.T, admin ldap.Client, values []string) {
 func checkLockout(t *testing.T, admin ldap.Client, m directory.Model) {
 	for _, u := range m.Users {
 		dn, _ := m.UserDN(base, u.Username)
-		state, err := directory.State(admin, dn)
+		state, err := noordldap.State(admin, dn)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -381,7 +382,7 @@ func checkPermissionWall(t *testing.T, admin ldap.Client, m directory.Model) {
 			t.Errorf("%s: %v, want allowed", c.name, err)
 		}
 	}
-	if state, err := directory.State(admin, eva); err != nil || state.Locked {
+	if state, err := noordldap.State(admin, eva); err != nil || state.Locked {
 		t.Errorf("eva.peters after the svc unlock: %+v, %v; want unlocked", state, err)
 	}
 
@@ -405,7 +406,7 @@ func checkPermissionWall(t *testing.T, admin ldap.Client, m directory.Model) {
 			return svc.Modify(modify(eva, "replace", "title", "Managing Director"))
 		}},
 		{"create a user under OU=Users", func() error {
-			req := ldap.NewAddRequest("CN=Intruder,"+directory.DepartmentDN(base, "Sales"), nil)
+			req := ldap.NewAddRequest("CN=Intruder,"+noordldap.DepartmentDN(base, "Sales"), nil)
 			req.Attribute("objectClass", []string{"user"})
 			req.Attribute("sAMAccountName", []string{"intruder"})
 			return svc.Add(req)
@@ -439,12 +440,12 @@ func modify(dn, op, attr, value string) *ldap.ModifyRequest {
 
 // covers: AC-12
 func checkTransport(t *testing.T) {
-	stranger := directory.Dialer{URL: shared.URL, RootCAs: x509.NewCertPool()}
+	stranger := noordldap.Dialer{URL: shared.URL, RootCAs: x509.NewCertPool()}
 	if conn, err := stranger.Dial(); err == nil {
 		_ = conn.Close()
 		t.Error("connected without trusting our CA")
 	}
-	if _, err := (directory.Dialer{URL: strings.Replace(shared.URL, "ldaps://", "ldap://", 1), RootCAs: shared.RootCAs}).Dial(); err == nil {
+	if _, err := (noordldap.Dialer{URL: strings.Replace(shared.URL, "ldaps://", "ldap://", 1), RootCAs: shared.RootCAs}).Dial(); err == nil {
 		t.Error("the dialer accepted a plain ldap:// URL")
 	}
 	if _, err := shared.Container.MappedPort(t.Context(), "389/tcp"); err == nil {

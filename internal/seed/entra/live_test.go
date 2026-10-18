@@ -14,6 +14,7 @@ import (
 
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/graph"
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory/sambatest"
 )
@@ -59,7 +60,7 @@ func newLive(t *testing.T) *live {
 	}
 
 	m := loadNoord(t)
-	dialer := directory.Dialer{URL: s.URL, RootCAs: s.RootCAs}
+	dialer := noordldap.Dialer{URL: s.URL, RootCAs: s.RootCAs}
 	admin, err := dialer.WaitAndBind(t.Context(), sambatest.AdminDN, sambatest.AdminPassword, time.Minute)
 	if err != nil {
 		t.Fatalf("bind as Administrator: %v", err)
@@ -263,7 +264,7 @@ func (l *live) mustUser(t *testing.T, username string) graph.ManagedUser {
 func TestLiveReadScope(t *testing.T) {
 	s := sambatest.New(t, sambaBuildContext)
 	m := loadNoord(t)
-	dialer := directory.Dialer{URL: s.URL, RootCAs: s.RootCAs}
+	dialer := noordldap.Dialer{URL: s.URL, RootCAs: s.RootCAs}
 	admin, err := dialer.WaitAndBind(t.Context(), sambatest.AdminDN, sambatest.AdminPassword, time.Minute)
 	if err != nil {
 		t.Fatalf("bind as Administrator: %v", err)

@@ -76,13 +76,65 @@ func New(t testing.TB) *Fake {
 // URL is the base URL to point a client at.
 func (f *Fake) URL() string { return f.Server.URL }
 
-// AddUser stores a user and returns its id.
+// AddUser stores an active user and returns its id.
 func (f *Fake) AddUser(login string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
 	f.users[f.nextID] = map[string]any{"id": f.nextID, "login": login, "active": true}
 	return f.nextID
+}
+
+// Deactivate marks a user inactive, as Zammad does for a disabled LDAP user.
+func (f *Fake) Deactivate(id int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.users[id]["active"] = false
+}
+
+// States are the fake's ticket states, with Zammad's default names.
+var States = []map[string]any{
+	{"id": 1, "name": "new", "active": true},
+	{"id": 2, "name": "open", "active": true},
+	{"id": 3, "name": "pending reminder", "active": true},
+	{"id": 4, "name": "closed", "active": true},
+	{"id": 5, "name": "merged", "active": true},
+	{"id": 6, "name": "pending close", "active": true},
+}
+
+func stateID(name string) (int, bool) {
+	for _, s := range States {
+		if s["name"] == name {
+			return s["id"].(int), true
+		}
+	}
+	return 0, false
+}
+
+// Ticket returns a copy of one stored ticket.
+func (f *Fake) Ticket(id int) (map[string]any, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tickets[id]
+	if !ok {
+		return nil, false
+	}
+	return copyMap(t), true
+}
+
+// Articles returns copies of a ticket's articles, oldest first.
+func (f *Fake) Articles(ticketID int) []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tickets[ticketID]
+	if !ok {
+		return nil
+	}
+	var out []map[string]any
+	for _, id := range t["article_ids"].([]any) {
+		out = append(out, copyMap(f.articles[toInt(id)]))
+	}
+	return out
 }
 
 // Requests lists every request seen.
@@ -158,6 +210,8 @@ func (f *Fake) route(w http.ResponseWriter, r *http.Request, who string, body ma
 		writeJSON(w, http.StatusOK, f.users[id])
 	case r.Method == http.MethodGet && p == "/api/v1/users/search":
 		f.searchUsers(w, r.URL.Query().Get("query"))
+	case r.Method == http.MethodGet && p == "/api/v1/ticket_states":
+		writeJSON(w, http.StatusOK, States)
 	case r.Method == http.MethodGet && p == "/api/v1/settings":
 		if who != "admin" {
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": "Not authorized"})
@@ -185,8 +239,13 @@ func (f *Fake) route(w http.ResponseWriter, r *http.Request, who string, body ma
 	}
 }
 
+// searchUsers matches loosely, like Zammad: a login:"x" query matches every
+// login containing x, so the client must filter exactly.
 func (f *Fake) searchUsers(w http.ResponseWriter, query string) {
-	var out []map[string]any
+	if q, ok := strings.CutPrefix(query, `login:"`); ok {
+		query = strings.TrimSuffix(q, `"`)
+	}
+	out := []map[string]any{}
 	for _, u := range f.users {
 		if strings.Contains(u["login"].(string), query) {
 			out = append(out, u)
@@ -208,8 +267,11 @@ func (f *Fake) createTicket(w http.ResponseWriter, body map[string]any) {
 	t := f.store(f.tickets, body)
 	art := f.store(f.articles, body["article"].(map[string]any))
 	art["ticket_id"] = t["id"]
+	delete(t, "article")
 	t["article_ids"] = []any{art["id"]}
 	t["state"] = "new"
+	t["state_id"] = 1
+	t["number"] = fmt.Sprintf("%d", 70000+t["id"].(int))
 	writeJSON(w, http.StatusCreated, t)
 }
 
@@ -219,8 +281,23 @@ func (f *Fake) updateTicket(w http.ResponseWriter, id int, body map[string]any) 
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no ticket"})
 		return
 	}
+	if name, ok := body["state"].(string); ok {
+		id, known := stateID(name)
+		if !known {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "unknown state"})
+			return
+		}
+		t["state_id"] = id
+	}
+	if a, ok := body["article"].(map[string]any); ok {
+		art := f.store(f.articles, a)
+		art["ticket_id"] = id
+		t["article_ids"] = append(t["article_ids"].([]any), art["id"])
+	}
 	for k, v := range body {
-		t[k] = v
+		if k != "article" {
+			t[k] = v
+		}
 	}
 	writeJSON(w, http.StatusOK, t)
 }
@@ -285,6 +362,16 @@ func (f *Fake) store(into map[int]map[string]any, obj map[string]any) map[string
 	c["id"] = f.nextID
 	into[f.nextID] = c
 	return c
+}
+
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	}
+	return 0
 }
 
 func idFrom(re *regexp.Regexp, p string, group int) int {

@@ -20,6 +20,8 @@ type Queries interface {
 	ApproveApproval(ctx context.Context, arg queries.ApproveApprovalParams) (queries.Approval, error)
 	DenyApproval(ctx context.Context, arg queries.DenyApprovalParams) (queries.Approval, error)
 	ExpireDueApprovals(ctx context.Context, maxRows int32) ([]queries.Approval, error)
+	CountRecentOKOutcomes(ctx context.Context, arg queries.CountRecentOKOutcomesParams) (int64, error)
+	ThreadHasOKOutcome(ctx context.Context, arg queries.ThreadHasOKOutcomeParams) (bool, error)
 }
 
 // Store is Queries plus a way to run several of them in one transaction.

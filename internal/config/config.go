@@ -8,6 +8,7 @@
 //	default:"value"     used when the variable is unset or blank
 //	required:"true"     the binary refuses to start without it
 //	oneof:"a|b"         the only accepted values
+//	sep:";"             the list separator for a []string (default a comma)
 //
 // Later features flip a setting to required when their code starts using it.
 package config
@@ -16,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"reflect"
 	"slices"
 	"strconv"
@@ -75,20 +77,35 @@ type ToolServer struct {
 	HTTPAddr    string `env:"TOOLSERVER_HTTP_ADDR" default:":8080"`
 	DatabaseURL string `env:"TOOLSERVER_DATABASE_URL" required:"true"` // connects as noord_toolserver
 
-	LDAPURL          string `env:"LDAP_URL"`
-	LDAPBaseDN       string `env:"LDAP_BASE_DN"`
-	LDAPBindDN       string `env:"LDAP_BIND_DN"`
-	LDAPBindPassword string `env:"LDAP_BIND_PASSWORD"`
-	LDAPCACert       string `env:"LDAP_CA_CERT"`
+	// feature #9: svc-itsupport over LDAPS.
+	LDAPURL          string        `env:"LDAP_URL" required:"true"`
+	LDAPBaseDN       string        `env:"LDAP_BASE_DN" required:"true"`
+	LDAPBindDN       string        `env:"LDAP_BIND_DN" required:"true"`
+	LDAPBindPassword string        `env:"LDAP_BIND_PASSWORD" required:"true"`
+	LDAPCACert       string        `env:"LDAP_CA_CERT" required:"true"`
+	LDAPTimeout      time.Duration `env:"LDAP_TIMEOUT" default:"5s"`
 
 	Graph
-	Zammad
+	Zammad // required here by LoadToolServer (feature #9)
 
-	// ReadOnly is only the boot default for the kill switch; the mounted
-	// KillSwitchFile is read on every write call (feature #9).
+	// ReadOnly decides the kill switch only when KillSwitchFile is unset (local
+	// dev and tests). Otherwise the file is read on every account change and
+	// only the exact content read_write allows one (feature #9).
 	ReadOnly        bool          `env:"READ_ONLY" default:"true"`
 	KillSwitchFile  string        `env:"KILL_SWITCH_FILE"`
 	ApprovalTimeout time.Duration `env:"APPROVAL_TIMEOUT"` // feature #14
+
+	// The tool layer (feature #9, spec 0007). The OU lists are DNs relative
+	// to LDAP_BASE_DN; they hold commas, so they are separated by ";".
+	ToolCallTimeout   time.Duration `env:"TOOL_CALL_TIMEOUT" default:"15s"`
+	MaxRequestBytes   int           `env:"TOOLSERVER_MAX_REQUEST_BYTES" default:"65536"`
+	ToolUserOUs       []string      `env:"TOOL_USER_OUS" default:"OU=Users,OU=Noord" sep:";"`
+	ToolGroupOUs      []string      `env:"TOOL_GROUP_OUS" default:"OU=Groups,OU=Noord" sep:";"`
+	ToolDeniedGroups  []string      `env:"TOOL_DENIED_GROUPS" default:"SG-IT-Admins,APP-Helpdesk-Agents,SYNC-Entra-Users"`
+	ToolWriteLimit    int           `env:"TOOL_WRITE_LIMIT" default:"3"`
+	ToolWriteWindow   time.Duration `env:"TOOL_WRITE_WINDOW" default:"1h"`
+	TicketCreateLimit int           `env:"TICKET_CREATE_LIMIT" default:"5"`
+	TicketMaxPending  time.Duration `env:"TICKET_MAX_PENDING" default:"720h"`
 
 	// Audit log writes (spec 0003). internal/audit validates the ranges.
 	AuditOutcomeRetries  int           `env:"AUDIT_OUTCOME_RETRIES" default:"3"`
@@ -202,7 +219,7 @@ func (a Agent) SlackConfigured() bool {
 func LoadAgent(lookup LookupFunc) (Agent, error) {
 	var cfg Agent
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkSlack(cfg))
+	err = errors.Join(err, checkSlack(cfg), checkToolServerToken(cfg.ToolServerToken))
 	if err != nil {
 		return Agent{}, fmt.Errorf("agent config: %w", err)
 	}
@@ -228,15 +245,78 @@ func checkSlack(cfg Agent) error {
 	return errors.Join(errs...)
 }
 
-// LoadToolServer reads and validates the tool server's settings.
+// LoadToolServer reads and validates the tool server's settings. It checks
+// configuration only, never reachability. The OU lists are parsed as DNs by
+// the tool layer at startup (internal/tools), because DN parsing needs the
+// LDAP package, which this package must not import: the agent imports it.
 func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkZammadToken(cfg.ZammadToken))
+	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg))
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
 	return cfg, nil
+}
+
+// minToolServerTokenLen is the shortest TOOLSERVER_TOKEN either binary accepts (spec 0007).
+const minToolServerTokenLen = 32
+
+// checkToolServerToken accepts an unset token (load already reported it) or
+// one of at least 32 characters. The error never holds the value.
+func checkToolServerToken(token string) error {
+	if token == "" || len(token) >= minToolServerTokenLen {
+		return nil
+	}
+	return fmt.Errorf("TOOLSERVER_TOKEN must be at least %d characters", minToolServerTokenLen)
+}
+
+// checkToolLayer requires the Zammad settings and checks the tool layer's ranges.
+func checkToolLayer(cfg ToolServer) error {
+	errs := missing(map[string]string{
+		"ZAMMAD_URL":           cfg.ZammadURL,
+		"ZAMMAD_TOKEN":         cfg.ZammadToken,
+		"ZAMMAD_DEFAULT_GROUP": cfg.ZammadDefaultGroup,
+	})
+	positive := map[string]time.Duration{
+		"LDAP_TIMEOUT":       cfg.LDAPTimeout,
+		"TOOL_CALL_TIMEOUT":  cfg.ToolCallTimeout,
+		"TOOL_WRITE_WINDOW":  cfg.ToolWriteWindow,
+		"TICKET_MAX_PENDING": cfg.TicketMaxPending,
+		"ZAMMAD_TIMEOUT":     cfg.ZammadTimeout,
+	}
+	for _, name := range slices.Sorted(maps.Keys(positive)) {
+		if positive[name] <= 0 {
+			errs = append(errs, fmt.Errorf("%s must be positive", name))
+		}
+	}
+	atLeastOne := map[string]int{
+		"TOOL_WRITE_LIMIT":             cfg.ToolWriteLimit,
+		"TICKET_CREATE_LIMIT":          cfg.TicketCreateLimit,
+		"TOOLSERVER_MAX_REQUEST_BYTES": cfg.MaxRequestBytes,
+	}
+	for _, name := range slices.Sorted(maps.Keys(atLeastOne)) {
+		if atLeastOne[name] < 1 {
+			errs = append(errs, fmt.Errorf("%s must be at least 1", name))
+		}
+	}
+	if cfg.LDAPURL != "" && !isLDAPS(cfg.LDAPURL) {
+		errs = append(errs, errors.New("LDAP_URL must be an ldaps:// URL with a host"))
+	}
+	if len(cfg.ToolUserOUs) == 0 {
+		errs = append(errs, errors.New("TOOL_USER_OUS must name at least one OU"))
+	}
+	if len(cfg.ToolGroupOUs) == 0 {
+		errs = append(errs, errors.New("TOOL_GROUP_OUS must name at least one OU"))
+	}
+	return errors.Join(errs...)
+}
+
+// isLDAPS reports whether raw parses as an ldaps URL with a host, the only
+// kind the LDAP dialer opens.
+func isLDAPS(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "ldaps" && u.Host != ""
 }
 
 // minZammadTokenLen is the shortest ZAMMAD_TOKEN accepted (spec 0006).
@@ -425,7 +505,7 @@ func setField(f reflect.StructField, field reflect.Value, lookup LookupFunc) err
 	if allowed := f.Tag.Get("oneof"); allowed != "" && !slices.Contains(strings.Split(allowed, "|"), raw) {
 		return fmt.Errorf("%s must be one of %s, got %q", name, allowed, raw)
 	}
-	if err := parseInto(field, raw); err != nil {
+	if err := parseInto(field, raw, f.Tag.Get("sep")); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
@@ -433,7 +513,7 @@ func setField(f reflect.StructField, field reflect.Value, lookup LookupFunc) err
 
 var durationType = reflect.TypeFor[time.Duration]()
 
-func parseInto(field reflect.Value, raw string) error {
+func parseInto(field reflect.Value, raw, sep string) error {
 	switch {
 	case field.Type() == durationType:
 		d, err := time.ParseDuration(raw)
@@ -456,19 +536,28 @@ func parseInto(field reflect.Value, raw string) error {
 		}
 		field.SetBool(b)
 	case field.Kind() == reflect.Slice && field.Type().Elem().Kind() == reflect.String:
-		field.Set(reflect.ValueOf(splitList(raw)))
+		field.Set(reflect.ValueOf(splitList(raw, sep)))
 	default:
 		return fmt.Errorf("unsupported setting type %s", field.Type())
 	}
 	return nil
 }
 
-func splitList(raw string) []string {
+// splitList splits on commas, dropping blank entries. With a sep tag it
+// splits on sep instead and keeps blank entries, so the setting's own check
+// can refuse them (TOOL_USER_OUS, TOOL_GROUP_OUS).
+func splitList(raw, sep string) []string {
 	var out []string
-	for part := range strings.SplitSeq(raw, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
+	if sep == "" {
+		for part := range strings.SplitSeq(raw, ",") {
+			if p := strings.TrimSpace(part); p != "" {
+				out = append(out, p)
+			}
 		}
+		return out
+	}
+	for part := range strings.SplitSeq(raw, sep) {
+		out = append(out, strings.TrimSpace(part))
 	}
 	return out
 }

@@ -12,8 +12,8 @@ import (
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/toyinogun/AIITsupport/internal/config"
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/logging"
-	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/helpdesk"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
@@ -125,11 +125,11 @@ func waitHealthy(ctx context.Context, url string, wait time.Duration) error {
 // checkZammadBind binds as svc-zammad, so a directory older than spec 0006
 // (no svc-zammad) fails before Zammad is touched.
 func checkZammadBind(cfg config.SeedHelpdesk) error {
-	pool, err := certs.Pool(cfg.CACert)
+	pool, err := noordldap.LoadCA(cfg.CACert)
 	if err != nil {
 		return err
 	}
-	conn, err := directory.Dialer{URL: cfg.LDAPURL, RootCAs: pool}.Bind(helpdesk.ZammadBindDN, cfg.ZammadBindPassword)
+	conn, err := noordldap.Dialer{URL: cfg.LDAPURL, RootCAs: pool}.Bind(helpdesk.ZammadBindDN, cfg.ZammadBindPassword)
 	if err != nil {
 		if ldap.IsErrorWithCode(errors.Unwrap(err), ldap.LDAPResultInvalidCredentials) || ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
 			return errors.New("svc-zammad cannot bind with SEED_ZAMMAD_BIND_PASSWORD (a directory older than the helpdesk, or a changed password); run make directory-reset")

@@ -46,3 +46,20 @@ WHERE i.kind = 'intent' AND i.occurred_at < @older_than
   )
 ORDER BY i.id
 LIMIT @max_rows;
+
+-- name: CountRecentOKOutcomes :one
+-- CountRecentOKOutcomes counts a requester's ok outcomes for one tool since a
+-- time: the tool server's rate limit (spec 0007).
+SELECT count(*) FROM audit_log
+WHERE kind = 'outcome' AND outcome = 'ok'
+  AND tool_name = @tool_name AND requester_slack_id = @requester_slack_id
+  AND occurred_at > @since;
+
+-- name: ThreadHasOKOutcome :one
+-- ThreadHasOKOutcome reports whether a tool already succeeded in a Slack
+-- thread: one ticket per conversation (spec 0007).
+SELECT EXISTS (
+    SELECT 1 FROM audit_log
+    WHERE slack_channel_id = @slack_channel_id AND slack_thread_ts = @slack_thread_ts
+      AND kind = 'outcome' AND outcome = 'ok' AND tool_name = @tool_name
+);

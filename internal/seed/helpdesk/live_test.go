@@ -17,7 +17,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/toyinogun/AIITsupport/internal/config"
-	"github.com/toyinogun/AIITsupport/internal/seed/certs"
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
 )
@@ -287,17 +287,17 @@ func TestLiveSignInFollowsAD(t *testing.T) {
 		t.Errorf("eva.peters with the right password: %v", err)
 	}
 
-	pool, err := certs.Pool(e.cfg.CACert)
+	pool, err := noordldap.LoadCA(e.cfg.CACert)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := directory.Dialer{URL: e.cfg.LDAPURL, RootCAs: pool}
+	d := noordldap.Dialer{URL: e.cfg.LDAPURL, RootCAs: pool}
 	admin, err := d.Bind(e.cfg.AdminUser, e.cfg.AdminPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer admin.Close()
-	base, err := directory.BaseDN(admin)
+	base, err := noordldap.BaseDN(admin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestLiveSignInFollowsAD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := directory.State(admin, dn)
+	state, err := noordldap.State(admin, dn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,22 +411,22 @@ func (e liveEnv) anonymousPost(t *testing.T, path string, payload map[string]any
 // refused.
 func TestLiveZammadBindReadsOnly(t *testing.T) {
 	e := live(t)
-	pool, err := certs.Pool(e.cfg.CACert)
+	pool, err := noordldap.LoadCA(e.cfg.CACert)
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := directory.Dialer{URL: e.cfg.LDAPURL, RootCAs: pool}.Bind(ZammadBindDN, e.cfg.ZammadBindPassword)
+	svc, err := noordldap.Dialer{URL: e.cfg.LDAPURL, RootCAs: pool}.Bind(ZammadBindDN, e.cfg.ZammadBindPassword)
 	if err != nil {
 		t.Fatalf("bind as svc-zammad: %v", err)
 	}
 	defer svc.Close()
-	base, err := directory.BaseDN(svc)
+	base, err := noordldap.BaseDN(svc)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	eva, _ := e.model.UserDN(base, "eva.peters")
-	res, err := svc.Search(ldap.NewSearchRequest(directory.NoordDN(base), ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+	res, err := svc.Search(ldap.NewSearchRequest(noordldap.NoordDN(base), ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		"(&(objectCategory=person)(objectClass=user)(department=*)(sAMAccountName=eva.peters))", []string{"department"}, nil))
 	if err != nil || len(res.Entries) != 1 || !strings.EqualFold(res.Entries[0].DN, eva) {
 		t.Fatalf("svc-zammad search for eva.peters: %v, %v", res, err)

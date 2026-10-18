@@ -7,25 +7,17 @@ import (
 	"strconv"
 
 	"github.com/go-ldap/ldap/v3"
-)
 
-// ufLockout is the locked bit in msDS-User-Account-Control-Computed. It is
-// the only reliable lock signal: lockoutTime stays set after a lock expires.
-const ufLockout = 0x10
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
+)
 
 // ErrLockoutOff means the domain's lockout threshold is 0, so failed binds
 // never lock anyone.
 var ErrLockoutOff = errors.New("the domain lockout threshold is 0, so accounts never lock")
 
-// LockState is a user's lock state as the Administrator sees it.
-type LockState struct {
-	Locked      bool
-	BadPwdCount int
-}
-
 // LockoutThreshold reads how many failed binds lock an account.
 func LockoutThreshold(conn ldap.Client, base string) (int, error) {
-	entry, err := readOne(conn, base, "lockoutThreshold")
+	entry, err := noordldap.ReadOne(conn, base, "lockoutThreshold")
 	if err != nil {
 		return 0, err
 	}
@@ -44,7 +36,7 @@ func LockoutThreshold(conn ldap.Client, base string) (int, error) {
 
 // Lock binds as the user with a wrong password threshold times, which is the
 // only way to lock an AD account. It does not confirm the lock; State does.
-func Lock(ctx context.Context, d Dialer, userDN, wrongPassword string, threshold int) error {
+func Lock(ctx context.Context, d noordldap.Dialer, userDN, wrongPassword string, threshold int) error {
 	conn, err := d.Dial()
 	if err != nil {
 		return err
@@ -67,11 +59,11 @@ func Lock(ctx context.Context, d Dialer, userDN, wrongPassword string, threshold
 
 // LockAndConfirm locks a user and checks the computed lock flag as the
 // Administrator, so a lock that did not take is an error, never a success.
-func LockAndConfirm(ctx context.Context, admin ldap.Client, d Dialer, userDN, wrongPassword string, threshold int) error {
+func LockAndConfirm(ctx context.Context, admin ldap.Client, d noordldap.Dialer, userDN, wrongPassword string, threshold int) error {
 	if err := Lock(ctx, d, userDN, wrongPassword, threshold); err != nil {
 		return err
 	}
-	state, err := State(admin, userDN)
+	state, err := noordldap.State(admin, userDN)
 	if err != nil {
 		return err
 	}
@@ -79,22 +71,4 @@ func LockAndConfirm(ctx context.Context, admin ldap.Client, d Dialer, userDN, wr
 		return fmt.Errorf("%s is still unlocked after %d failed binds (badPwdCount %d)", userDN, threshold, state.BadPwdCount)
 	}
 	return nil
-}
-
-// State reads a user's lock state. admin must be bound as the Administrator,
-// because the computed attribute is the only reliable lock signal (AC-8).
-func State(admin ldap.Client, userDN string) (LockState, error) {
-	entry, err := readOne(admin, userDN, "msDS-User-Account-Control-Computed", "badPwdCount")
-	if err != nil {
-		return LockState{}, err
-	}
-	if entry == nil {
-		return LockState{}, fmt.Errorf("%s not found", userDN)
-	}
-	computed, err := strconv.Atoi(entry.GetAttributeValue("msDS-User-Account-Control-Computed"))
-	if err != nil {
-		return LockState{}, fmt.Errorf("read lock flag of %s: %w", userDN, err)
-	}
-	bad, _ := strconv.Atoi(entry.GetAttributeValue("badPwdCount")) // absent means 0
-	return LockState{Locked: computed&ufLockout != 0, BadPwdCount: bad}, nil
 }

@@ -10,8 +10,8 @@ import (
 
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/graph"
+	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/logging"
-	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/entra"
 )
@@ -113,11 +113,11 @@ func loadEntraModel(cfg config.Seed) (directory.Model, entra.Demo, error) {
 // readScope binds to Samba as the Administrator; a directory that does not
 // answer fails naming SEED_LDAP_URL before any Graph call (AC-12).
 func readScope(cfg config.Seed, m directory.Model) ([]entra.ADUser, error) {
-	pool, err := certs.Pool(cfg.CACert)
+	pool, err := noordldap.LoadCA(cfg.CACert)
 	if err != nil {
 		return nil, err
 	}
-	dialer := directory.Dialer{URL: cfg.LDAPURL, RootCAs: pool}
+	dialer := noordldap.Dialer{URL: cfg.LDAPURL, RootCAs: pool}
 	conn, err := dialer.Bind(cfg.AdminUser, cfg.AdminPassword)
 	if err != nil {
 		return nil, fmt.Errorf("read the sync scope from SEED_LDAP_URL: %w", err)
