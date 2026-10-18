@@ -2,7 +2,7 @@
 
 ## Overview
 
-Builds Noord's fictional on prem Active Directory (spec 0004): a Samba AD container that provisions itself on first boot, then filled over LDAPS from one YAML file. `cmd/seed` is the only caller and the only code that binds as the domain Administrator. It is a dev and ops tool, never a long running service. The eval reuses it.
+Builds Noord's fictional on prem Active Directory (spec 0004): a Samba AD container that provisions itself on first boot, then filled over LDAPS from one YAML file. `cmd/seed` is the only caller and the only code that binds as the domain Administrator. It is a dev and ops tool, never a long running service. The eval reuses it. Since spec 0006 it also builds Noord's Zammad helpdesk (`helpdesk/`) from `seed/helpdesk/`: a Rails bootstrap inside Zammad, a REST fill through `internal/zammad`, and a Rails backdate step that writes the marker last.
 
 ## Key files
 
@@ -21,8 +21,13 @@ Builds Noord's fictional on prem Active Directory (spec 0004): a Samba AD contai
 | `entra/sync.go` | `Syncer.Run`: reads Entra, plans, then writes one call at a time; `Result` holds the logged counts |
 | `entra/phone.go` | `GeneratedPhones` (`+1 20255501NN` by bytewise sorted position), `ExpectedPhones`, `RandomPassword` |
 | `entra/demo.go` | `LoadDemo` / `ParseDemo` for `seed/entra/demo.local.yaml`, `CheckDemoPassword` |
-| `../../cmd/seed/` | the `certs`, `validate`, `directory`, `login`, `lock`, `entra sync`, `entra mfa` commands |
+| `helpdesk/content.go`, `helpdesk/validate.go` | `Load`: `seed/helpdesk/` (KB articles, tickets) into `Content`, every rule reported together; eval truth (`status`, `contradicts`, `retired_system`, `dead_contact`, `duplicate_of`) lives here only (spec 0006) |
+| `helpdesk/seed.go`, `helpdesk/fill.go` | `Seeder.Run`: bootstrap, the login check against `users:`, the REST fill, then backdate with the marker last; `ErrNeedsReset` |
+| `helpdesk/rails.go` | `Runner`, `ComposeRunner` (`docker compose exec -T -e NAME... zammad-railsserver timeout ... rails r`), the `NOORD_RESULT` parser, secret redaction |
+| `helpdesk/marker.go` | `Marker` (sha256 over repo relative paths and bytes of `seed/helpdesk/`, `noord.yaml`, and the CA), `ToHTML` (goldmark, raw HTML escaped) |
+| `../../cmd/seed/` | the `certs`, `validate`, `directory`, `login`, `lock`, `entra sync`, `entra mfa`, `helpdesk` commands |
 | `../../seed/directory/` | `noord.yaml`, `overlay.example.yaml`, and the Samba image (`samba/Dockerfile`, `samba/entrypoint.sh`) |
+| `../../seed/helpdesk/` | `kb.yaml`, `kb/<slug>.md`, `tickets.yaml`, the Rails steps (`rails/bootstrap.rb`, `backdate.rb`, plus `report.rb` and `ldapsync.rb` for the live tests), and the vendored Zammad Compose files (`zammad/`) |
 
 ## Commands
 
@@ -33,7 +38,10 @@ go run ./cmd/seed validate    # check the seed file, no network, no passwords
 TEST_SAMBA=1 go test -race ./internal/seed/...   # live tests against a throwaway container
 make entra-sync [ONLY=<username>]  # make Entra match SYNC-Entra-Users; skips when SEED_GRAPH_* is unset
 make entra-mfa NAME=<username> [CLEAR=1]  # list (or clear) a user's MFA methods with the tool server app
-make noord-reset              # directory-reset, then entra-sync
+make noord-reset              # directory-reset, entra-sync, then helpdesk-reset
+make helpdesk-reset           # fresh Zammad, seeded from seed/helpdesk/ (about 2 minutes)
+make helpdesk-seed            # "already seeded" when the marker matches, else asks for a reset
+set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run Live ./internal/seed/helpdesk/  # live helpdesk tests, after helpdesk-reset
 DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_ENTRA=1 go test -race -run Live ./internal/seed/entra/  # live tenant tests, laptop only, .env loaded
 ```
 
@@ -49,6 +57,10 @@ DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_ENTRA=1 go test -race -run L
 - `seed/directory/overlay.local.yaml` is gitignored and only replaces `mail` for listed demo users.
 - The Entra sync touches only users marked `employeeType` = `noord-sync`. An unmarked user holding an in scope `mailNickname` or UPN (live or in the recycle bin) stops the run before any write; it is never edited, restored, or deleted.
 - A managed user out of scope is soft deleted (recycle bin) and restored with the same object id when it returns, never created again. More than `SEED_ENTRA_DELETE_LIMIT` deletes stops the run before any write.
+- `svc-zammad` (Zammad's LDAP bind) has no ACEs of its own: it reads users like any authenticated account and every write fails. `seed directory` and `seed helpdesk` refuse to run without `SEED_ZAMMAD_BIND_PASSWORD`.
+- The helpdesk marker (`seed:sha256:<hash>`) lives in the `Noord Logistics` organization's note in Zammad, written last by `backdate.rb`. Any other seeded content means `make helpdesk-reset`, never a top up. Changing `noord.yaml`, a helpdesk file, or the certs changes the marker.
+- Secrets reach the Rails steps only as environment variables (`-e NAME` with no value); step output is shown with every secret value redacted.
+- The seed takes Zammad user ids from bootstrap's login map, never from user search (its index lags the import). Seeded tickets name customers by numeric id.
 - Demo users live only in the gitignored `seed/entra/demo.local.yaml` (at most 2); tracked files hold only `+1 20255501NN` numbers. No command resets a password: the seed app has no right to (journal 0016).
 
 ## Gotchas
@@ -58,10 +70,13 @@ DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_ENTRA=1 go test -race -run L
 - A seed that fails partway (a weak `SEED_USER_PASSWORD`, say) leaves content behind, so the next `make seed` refuses until you reset.
 - Live tests hang forever on Docker's credential helper unless `DOCKER_AUTH_CONFIG='{"auths":{}}'` is set (journal 0011).
 - Graph's reads lag its writes, so the first sync after a drift may miss part of it; the next run fixes the rest (journal 0015). Live tests sync until a run makes no writes.
+- Zammad's LDAP source has one base DN for users and groups, so it searches `OU=Noord` and keeps only people with a `department` (journal 0019). An account without a department never reaches Zammad.
+- A ticket made by hand after a seed stays until the next reset, and `TestLiveContentMatchesFiles` fails until then.
 
 ## Related specs
 
 - [0004 Noord directory](../../docs/specs/0004-noord-directory/index.md) (the contract, with [verify.md](../../docs/specs/0004-noord-directory/verify.md))
 - [0005 Entra tenant and sync](../../docs/specs/0005-entra-tenant-sync/index.md) (the `entra/` sync, with [verify.md](../../docs/specs/0005-entra-tenant-sync/verify.md)); setup in [the Entra runbook](../../docs/runbooks/entra-tenant.md)
+- [0006 helpdesk, KB, and Slack](../../docs/specs/0006-helpdesk-kb-slack/index.md) (the `helpdesk/` seeder, with [verify.md](../../docs/specs/0006-helpdesk-kb-slack/verify.md))
 
 _Drafted by /sync from the introducing change, worth a quick human pass._
