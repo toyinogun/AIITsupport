@@ -1,7 +1,7 @@
 # 0006. Noord helpdesk: Zammad on Samba LDAP, a seeded KB, and the Slack app
 
 **Date**: 2026-10-18
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

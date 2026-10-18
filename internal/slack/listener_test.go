@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	slackapi "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 )
@@ -44,6 +45,7 @@ type reply struct{ channel, thread, text string }
 
 type fakePoster struct {
 	checkErrs []error
+	replyErr  error
 	mu        sync.Mutex
 	checks    int
 	replies   []reply
@@ -65,7 +67,7 @@ func (p *fakePoster) Reply(_ context.Context, channel, thread, text string) erro
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.replies = append(p.replies, reply{channel, thread, text})
-	return nil
+	return p.replyErr
 }
 
 func (p *fakePoster) got() []reply {
@@ -75,10 +77,11 @@ func (p *fakePoster) got() []reply {
 }
 
 type fakeDedup struct {
-	mu      sync.Mutex
-	seen    map[string]bool
-	err     error
-	cutoffs []time.Time
+	mu       sync.Mutex
+	seen     map[string]bool
+	err      error
+	purgeErr error
+	cutoffs  []time.Time
 }
 
 func (d *fakeDedup) MarkEventSeen(_ context.Context, id string) (int64, error) {
@@ -98,6 +101,9 @@ func (d *fakeDedup) PurgeSeenEventsBefore(_ context.Context, cutoff time.Time) (
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.cutoffs = append(d.cutoffs, cutoff)
+	if d.purgeErr != nil {
+		return 0, d.purgeErr
+	}
 	return 3, nil
 }
 
@@ -279,5 +285,101 @@ func TestCheckRetries(t *testing.T) {
 func TestBackoff(t *testing.T) {
 	if backoff(1) != time.Second || backoff(3) != 4*time.Second || backoff(20) != maxBackoff {
 		t.Errorf("backoff = %v %v %v", backoff(1), backoff(3), backoff(20))
+	}
+}
+
+// covers: AC-13, AC-14. slack-go's own connect and reconnect attempts are
+// logged one line each, with the attempt and the backoff.
+func TestConnectionEventsAreLogged(t *testing.T) {
+	l, s, _, _, logs := newListener(t)
+	events := []socketmode.Event{
+		{Type: socketmode.EventTypeConnecting, Data: &slackapi.ConnectingEvent{Attempt: 1}},
+		{Type: socketmode.EventTypeConnectionError, Data: &slackapi.ConnectionErrorEvent{Attempt: 2, Backoff: 3 * time.Second, ErrorObj: errors.New("dial tcp: i/o timeout")}},
+		{Type: socketmode.EventTypeConnected},
+		{Type: socketmode.EventTypeDisconnect},
+	}
+	if err := runWith(t, l, s, events...); err != nil {
+		t.Fatal(err)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		`"msg":"slack_connecting","attempt":1`,
+		`"msg":"slack_connect_failed","api":"apps.connections.open","attempt":2,"backoff_ms":3000`,
+		`"msg":"slack_connected"`,
+		`"msg":"slack_disconnected"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("logs lack %s:\n%s", want, out)
+		}
+	}
+}
+
+// covers: AC-12. A reply Slack refuses is logged without the message text,
+// and the event stays marked, so a redelivery is not answered either.
+func TestReplyFailureIsLoggedNotRetried(t *testing.T) {
+	l, s, p, _, logs := newListener(t)
+	p.replyErr = errors.New("channel_not_found")
+	if err := runWith(t, l, s, dm("Ev5", "locked out again"), dm("Ev5", "locked out again")); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(p.got()); n != 1 {
+		t.Errorf("%d reply attempts, want 1 (the redelivery is a duplicate)", n)
+	}
+	out := logs.String()
+	if !strings.Contains(out, `"msg":"slack_reply_failed","event_id":"Ev5","channel_id":"D0123"`) {
+		t.Errorf("logs lack slack_reply_failed:\n%s", out)
+	}
+	if strings.Contains(out, "locked out again") {
+		t.Errorf("logs hold the message text:\n%s", out)
+	}
+}
+
+// covers: AC-12. A DM sent inside a thread is answered in that thread, not
+// under the new message.
+func TestThreadedDMRepliesInItsThread(t *testing.T) {
+	l, s, p, _, _ := newListener(t)
+	threaded := eventsAPI("e7", "Ev7", &slackevents.MessageEvent{
+		ChannelType: "im", Channel: "D0123", TimeStamp: "7.5", ThreadTimeStamp: "7.0",
+	}, "message")
+	if err := runWith(t, l, s, threaded); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.got(); len(got) != 1 || got[0].thread != "7.0" {
+		t.Errorf("replies = %+v, want one in thread 7.0", got)
+	}
+}
+
+// covers: AC-12. An event with no event id cannot be deduplicated, so it is
+// acked and dropped, never answered.
+func TestEventWithoutIDIsIgnored(t *testing.T) {
+	l, s, p, d, _ := newListener(t)
+	if err := runWith(t, l, s, dm("", "hello")); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.got()) != 0 {
+		t.Errorf("answered an event with no id: %+v", p.got())
+	}
+	if len(s.acks) != 1 {
+		t.Errorf("acks = %v, want the delivery acked", s.acks)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.seen) != 0 {
+		t.Errorf("marked %v as seen", d.seen)
+	}
+}
+
+// covers: AC-12. A failed purge is logged and the listener keeps answering.
+func TestPurgeFailureKeepsListening(t *testing.T) {
+	l, s, p, d, logs := newListener(t)
+	d.purgeErr = errors.New("connection refused")
+	if err := runWith(t, l, s, dm("Ev8", "hello")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), `"msg":"slack_event_purge_failed"`) {
+		t.Errorf("logs lack slack_event_purge_failed:\n%s", logs.String())
+	}
+	if len(p.got()) != 1 {
+		t.Errorf("replies = %+v, want the DM answered", p.got())
 	}
 }

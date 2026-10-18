@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
+
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
@@ -401,6 +403,159 @@ func (e liveEnv) anonymousPost(t *testing.T, path string, payload map[string]any
 	}
 	status, _, raw := send(http.MethodPost, path, body, csrf)
 	return status, raw
+}
+
+// covers: AC-2. svc-zammad binds over LDAPS and reads Noord's people and
+// groups, Ruben is the one member of APP-Helpdesk-Agents, and every write
+// as svc-zammad (a user change, or adding someone to the agents group) is
+// refused.
+func TestLiveZammadBindReadsOnly(t *testing.T) {
+	e := live(t)
+	pool, err := certs.Pool(e.cfg.CACert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := directory.Dialer{URL: e.cfg.LDAPURL, RootCAs: pool}.Bind(ZammadBindDN, e.cfg.ZammadBindPassword)
+	if err != nil {
+		t.Fatalf("bind as svc-zammad: %v", err)
+	}
+	defer svc.Close()
+	base, err := directory.BaseDN(svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eva, _ := e.model.UserDN(base, "eva.peters")
+	res, err := svc.Search(ldap.NewSearchRequest(directory.NoordDN(base), ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		"(&(objectCategory=person)(objectClass=user)(department=*)(sAMAccountName=eva.peters))", []string{"department"}, nil))
+	if err != nil || len(res.Entries) != 1 || !strings.EqualFold(res.Entries[0].DN, eva) {
+		t.Fatalf("svc-zammad search for eva.peters: %v, %v", res, err)
+	}
+
+	agents, ok := e.model.GroupDN(base, "APP-Helpdesk-Agents")
+	if !ok {
+		t.Fatal("APP-Helpdesk-Agents is not in noord.yaml")
+	}
+	ruben, _ := e.model.UserDN(base, "ruben.mulder")
+	group, err := svc.Search(ldap.NewSearchRequest(agents, ldap.ScopeBaseObject, ldap.NeverDerefAliases, 0, 0, false,
+		"(objectClass=group)", []string{"member"}, nil))
+	if err != nil || len(group.Entries) != 1 {
+		t.Fatalf("read APP-Helpdesk-Agents: %v", err)
+	}
+	if members := group.Entries[0].GetAttributeValues("member"); len(members) != 1 || !strings.EqualFold(members[0], ruben) {
+		t.Errorf("APP-Helpdesk-Agents members = %v, want only %s", members, ruben)
+	}
+
+	refused := map[string]*ldap.ModifyRequest{
+		"change eva.peters's title":             ldap.NewModifyRequest(eva, nil),
+		"add eva.peters to the helpdesk agents": ldap.NewModifyRequest(agents, nil),
+	}
+	refused["change eva.peters's title"].Replace("title", []string{"Helpdesk Admin"})
+	refused["add eva.peters to the helpdesk agents"].Add("member", []string{eva})
+	for name, req := range refused {
+		if err := svc.Modify(req); !ldap.IsErrorWithCode(err, ldap.LDAPResultInsufficientAccessRights) {
+			t.Errorf("%s as svc-zammad: %v, want insufficient access", name, err)
+		}
+	}
+}
+
+// covers: AC-3. A reset leaves a finished Zammad with our settings, none of
+// its stock content, no way to send mail, one group, and one organization.
+// Read as the seed admin, which proves that account too.
+func TestLiveResetLeavesACleanZammad(t *testing.T) {
+	e := live(t)
+	ctx := t.Context()
+	me, err := e.admin.Me(ctx)
+	if err != nil || !strings.EqualFold(me.Email, e.cfg.ZammadAdminEmail) {
+		t.Fatalf("seed admin Me = %+v, %v", me, err)
+	}
+
+	var settings []struct {
+		Name  string `json:"name"`
+		State struct {
+			Value any `json:"value"`
+		} `json:"state_current"`
+	}
+	if err := e.admin.Do(ctx, zammad.Request{Method: http.MethodGet, Path: "/api/v1/settings", Out: &settings}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	got := map[string]any{}
+	for _, s := range settings {
+		got[s.Name] = s.State.Value
+	}
+	want := map[string]any{
+		"system_init_done": true, "fqdn": "127.0.0.1:58080", "http_type": "http",
+		"locale_default": "en-us", "timezone_default": "Europe/Amsterdam",
+	}
+	for name, v := range want {
+		if got[name] != v {
+			t.Errorf("setting %s = %v, want %v", name, got[name], v)
+		}
+	}
+
+	var email struct {
+		AccountChannelIDs []int `json:"account_channel_ids"`
+		Assets            struct {
+			Channel map[string]struct {
+				Area   string `json:"area"`
+				Active bool   `json:"active"`
+			} `json:"Channel"`
+		} `json:"assets"`
+	}
+	if err := e.admin.Do(ctx, zammad.Request{Method: http.MethodGet, Path: "/api/v1/channels_email", Out: &email}); err != nil {
+		t.Fatalf("email channels: %v", err)
+	}
+	notifications := 0
+	for id, ch := range email.Assets.Channel {
+		switch {
+		case ch.Area == "Email::Notification":
+			notifications++
+			if ch.Active {
+				t.Errorf("notification channel %s is active, so mail can leave", id)
+			}
+		case strings.HasPrefix(ch.Area, "Email::"):
+			t.Errorf("channel %s has area %s, want no email account", id, ch.Area)
+		}
+	}
+	if notifications != 2 || len(email.AccountChannelIDs) != 0 {
+		t.Errorf("%d notification channels and account channels %v, want 2 and none", notifications, email.AccountChannelIDs)
+	}
+
+	var groups, orgs []struct {
+		Name string `json:"name"`
+	}
+	if err := e.admin.Do(ctx, zammad.Request{Method: http.MethodGet, Path: "/api/v1/groups", Out: &groups}); err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || groups[0].Name != e.cfg.ZammadDefaultGroup {
+		t.Errorf("groups = %v, want only %s (Zammad's Users group removed)", groups, e.cfg.ZammadDefaultGroup)
+	}
+	if err := e.admin.Do(ctx, zammad.Request{Method: http.MethodGet, Path: "/api/v1/organizations", Out: &orgs}); err != nil {
+		t.Fatal(err)
+	}
+	if len(orgs) != 1 || orgs[0].Name != "Noord Logistics" {
+		t.Errorf("organizations = %v, want only Noord Logistics (the demo organization removed)", orgs)
+	}
+
+	seen := 0
+	for page := 1; ; page++ {
+		var users []zammad.User
+		if err := e.admin.Do(ctx, zammad.Request{Method: http.MethodGet, Path: fmt.Sprintf("/api/v1/users?per_page=100&page=%d", page), Out: &users}); err != nil {
+			t.Fatal(err)
+		}
+		if len(users) == 0 {
+			break
+		}
+		seen += len(users)
+		for _, u := range users {
+			if strings.EqualFold(u.Email, "nicole.braun@zammad.org") {
+				t.Errorf("Zammad's demo customer %s is still there", u.Email)
+			}
+		}
+	}
+	if seen < len(e.model.Users) {
+		t.Errorf("listed %d Zammad users, want at least the %d in noord.yaml", seen, len(e.model.Users))
+	}
 }
 
 // covers: AC-16. A later LDAP sync leaves the organization, Ruben's roles,

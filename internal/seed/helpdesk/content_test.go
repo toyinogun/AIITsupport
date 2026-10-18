@@ -3,6 +3,7 @@ package helpdesk
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -235,6 +236,39 @@ func TestValidateCategoryRules(t *testing.T) {
 		t.Fatal("Load accepted broken categories")
 	}
 	for _, want := range []string{`icon "printer"`, `category "Empty" has no articles`, `category "Onboarding" is not in kb.yaml`, `"Starters and leavers" has no articles`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q\n%v", want, err)
+		}
+	}
+}
+
+// covers: AC-10. The KB must carry the title bootstrap.rb gives it, and no
+// one in noord.yaml may leave after the fiction's today.
+func TestValidateKBNameAndLeavers(t *testing.T) {
+	m, err := directory.Load(noordSeed, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	late := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	users := slices.Clone(m.Users)
+	found := false
+	for i := range users {
+		if users[i].Username == "thomas.meijer" {
+			users[i].Left, found = &late, true
+		}
+	}
+	if !found {
+		t.Fatal("thomas.meijer is not in noord.yaml")
+	}
+	future := m
+	future.Users = users
+
+	edits := map[string]string{"kb.yaml": replaceIn(t, "kb.yaml", "name: Noord IT Help", "name: IT Wiki")}
+	_, err = Load(writeTree(t, edits), future)
+	if err == nil {
+		t.Fatal("Load accepted a renamed KB and a future leaver")
+	}
+	for _, want := range []string{`name "IT Wiki" must be "Noord IT Help"`, "user thomas.meijer left on 2026-11-02, after as_of 2026-10-16"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q\n%v", want, err)
 		}

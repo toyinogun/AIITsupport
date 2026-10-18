@@ -314,3 +314,33 @@ func TestToHTMLEscapesRawHTML(t *testing.T) {
 		t.Errorf("html = %q", html)
 	}
 }
+
+// covers: AC-14, AC-15. A step that dies without a NOORD_FAILED line (a Ruby
+// crash with a long trace, say) names the step, keeps only the tail of its
+// output in the error, and leaks no secret.
+func TestSeedStepCrashKeepsTheTail(t *testing.T) {
+	s, r, _, _ := fixture(t)
+	trace := strings.Repeat("from /opt/zammad/lib/noise.rb:1:in `block'\n", 200)
+	r.bootstrap = func() (Output, error) {
+		return Output{
+			Stderr: []byte("HEAD-OF-TRACE password admin-secret-value\n" + trace + "RuntimeError: TAIL-OF-TRACE\n"),
+		}, errors.New("exit status 1")
+	}
+	_, err := s.Run(t.Context())
+	if err == nil {
+		t.Fatal("Run accepted a crashed bootstrap")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "TAIL-OF-TRACE") || strings.Contains(msg, "HEAD-OF-TRACE") {
+		t.Errorf("error should keep the tail and drop the head: %.300s", msg)
+	}
+	if strings.Contains(msg, "admin-secret-value") {
+		t.Error("error leaks a secret")
+	}
+	if !strings.Contains(msg, "rails step bootstrap failed") {
+		t.Errorf("error does not name the step: %.300s", msg)
+	}
+	if len(msg) > 2*maxOutput {
+		t.Errorf("error is %d bytes, want the output capped near %d", len(msg), maxOutput)
+	}
+}

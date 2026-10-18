@@ -32,7 +32,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 5 | Data model | Foundation | done |
 | 6 | Noord directory & seeded mess | Client environment | done |
 | 7 | Entra tenant & sync (timeboxed) | Client environment | done |
-| 8 | Ticketing, knowledge base & Slack workspace | Client environment | in-progress |
+| 8 | Ticketing, knowledge base & Slack workspace | Client environment | done |
 | 9 | Tool server & risk tiers | Slice 1 | planned |
 | 10 | Locked out user, end to end | Slice 1 | planned |
 | 11 | Privileged request refusal & escalation | Slice 2 | planned |
@@ -128,7 +128,7 @@ A free Entra test tenant with a subset of users synced, so the hybrid, mid migra
 - [x] Test it: `/test entra tenant & sync`
 spec [0005](../specs/0005-entra-tenant-sync/index.md) · code in `internal/graph/`, `internal/seed/entra/`, `cmd/seed/`, `seed/entra/`, `Makefile`, `docs/runbooks/entra-tenant.md`
 
-### 8. Ticketing, knowledge base & Slack workspace · in-progress
+### 8. Ticketing, knowledge base & Slack workspace · done
 The client's helpdesk as you find it: a ticketing system with an API, a deliberately outdated knowledge base, and the Noord Slack workspace with the bot app registered.
 **Done when:** you can log in as a Noord user, get locked out, and raise a ticket by hand; the KB holds articles that contradict each other or reference old systems; the bot can receive a Slack message.
 - [x] Design it (spec): `/architect ticketing, knowledge base & slack`
@@ -139,7 +139,7 @@ The client's helpdesk as you find it: a ticketing system with an API, a delibera
   - [x] Rebuild and hygiene: already seeded and reset paths, `make noord-reset`, fiction check, CI and live tests (AC-9, AC-15, AC-16)
   - [x] Close the side doors: self signup and password reset off in `bootstrap.rb`, live test, one `make helpdesk-reset` (AC-17)
 - [x] Verify it: `/check verify ticketing, knowledge base & slack`
-- [ ] Test it: `/test ticketing, knowledge base & slack`
+- [x] Test it: `/test ticketing, knowledge base & slack`
 spec [0006](../specs/0006-helpdesk-kb-slack/index.md) · code in `seed/helpdesk/`, `internal/zammad/`, `internal/seed/helpdesk/`, `internal/slack/`, `cmd/seed/`, `cmd/agent/`, `deploy/slack/`, `docs/runbooks/slack-workspace.md`, `compose.yaml`, `Makefile`
 
 ## Slice 1: Locked out user, end to end
