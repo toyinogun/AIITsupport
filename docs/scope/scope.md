@@ -32,7 +32,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 5 | Data model | Foundation | done |
 | 6 | Noord directory & seeded mess | Client environment | done |
 | 7 | Entra tenant & sync (timeboxed) | Client environment | done |
-| 8 | Ticketing, knowledge base & Slack workspace | Client environment | planned |
+| 8 | Ticketing, knowledge base & Slack workspace | Client environment | in-progress |
 | 9 | Tool server & risk tiers | Slice 1 | planned |
 | 10 | Locked out user, end to end | Slice 1 | planned |
 | 11 | Privileged request refusal & escalation | Slice 2 | planned |
@@ -128,10 +128,18 @@ A free Entra test tenant with a subset of users synced, so the hybrid, mid migra
 - [x] Test it: `/test entra tenant & sync`
 spec [0005](../specs/0005-entra-tenant-sync/index.md) · code in `internal/graph/`, `internal/seed/entra/`, `cmd/seed/`, `seed/entra/`, `Makefile`, `docs/runbooks/entra-tenant.md`
 
-### 8. Ticketing, knowledge base & Slack workspace · needs a decision
+### 8. Ticketing, knowledge base & Slack workspace · in-progress
 The client's helpdesk as you find it: a ticketing system with an API, a deliberately outdated knowledge base, and the Noord Slack workspace with the bot app registered.
 **Done when:** you can log in as a Noord user, get locked out, and raise a ticket by hand; the KB holds articles that contradict each other or reference old systems; the bot can receive a Slack message.
-- [ ] Design it (spec): `/architect ticketing, knowledge base & slack`
+- [x] Design it (spec): `/architect ticketing, knowledge base & slack`
+- [ ] Build it: `/develop ticketing, knowledge base & slack`
+  - [ ] Thin helpdesk thread: settings, Zammad in Compose, `svc-zammad`, AD sign in and lockout through Zammad, the assistant token, probe results recorded (AC-1 to AC-6, AC-13 to AC-15)
+  - [ ] Slack strand: workspace, app manifest, runbook, the Socket Mode listener with dedup and holding reply (AC-11 to AC-14)
+  - [ ] Content: 15 KB articles with the planted mess, 20 old tickets, validation, backdating, marker last (AC-7 to AC-10)
+  - [ ] Rebuild and hygiene: already seeded and reset paths, `make noord-reset`, fiction check, CI and live tests (AC-9, AC-15, AC-16)
+- [ ] Verify it: `/check verify ticketing, knowledge base & slack`
+- [ ] Test it: `/test ticketing, knowledge base & slack`
+spec [0006](../specs/0006-helpdesk-kb-slack/index.md)
 
 ## Slice 1: Locked out user, end to end
 
