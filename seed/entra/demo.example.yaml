@@ -1,0 +1,7 @@
+# Copy this to demo.local.yaml (gitignored) and put your own phone number on
+# at most 2 synced users, so a real sign in reaches a real MFA prompt for the
+# video (spec 0005, AC-8). Numbers look like +31 612345678. The numbers here
+# are fictional and must stay in the +31 60000NNNN range.
+users:
+  - {username: eva.peters, mfa_phone: "+31 600009001"}
+  - {username: ruben.mulder, mfa_phone: "+31 600009002"}

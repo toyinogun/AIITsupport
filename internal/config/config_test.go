@@ -488,3 +488,109 @@ func TestOnlyTheSeederReadsSeedSettings(t *testing.T) {
 		})
 	}
 }
+
+func seedPasswords() map[string]string {
+	return map[string]string{"SEED_ADMIN_PASSWORD": "admin-test", "SEED_USER_PASSWORD": "user-test"}
+}
+
+// covers: AC-13 (spec 0005). No SEED_GRAPH_* means Entra is not configured,
+// which is fine; a partial set is an error naming every missing setting.
+func TestLoadSeedEntra(t *testing.T) {
+	t.Run("unconfigured with defaults", func(t *testing.T) {
+		cfg, err := LoadSeed(envFrom(seedPasswords()))
+		if err != nil {
+			t.Fatalf("LoadSeed: %v", err)
+		}
+		if cfg.EntraConfigured() {
+			t.Error("EntraConfigured() = true with no SEED_GRAPH_* set")
+		}
+		if cfg.EntraDeleteLimit != 10 || cfg.GraphMaxRetries != 5 || cfg.GraphTimeout != 30*time.Second {
+			t.Errorf("limits = %d, %d, %s; want 10, 5, 30s", cfg.EntraDeleteLimit, cfg.GraphMaxRetries, cfg.GraphTimeout)
+		}
+		if cfg.EntraDemoFile != "seed/entra/demo.local.yaml" {
+			t.Errorf("EntraDemoFile = %q, want the gitignored demo file", cfg.EntraDemoFile)
+		}
+	})
+
+	t.Run("partly set names what is missing", func(t *testing.T) {
+		env := seedPasswords()
+		env["SEED_GRAPH_CLIENT_ID"] = "client"
+		_, err := LoadSeed(envFrom(env))
+		if err == nil {
+			t.Fatal("LoadSeed with a partial SEED_GRAPH_* set: want an error")
+		}
+		for _, name := range []string{"SEED_GRAPH_TENANT_ID", "SEED_GRAPH_CLIENT_SECRET", "SEED_ENTRA_DOMAIN"} {
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("error %q does not name %s", err, name)
+			}
+		}
+		if strings.Contains(err.Error(), "SEED_GRAPH_CLIENT_ID is required") {
+			t.Errorf("error %q names a setting that is set", err)
+		}
+	})
+
+	t.Run("fully set", func(t *testing.T) {
+		env := seedPasswords()
+		maps.Copy(env, map[string]string{
+			"SEED_GRAPH_TENANT_ID": "tenant", "SEED_GRAPH_CLIENT_ID": "client",
+			"SEED_GRAPH_CLIENT_SECRET": "secret", "SEED_ENTRA_DOMAIN": "noordtest.onmicrosoft.com",
+		})
+		cfg, err := LoadSeed(envFrom(env))
+		if err != nil {
+			t.Fatalf("LoadSeed: %v", err)
+		}
+		if !cfg.EntraConfigured() {
+			t.Error("EntraConfigured() = false with every SEED_GRAPH_* set")
+		}
+	})
+
+	t.Run("negative delete limit", func(t *testing.T) {
+		env := seedPasswords()
+		maps.Copy(env, map[string]string{
+			"SEED_GRAPH_TENANT_ID": "tenant", "SEED_GRAPH_CLIENT_ID": "client",
+			"SEED_GRAPH_CLIENT_SECRET": "secret", "SEED_ENTRA_DOMAIN": "noordtest.onmicrosoft.com",
+			"SEED_ENTRA_DELETE_LIMIT": "-1",
+		})
+		if _, err := LoadSeed(envFrom(env)); err == nil || !strings.Contains(err.Error(), "SEED_ENTRA_DELETE_LIMIT") {
+			t.Errorf("LoadSeed = %v, want an error naming SEED_ENTRA_DELETE_LIMIT", err)
+		}
+	})
+}
+
+// covers: AC-9, AC-13 (spec 0005). The tool server boots with GRAPH_* empty;
+// LoadGraph and the MFA proof require every credential.
+func TestLoadGraph(t *testing.T) {
+	if _, err := LoadToolServer(envFrom(minimalToolServerEnv())); err != nil {
+		t.Fatalf("LoadToolServer with GRAPH_* empty: %v", err)
+	}
+
+	_, err := LoadGraph(envFrom(map[string]string{"GRAPH_TENANT_ID": "tenant"}))
+	if err == nil {
+		t.Fatal("LoadGraph with a partial set: want an error")
+	}
+	for _, name := range []string{"GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error %q does not name %s", err, name)
+		}
+	}
+
+	full := map[string]string{"GRAPH_TENANT_ID": "tenant", "GRAPH_CLIENT_ID": "client", "GRAPH_CLIENT_SECRET": "secret"}
+	g, err := LoadGraph(envFrom(full))
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+	if g.GraphMaxRetries != 5 || g.GraphTimeout != 30*time.Second {
+		t.Errorf("defaults = %d, %s; want 5, 30s", g.GraphMaxRetries, g.GraphTimeout)
+	}
+
+	mfa, err := LoadSeedEntraMFA(envFrom(full))
+	if err != nil {
+		t.Fatalf("LoadSeedEntraMFA: %v", err)
+	}
+	if mfa.ClearWait != 30*time.Second || mfa.GraphClientID != "client" {
+		t.Errorf("mfa = %+v, want the tool server app and a 30s wait", mfa)
+	}
+	if _, err := LoadSeedEntraMFA(envFrom(map[string]string{})); err == nil || !strings.Contains(err.Error(), "GRAPH_TENANT_ID") {
+		t.Errorf("LoadSeedEntraMFA with nothing set = %v, want an error naming GRAPH_TENANT_ID", err)
+	}
+}

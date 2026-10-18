@@ -16,6 +16,7 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
+	"github.com/toyinogun/AIITsupport/internal/seed/entra"
 )
 
 const defaultCertDir = ".dev/certs"
@@ -59,7 +60,12 @@ func runValidate(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "%s is valid: %d users, %d admins, %d groups\n", files.File, len(m.Users), len(m.Admins), len(m.Groups))
+	demo, err := entra.LoadDemo(files.EntraDemoFile, m)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%s is valid: %d users, %d admins, %d groups, %d Entra demo users\n",
+		files.File, len(m.Users), len(m.Admins), len(m.Groups), len(demo.Users))
 	return nil
 }
 

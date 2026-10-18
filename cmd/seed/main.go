@@ -7,6 +7,9 @@
 //	seed directory                       fill a fresh directory from the seed file
 //	seed login [--password P] <user>     bind as a user and report the lock state
 //	seed lock <user>                     lock a user by failed binds
+//	seed entra sync [--only U]           make Entra match SYNC-Entra-Users (spec 0005)
+//	seed entra mfa [--clear] <user>      list or clear a user's phone methods (tool server app)
+//	seed entra demo-password <user>      set the demo password on a demo user
 package main
 
 import (
@@ -26,7 +29,10 @@ const usage = `usage:
   seed validate
   seed directory
   seed login [--password P] <username>
-  seed lock <username>`
+  seed lock <username>
+  seed entra sync [--only <username>]
+  seed entra mfa [--clear] <username>
+  seed entra demo-password <username>`
 
 // errUsage marks a mistake in how the command was called.
 var errUsage = errors.New(usage)
@@ -57,6 +63,8 @@ func run(args []string, out io.Writer) error {
 		return runLogin(rest, out)
 	case "lock":
 		return runLock(ctx, rest, out)
+	case "entra":
+		return runEntra(ctx, rest, out)
 	default:
 		return fmt.Errorf("unknown command %q\n%w", cmd, errUsage)
 	}

@@ -32,5 +32,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0008](0008-samba-hangs-without-its-hostname.md) | 2026-10-18 | Samba starts but never listens unless the hostname is "samba" | #6 Noord directory & seeded mess | ~10 min | post |
 | [0009](0009-ldapsearch-cannot-check-ldaps-on-macos.md) | 2026-10-18 | ldapsearch on macOS cannot check our LDAPS cert | #6 Noord directory & seeded mess | ~8 min | post |
 | [0010](0010-gitleaks-flags-a-checksum-in-tools-sum.md) | 2026-10-18 | gitleaks flags a module checksum in tools.sum | #6 Noord directory & seeded mess | ~5 min | post |
+| [0011](0011-testcontainers-hangs-on-docker-credentials.md) | 2026-10-18 | Live Samba tests hang forever on Docker's credential helper | #7 Entra tenant & sync | ~20 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
