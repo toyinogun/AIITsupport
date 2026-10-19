@@ -35,7 +35,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 8 | Ticketing, knowledge base & Slack workspace | Client environment | done |
 | 9 | Tool server & risk tiers | Slice 1 | done |
 | 10 | Locked out user, end to end | Slice 1 | done |
-| 11 | Privileged request refusal & escalation | Slice 2 | in-progress |
+| 11 | Privileged request refusal & escalation | Slice 2 | done |
 | 12 | PII redaction & retention | Slice 2 | planned |
 | 13 | Password reset links | Slice 3 | planned |
 | 14 | MFA re-registration with approval | Slice 4 | planned |
@@ -178,7 +178,7 @@ spec [0008](../specs/0008-locked-out-user-flow/index.md) · code in `internal/ag
 
 ## Slice 2: Refusal & escalation
 
-### 11. Privileged request refusal & escalation · in-progress · GA
+### 11. Privileged request refusal & escalation · done · GA
 The video hook. "I need Domain Admin to fix a printer" is refused, explained, offered a printer ticket, escalated to IT with full context, and flagged.
 **Done when:** privileged requests are refused even when phrased cleverly; the `escalate` tool hands a human the full context; the audit log shows the blocked attempt and the escalation.
 - [x] Design it (spec): `/architect refusal & escalation`

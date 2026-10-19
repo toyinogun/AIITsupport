@@ -1,7 +1,7 @@
 # 0009. Privileged request refusal and escalation: an audited escalate tool, a code backstop, and an IT channel post
 
 **Date**: 2026-10-19
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
