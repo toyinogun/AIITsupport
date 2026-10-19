@@ -19,6 +19,7 @@ The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`m
 - **Logs** (`slack_event_received` and friends) carry the event id, channel id, and event type only, never the message text or a user id.
 - **Refused tokens end `run()`.** `invalid_auth`, `not_authed`, `token_revoked`, or `account_inactive` from auth.test or `apps.connections.open` returns an error naming the setting, never the value. Other connect errors retry with backoff; slack-go reconnects a dropped socket itself and emits an event per attempt (`slack_connect_failed`).
 - Web API errors leave the adapters through `wrapErr`, which gives them a fixed `slack_<code>` cause token (`agent.Causer`) for the agent's logs; the error text never reaches a log.
+- `Poster.Reply` with an empty `threadTS` posts to the channel itself, not a thread: that is how the agent posts to `SLACK_IT_CHANNEL` (spec 0009).
 - Tests drive the listener through the `Socket`, `Poster`, and `Dedup` interfaces with fakes; no network.
 
 ## Gotchas
@@ -37,5 +38,6 @@ make dev                             # with both tokens in .env: the agent logs 
 
 - [0006 helpdesk, KB, and Slack](../../docs/specs/0006-helpdesk-kb-slack/index.md) (AC-11 to AC-14, with [verify.md](../../docs/specs/0006-helpdesk-kb-slack/verify.md))
 - [0003 data model](../../docs/specs/0003-data-model/index.md) (the `slack_events` table and at most once delivery)
+- [0009 refusal and escalation](../../docs/specs/0009-refusal-escalation/index.md) (the IT channel post)
 
 _Drafted by /sync from the introducing change, worth a quick human pass._

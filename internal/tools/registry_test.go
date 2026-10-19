@@ -35,8 +35,8 @@ func countingTool(name string, tier audit.Tier, account bool, runs *atomic.Int32
 	return t
 }
 
-// covers: AC-1, AC-14. The production registry lists exactly the five
-// tools, none of them a test tool, and nothing that approves.
+// covers: AC-1, AC-14, and spec 0009 AC-1. The production registry lists
+// exactly the six tools, none of them a test tool, and nothing that approves.
 func TestProductionRegistry(t *testing.T) {
 	reg, err := NewRegistry()
 	if err != nil {
@@ -53,7 +53,7 @@ func TestProductionRegistry(t *testing.T) {
 			t.Errorf("%s mentions approving", tool.Name)
 		}
 	}
-	want := []string{ToolUserLookup, ToolAccountUnlock, ToolTicketCreate, ToolTicketUpdate, ToolPrivilegedAccessChange}
+	want := []string{ToolUserLookup, ToolAccountUnlock, ToolTicketCreate, ToolTicketUpdate, ToolPrivilegedAccessChange, ToolEscalate}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}

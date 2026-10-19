@@ -59,8 +59,9 @@ func start(t *testing.T) *env {
 	d, err := tools.NewDispatcher(reg, tools.Config{
 		BaseDN: toolstest.Base, UserOUs: []string{"OU=Users,OU=Noord"}, GroupOUs: []string{"OU=Groups,OU=Noord"},
 		CallTimeout: 5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour, TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
+		PrivilegedWindow: 24 * time.Hour,
 	}, tools.Systems{
-		Directory: e.dir, Writer: e.dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support"),
+		Directory: e.dir, Writer: e.dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", ""),
 		Recorder: rec, KillSwitch: tools.NewKillSwitch("", false),
 	}, logger)
 	if err != nil {
@@ -192,20 +193,24 @@ func TestBodyIsCapped(t *testing.T) {
 func TestMetaIsRequired(t *testing.T) {
 	e := start(t)
 	cases := map[string]func(m map[string]any){
-		"no _meta":       nil,
-		"no email":       func(m map[string]any) { delete(m, mcpclient.MetaEmail) },
-		"padded slack":   func(m map[string]any) { m[mcpclient.MetaSlackID] = " U01EVA" },
-		"bot id":         func(m map[string]any) { m[mcpclient.MetaSlackID] = "B01BOT" },
-		"named address":  func(m map[string]any) { m[mcpclient.MetaEmail] = "Eva <eva.peters@noord.example>" },
-		"control char":   func(m map[string]any) { m[mcpclient.MetaEmail] = "eva.peters@noord.example\n" },
-		"bad channel":    func(m map[string]any) { m[mcpclient.MetaChannelID] = "general" },
-		"bad thread":     func(m map[string]any) { m[mcpclient.MetaThreadTS] = "1760000000.1" },
-		"string ticket":  func(m map[string]any) { m[mcpclient.MetaTicketID] = "42" },
-		"zero ticket":    func(m map[string]any) { m[mcpclient.MetaTicketID] = 0 },
-		"float ticket":   func(m map[string]any) { m[mcpclient.MetaTicketID] = 4.5 },
-		"huge ticket":    func(m map[string]any) { m[mcpclient.MetaTicketID] = float64(1 << 54) },
-		"number slack":   func(m map[string]any) { m[mcpclient.MetaSlackID] = 7 },
-		"too long email": func(m map[string]any) { m[mcpclient.MetaEmail] = strings.Repeat("a", 250) + "@noord.example" },
+		"no _meta":         nil,
+		"no email":         func(m map[string]any) { delete(m, mcpclient.MetaEmail) },
+		"padded slack":     func(m map[string]any) { m[mcpclient.MetaSlackID] = " U01EVA" },
+		"bot id":           func(m map[string]any) { m[mcpclient.MetaSlackID] = "B01BOT" },
+		"named address":    func(m map[string]any) { m[mcpclient.MetaEmail] = "Eva <eva.peters@noord.example>" },
+		"control char":     func(m map[string]any) { m[mcpclient.MetaEmail] = "eva.peters@noord.example\n" },
+		"bad channel":      func(m map[string]any) { m[mcpclient.MetaChannelID] = "general" },
+		"bad thread":       func(m map[string]any) { m[mcpclient.MetaThreadTS] = "1760000000.1" },
+		"string ticket":    func(m map[string]any) { m[mcpclient.MetaTicketID] = "42" },
+		"zero ticket":      func(m map[string]any) { m[mcpclient.MetaTicketID] = 0 },
+		"float ticket":     func(m map[string]any) { m[mcpclient.MetaTicketID] = 4.5 },
+		"huge ticket":      func(m map[string]any) { m[mcpclient.MetaTicketID] = float64(1 << 54) },
+		"number slack":     func(m map[string]any) { m[mcpclient.MetaSlackID] = 7 },
+		"too long email":   func(m map[string]any) { m[mcpclient.MetaEmail] = strings.Repeat("a", 250) + "@noord.example" },
+		"admin initiator":  func(m map[string]any) { m[mcpclient.MetaInitiator] = "admin" },
+		"upper initiator":  func(m map[string]any) { m[mcpclient.MetaInitiator] = "CODE" },
+		"empty initiator":  func(m map[string]any) { m[mcpclient.MetaInitiator] = "" },
+		"number initiator": func(m map[string]any) { m[mcpclient.MetaInitiator] = 1 },
 	}
 	for name, mutate := range cases {
 		var meta map[string]any
@@ -231,13 +236,14 @@ func TestMetaIsRequired(t *testing.T) {
 	meta := validMeta()
 	meta["progressToken"] = "p1"
 	meta[mcpclient.MetaTicketID] = 9007199254740991
+	meta[mcpclient.MetaInitiator] = mcpclient.InitiatorCode
 	if _, out := e.post(t, "Bearer "+token, callBody(t, tools.ToolUserLookup, nil, meta)); out["result"] == nil {
 		t.Errorf("valid _meta with extra keys refused: %v", out)
 	}
 }
 
-// covers: AC-1, AC-17. tools/list has exactly the five tools, each with
-// its registry description and a closed schema.
+// covers: AC-1, AC-17, and spec 0009 AC-1. tools/list has exactly the six
+// tools, each with its registry description and a closed schema.
 func TestListTools(t *testing.T) {
 	e := start(t)
 	list, err := e.client(t).ListTools(t.Context())
@@ -255,7 +261,7 @@ func TestListTools(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"account_unlock", "privileged_access_change", "ticket_create", "ticket_update", "user_lookup"}
+	want := []string{"account_unlock", "escalate", "privileged_access_change", "ticket_create", "ticket_update", "user_lookup"}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}
@@ -293,8 +299,33 @@ func TestClientDrivesEveryTool(t *testing.T) {
 	if err != nil || !res.IsError || res.Code != "invalid_arguments" {
 		t.Fatalf("injected argument = %+v, %v", res, err)
 	}
-	if n := len(e.store.All()); n != 12 {
-		t.Errorf("rows = %d, want six intent and outcome pairs", n)
+	// spec 0009: a code only reason from a model call is refused; the
+	// thread's ticket is closed, so a privileged escalation opens a new one.
+	esc := map[string]any{"reason": "assistant_failure", "title": "Printer", "summary": "Asked for Domain Admin."}
+	if res, err = c.Call(t.Context(), r, tools.ToolEscalate, esc); err != nil || res.Code != "invalid_arguments" {
+		t.Fatalf("model escalate with a code reason = %+v, %v", res, err)
+	}
+	esc["reason"] = "privileged_request"
+	res, err = c.Call(t.Context(), r, tools.ToolEscalate, esc)
+	if err != nil || res.IsError || res.Data["privileged"] != true || res.Data["created"] != true || res.Data["initiator"] != "model" {
+		t.Fatalf("escalate = %+v, %v", res, err)
+	}
+	code := r
+	code.Initiator = mcpclient.InitiatorCode
+	esc["reason"] = "assistant_failure"
+	if res, err = c.Call(t.Context(), code, tools.ToolEscalate, esc); err != nil || res.Code != "already_escalated" {
+		t.Fatalf("second escalate = %+v, %v", res, err)
+	}
+	if n := len(e.store.All()); n != 18 {
+		t.Errorf("rows = %d, want nine intent and outcome pairs", n)
+	}
+}
+
+// covers: spec 0009 AC-2. The agent and the tool server agree on the one
+// initiator value, defined on each side of the credential boundary.
+func TestInitiatorValuesMatch(t *testing.T) {
+	if tools.InitiatorCode != mcpclient.InitiatorCode {
+		t.Errorf("tools %q, mcpclient %q", tools.InitiatorCode, mcpclient.InitiatorCode)
 	}
 }
 

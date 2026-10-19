@@ -23,6 +23,7 @@ const (
 	janDM     = "D0JAN"
 	firstTS   = "1792400000.000100"
 	modelName = "claude-sonnet-5-5"
+	itChannel = "G0ITDESK"
 )
 
 // now is the fake clock: 20 seconds after firstTS.
@@ -69,6 +70,7 @@ func testConfig(t *testing.T) agent.Config {
 		MaxConcurrent: 4, ConversationsPerHour: 10,
 		MessageTimeout: 3 * time.Second, ToolTimeout: time.Second,
 		PostTimeout: time.Second, ShutdownGrace: 2 * time.Second,
+		ITChannel: itChannel,
 	}
 }
 
@@ -132,12 +134,47 @@ func (h *harness) conv() agent.Conversation {
 	return c
 }
 
+// wantPosts checks what the user saw: every post outside the IT channel.
 func (h *harness) wantPosts(want ...string) {
 	h.t.Helper()
-	got := h.poster.Texts()
+	var got []string
+	for _, p := range h.poster.Posts() {
+		if p.Channel != itChannel {
+			got = append(got, p.Text)
+		}
+	}
 	if strings.Join(got, "\n---\n") != strings.Join(want, "\n---\n") {
 		h.t.Errorf("posts:\n%q\nwant:\n%q", got, want)
 	}
+}
+
+// itPosts returns the IT channel posts, checking each went to the channel
+// itself, not a thread.
+func (h *harness) itPosts() []string {
+	h.t.Helper()
+	var out []string
+	for _, p := range h.poster.Posts() {
+		if p.Channel == itChannel {
+			if p.Thread != "" {
+				h.t.Errorf("IT post in thread %q", p.Thread)
+			}
+			out = append(out, p.Text)
+		}
+	}
+	return out
+}
+
+// lastEscalation is the last escalate call, failing the test without one.
+func (h *harness) lastEscalation() agenttest.ToolCall {
+	h.t.Helper()
+	calls := h.tools.Calls()
+	for i := len(calls) - 1; i >= 0; i-- {
+		if calls[i].Tool == "escalate" {
+			return calls[i]
+		}
+	}
+	h.t.Fatal("no escalate call")
+	return agenttest.ToolCall{}
 }
 
 func (h *harness) wantTools(want ...string) {
@@ -152,19 +189,6 @@ func (h *harness) wantStatus(want string) {
 	if got := h.conv().Status; got != want {
 		h.t.Errorf("status = %s, want %s", got, want)
 	}
-}
-
-// noteOf returns the note of the last ticket_update call.
-func (h *harness) lastNote() string {
-	h.t.Helper()
-	calls := h.tools.Calls()
-	for i := len(calls) - 1; i >= 0; i-- {
-		if calls[i].Tool == "ticket_update" {
-			note, _ := calls[i].Args["note"].(string)
-			return note
-		}
-	}
-	return ""
 }
 
 // blocks decodes a stored message.

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/toyinogun/AIITsupport/internal/audit"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
 )
 
@@ -67,9 +68,19 @@ var ourStates = map[string]string{
 
 // ticketUpdate changes only the ticket in _meta, only when the requester is
 // its customer and it is not closed (AC-11). State and note are one request.
+// A close waits until a blocked privileged request is escalated (spec 0009, AC-6).
 func ticketUpdate(ctx context.Context, d Deps, in Input) (Result, error) {
 	if in.Requester.TicketID == 0 {
 		return refused(refuseNoTicket), nil
+	}
+	if in.Args["state"] == stateClosed {
+		owed, err := escalationOwed(ctx, d.History, in.Requester)
+		if err != nil {
+			return Result{}, failed(err)
+		}
+		if owed {
+			return refused(refuseEscalateFirst), nil
+		}
 	}
 	customer, ok, err := d.Helpdesk.customer(ctx, in.Account.Username)
 	if err != nil {
@@ -109,6 +120,17 @@ func ticketUpdate(ctx context.Context, d Deps, in Input) (Result, error) {
 		Result: resultData(map[string]any{"ticket_id": updated.ID, "state": stateFor(byID[updated.StateID])}),
 		Text:   "Ticket updated.",
 	}, nil
+}
+
+// escalationOwed reports whether the thread holds a blocked privileged
+// request and no ok escalation (the close guard, spec 0009 AC-6).
+func escalationOwed(ctx context.Context, h History, r Requester) (bool, error) {
+	blocked, err := h.ThreadHas(ctx, ToolPrivilegedAccessChange, audit.OutcomeDeniedPolicy, r.ChannelID, r.ThreadTS)
+	if err != nil || !blocked {
+		return false, err
+	}
+	escalated, err := h.ThreadHas(ctx, ToolEscalate, audit.OutcomeOK, r.ChannelID, r.ThreadTS)
+	return !escalated, err
 }
 
 func buildUpdate(a Args, byName map[string]int) (zammad.TicketUpdate, error) {

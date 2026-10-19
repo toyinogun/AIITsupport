@@ -632,6 +632,7 @@ func TestLoadAgentSlackTokens(t *testing.T) {
 			env := minimalAgentEnv()
 			env["SLACK_BOT_TOKEN"] = tc.bot
 			env["SLACK_APP_TOKEN"] = tc.app
+			env["SLACK_IT_CHANNEL"] = "C0ITDESK"
 			env["ANTHROPIC_API_KEY"] = "sk-ant-test"
 			cfg, err := LoadAgent(envFrom(env))
 			if len(tc.wantErr) == 0 {
@@ -665,6 +666,7 @@ func TestLoadAgentLoopChecks(t *testing.T) {
 		env := minimalAgentEnv()
 		env["SLACK_BOT_TOKEN"] = "xoxb-1-2-abc"
 		env["SLACK_APP_TOKEN"] = "xapp-1-A1-abc"
+		env["SLACK_IT_CHANNEL"] = "G0ITDESK"
 		env["ANTHROPIC_API_KEY"] = "sk-ant-test"
 		maps.Copy(env, extra)
 		return env
@@ -693,6 +695,92 @@ func TestLoadAgentLoopChecks(t *testing.T) {
 	env["AGENT_MAX_CONCURRENT"] = "0"
 	if _, err := LoadAgent(envFrom(env)); err != nil {
 		t.Errorf("without Slack the loop checks ran: %v", err)
+	}
+}
+
+// covers: AC-13 (spec 0009). With both Slack tokens, SLACK_IT_CHANNEL must
+// be a channel id; without Slack it is not checked.
+func TestLoadAgentITChannel(t *testing.T) {
+	env := minimalAgentEnv()
+	env["SLACK_BOT_TOKEN"] = "xoxb-1-2-abc"
+	env["SLACK_APP_TOKEN"] = "xapp-1-A1-abc"
+	env["ANTHROPIC_API_KEY"] = "sk-ant-test"
+	for _, bad := range []string{"", "#it", "it-escalations", "D0ITDESK", "c0itdesk", "C0", "C" + strings.Repeat("A", 21)} {
+		env["SLACK_IT_CHANNEL"] = bad
+		if _, err := LoadAgent(envFrom(env)); err == nil || !strings.Contains(err.Error(), "SLACK_IT_CHANNEL must") {
+			t.Errorf("SLACK_IT_CHANNEL %q: LoadAgent = %v, want a refusal", bad, err)
+		}
+	}
+	for _, good := range []string{"C0ITDESK", "G0123ABCD"} {
+		env["SLACK_IT_CHANNEL"] = good
+		if cfg, err := LoadAgent(envFrom(env)); err != nil || cfg.SlackITChannel != good {
+			t.Errorf("SLACK_IT_CHANNEL %q: LoadAgent = %v", good, err)
+		}
+	}
+	if _, err := LoadAgent(envFrom(minimalAgentEnv())); err != nil {
+		t.Errorf("without Slack the IT channel was checked: %v", err)
+	}
+}
+
+// covers: AC-13 (spec 0009). ZAMMAD_PUBLIC_URL is optional and, when set,
+// a plain http or https base with no credentials and its trailing "/"
+// trimmed; PRIVILEGED_ATTEMPT_WINDOW defaults to 24h and is at least 1h.
+func TestLoadToolServerEscalationSettings(t *testing.T) {
+	cfg, err := LoadToolServer(envFrom(minimalToolServerEnv()))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	if cfg.PrivilegedWindow != 24*time.Hour || cfg.ZammadPublicURL != "" {
+		t.Errorf("defaults = %s, %q; want 24h and no public URL", cfg.PrivilegedWindow, cfg.ZammadPublicURL)
+	}
+	cases := map[string]struct {
+		key, value string
+		ok         bool
+	}{
+		"http":            {"ZAMMAD_PUBLIC_URL", "http://127.0.0.1:58080", true},
+		"https with path": {"ZAMMAD_PUBLIC_URL", "https://help.noord.example/zammad/", true},
+		"query":           {"ZAMMAD_PUBLIC_URL", "https://help.noord.example/?x=1", false},
+		"empty query":     {"ZAMMAD_PUBLIC_URL", "https://help.noord.example/?", false},
+		"fragment":        {"ZAMMAD_PUBLIC_URL", "https://help.noord.example/#ticket", false},
+		"no host":         {"ZAMMAD_PUBLIC_URL", "https:///zammad", false},
+		"relative":        {"ZAMMAD_PUBLIC_URL", "help.noord.example", false},
+		"ftp":             {"ZAMMAD_PUBLIC_URL", "ftp://help.noord.example", false},
+		"user and pass":   {"ZAMMAD_PUBLIC_URL", "https://it:secret@help.noord.example", false},
+		"user only":       {"ZAMMAD_PUBLIC_URL", "https://it@help.noord.example", false},
+		"one hour":        {"PRIVILEGED_ATTEMPT_WINDOW", "1h", true},
+		"thirty minutes":  {"PRIVILEGED_ATTEMPT_WINDOW", "30m", false},
+	}
+	for name, tc := range cases {
+		env := minimalToolServerEnv()
+		env[tc.key] = tc.value
+		_, err := LoadToolServer(envFrom(env))
+		if tc.ok && err != nil {
+			t.Errorf("%s: LoadToolServer = %v, want ok", name, err)
+		}
+		if !tc.ok && (err == nil || !strings.Contains(err.Error(), tc.key+" must")) {
+			t.Errorf("%s: LoadToolServer = %v, want an error naming %s", name, err, tc.key)
+		}
+	}
+}
+
+// covers: AC-13 (spec 0009). LoadToolServer trims every trailing "/" from
+// ZAMMAD_PUBLIC_URL, so ticket links never hold "//#ticket".
+func TestZammadPublicURLTrimmed(t *testing.T) {
+	cases := map[string]string{
+		"http://127.0.0.1:58080":              "http://127.0.0.1:58080",
+		"https://help.noord.example/":         "https://help.noord.example",
+		"https://help.noord.example/zammad//": "https://help.noord.example/zammad",
+	}
+	for raw, want := range cases {
+		env := minimalToolServerEnv()
+		env["ZAMMAD_PUBLIC_URL"] = raw
+		cfg, err := LoadToolServer(envFrom(env))
+		if err != nil {
+			t.Fatalf("%s: LoadToolServer: %v", raw, err)
+		}
+		if cfg.ZammadPublicURL != want {
+			t.Errorf("%s: ZammadPublicURL = %q, want %q", raw, cfg.ZammadPublicURL, want)
+		}
 	}
 }
 

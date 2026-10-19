@@ -29,7 +29,14 @@ type Requester struct {
 	ChannelID string
 	ThreadTS  string
 	TicketID  int64 // 0 when the thread has no ticket yet
+	// Initiator is InitiatorCode when agent code, not the model, made the
+	// call (spec 0009); empty otherwise.
+	Initiator string
 }
+
+// InitiatorCode is the one accepted value of the _meta initiator key: the
+// call came from agent code outside the model loop (spec 0009, AC-2).
+const InitiatorCode = "code"
 
 // Request is one tools/call.
 type Request struct {
@@ -91,11 +98,16 @@ type HelpdeskAPI interface {
 	CreateTicket(ctx context.Context, t zammad.NewTicket, from string) (zammad.Ticket, error)
 	GetTicket(ctx context.Context, id int) (zammad.Ticket, error)
 	UpdateTicket(ctx context.Context, id int, u zammad.TicketUpdate, from string) (zammad.Ticket, error)
+	AddTag(ctx context.Context, ticketID int, tag string) error
 }
 
 // History is what a handler may read back from the audit log.
+// *audit.Recorder satisfies it.
 type History interface {
 	ThreadHasOK(ctx context.Context, tool, channelID, threadTS string) (bool, error)
+	ThreadHas(ctx context.Context, tool string, outcome audit.Outcome, channelID, threadTS string) (bool, error)
+	CountRecent(ctx context.Context, tool, requesterSlackID string, outcome audit.Outcome, since time.Time) (int64, error)
+	ThreadTicketID(ctx context.Context, channelID, threadTS string) (int64, error)
 }
 
 // KillSwitch says whether account changes may run right now.
@@ -123,4 +135,5 @@ type AccountDeps struct {
 // Limits are the settings a handler checks.
 type Limits struct {
 	TicketMaxPending time.Duration // TICKET_MAX_PENDING
+	PrivilegedWindow time.Duration // PRIVILEGED_ATTEMPT_WINDOW
 }

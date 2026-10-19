@@ -82,6 +82,13 @@ var everyMethod = map[string]func(ctx context.Context, c *zammad.Client, custome
 		_, err = c.GetTicket(ctx, tk.ID)
 		return err
 	},
+	"AddTag": func(ctx context.Context, c *zammad.Client, customer int) error {
+		tk, err := c.CreateTicket(ctx, zammad.NewTicket{Title: "x", Group: "IT Support", CustomerID: customer, Article: zammad.NewArticle{Body: "b", ContentType: "text/plain", Type: zammad.ArticleWeb, Sender: zammad.SenderCustomer}}, "")
+		if err != nil {
+			return err
+		}
+		return c.AddTag(ctx, tk.ID, "escalated")
+	},
 	"CreateArticle": func(ctx context.Context, c *zammad.Client, customer int) error {
 		tk, err := c.CreateTicket(ctx, zammad.NewTicket{Title: "x", Group: "IT Support", CustomerID: customer, Article: zammad.NewArticle{Body: "b", ContentType: "text/plain", Type: zammad.ArticleWeb, Sender: zammad.SenderCustomer}}, "")
 		if err != nil {

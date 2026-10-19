@@ -16,7 +16,8 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 | `killswitch.go` | `NewKillSwitch`, `FileSwitch` (read every call, only `read_write` allows) |
 | `fence.go` | `Fence.CheckGroup`, `FloorDeniedGroups`, `ErrGroupProtected` |
 | `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group and the cached ticket states |
-| `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry) |
+| `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry); `ticket_update` holds the close guard (spec 0009, AC-6) |
+| `escalate.go` | `escalate` (spec 0009): the escalation reasons, `checkEscalate` (code only reasons need the `_meta` initiator `code`), the audit reads first, then tag and note or create |
 | `toolstest/` | in memory fakes for tests: `MemStore` (an `audit.Store` that answers the history reads like the SQL and, like Postgres, fails a query whose context has ended) and `Directory` (a fake directory that is also the writer; `Stall` and `Slow` model a hung or slow directory) |
 | `../mcpserver/` | `Handler`: stateless streamable HTTP, the bearer check (SHA-256 digests, constant time), the body cap, the W3C trace context extract, and the `_meta` middleware that answers −32602 |
 | `../mcpclient/` | `Client.Call` / `ListTools`, `Requester`, the `_meta` key names, `ErrIncompleteRequester`; every request carries the bearer token and the W3C trace context, so `tool.call` spans join the agent's trace |
@@ -31,6 +32,7 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 - A failure also logs one `tool_call_failed` line (`tool`, `code`, `trace_id`, `cause`). `cause` is a fixed token from `cause()` in `refusal.go` (`ldap_<result code>`, `zammad_<status>`, `deadline`, `canceled`, `network`, `audit`, `other`), never error text.
 - Audit writes and reads outside the handler (refusals, `fail`, the rate limit count, `Defer`) run on `recordCtx(ctx)`, which drops the call's deadline, so a call that ran out of time still leaves its pair. If the checks used up the budget, the call fails before the handler.
 - The kill switch file is read with no cache, at dispatcher step 7 and again inside an account handler just before the write. With `KILL_SWITCH_FILE` unset, `READ_ONLY` decides.
+- `escalate` is a `ReadHandler` on purpose: the kill switch and `TOOL_WRITE_LIMIT` never stop it, and it is not `TicketLimited`. Every audit read comes before any Zammad call. `Requester.Initiator` comes only from the `_meta` key `noord.example/initiator`, which `internal/mcpserver` accepts only as exactly `code`.
 - Test only tools go through `NewTestRegistry` in `registry_test.go`, so they can never reach the binary.
 - `internal/tools` and `internal/mcpserver` are on both agent deny lists (depguard `agent-credential-boundary` and `cmd/agent/boundary_test.go`). The agent imports only `internal/mcpclient`.
 
@@ -39,7 +41,7 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 - The SDK answers a call to an unknown tool name itself, so that call has no audit row. Schema validation runs in our dispatcher, not the SDK (tools are added with raw handlers), so a rejected call is audited.
 - The rate limits are soft: they count `ok` outcomes, so concurrent calls can all pass, and an unlock whose outcome row failed is not counted.
 - Zammad's plain `GET /api/v1/tickets/:id` omits `article_ids`; read `/api/v1/ticket_articles/by_ticket/:id` to see articles.
-- `TestLiveTicketsOnZammad` leaves a closed ticket in the dev Zammad; run `make helpdesk-reset` after it.
+- `TestLiveTicketsOnZammad` leaves a closed ticket in the dev Zammad, and `TestLiveEscalateOnZammad` two open ones; run `make helpdesk-reset` after them.
 
 ## Commands
 
@@ -53,5 +55,6 @@ set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run LiveTickets -v 
 
 - [0007 tool server and risk tiers](../../docs/specs/0007-tool-server-risk-tiers/index.md) (the contract, with [verify.md](../../docs/specs/0007-tool-server-risk-tiers/verify.md))
 - [0003 data model](../../docs/specs/0003-data-model/index.md) (the audit recorder the dispatcher runs every call through)
+- [0009 refusal and escalation](../../docs/specs/0009-refusal-escalation/index.md) (`escalate`, the close guard, the `_meta` initiator)
 
 _Drafted by /develop from the introducing change, worth a quick human pass._

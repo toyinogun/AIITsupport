@@ -113,3 +113,30 @@ func TestUserInfoMapsTheGateFields(t *testing.T) {
 		t.Errorf("user = %+v, want %+v", u, want)
 	}
 }
+
+// covers: spec 0009 (the API surface). A post with no thread sends no
+// thread_ts, so it lands in the IT channel itself; a threaded reply sends it.
+func TestReplyThreadTS(t *testing.T) {
+	var forms []map[string][]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		forms = append(forms, r.PostForm)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C0IT","ts":"1.0"}`))
+	}))
+	t.Cleanup(srv.Close)
+	p := poster{api: slackapi.New("xoxb-test", slackapi.OptionAPIURL(srv.URL+"/"))}
+
+	if err := p.Reply(t.Context(), "C0IT", "", "flag"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Reply(t.Context(), "D0JAN", "1792400000.000100", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if _, sent := forms[0]["thread_ts"]; sent || forms[0]["channel"][0] != "C0IT" {
+		t.Errorf("channel post form = %v, want no thread_ts", forms[0])
+	}
+	if got := forms[1]["thread_ts"]; len(got) != 1 || got[0] != "1792400000.000100" {
+		t.Errorf("threaded reply thread_ts = %v", got)
+	}
+}

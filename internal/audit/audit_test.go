@@ -75,12 +75,16 @@ func (f *fakeStore) ExpireDueApprovals(context.Context, int32) ([]queries.Approv
 	return nil, errNotUsed
 }
 
-func (f *fakeStore) CountRecentOKOutcomes(context.Context, queries.CountRecentOKOutcomesParams) (int64, error) {
+func (f *fakeStore) CountRecentOutcomes(context.Context, queries.CountRecentOutcomesParams) (int64, error) {
 	return 0, errNotUsed
 }
 
-func (f *fakeStore) ThreadHasOKOutcome(context.Context, queries.ThreadHasOKOutcomeParams) (bool, error) {
+func (f *fakeStore) ThreadHasOutcome(context.Context, queries.ThreadHasOutcomeParams) (bool, error) {
 	return false, errNotUsed
+}
+
+func (f *fakeStore) ThreadTicketID(context.Context, queries.ThreadTicketIDParams) (int64, error) {
+	return 0, errNotUsed
 }
 
 func (f *fakeStore) InTx(_ context.Context, fn func(Queries) error) error { return fn(f) }

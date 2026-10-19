@@ -161,3 +161,34 @@ func TestUpdateTicketCarriesItsArticleInOneRequest(t *testing.T) {
 		t.Errorf("TicketStates = %+v, %v", states, err)
 	}
 }
+
+// covers: spec 0009 AC-4. AddTag posts the tag API's body and adding a tag
+// twice keeps one copy.
+func TestAddTag(t *testing.T) {
+	f := zammadtest.New(t)
+	customer := f.AddUser("eva.peters")
+	c := tokenClient(t, f)
+	tk, err := c.CreateTicket(t.Context(), zammad.NewTicket{
+		Title: "Printer", Group: "IT Support", CustomerID: customer, Tags: []string{"noord-assistant"},
+		Article: zammad.NewArticle{Body: "b", ContentType: "text/plain", Type: zammad.ArticleNote, Sender: zammad.SenderCustomer},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tag := range []string{"escalated", "privileged-request", "escalated"} {
+		if err := c.AddTag(t.Context(), tk.ID, tag); err != nil {
+			t.Fatalf("AddTag(%s): %v", tag, err)
+		}
+	}
+	if got := strings.Join(f.Tags(tk.ID), ","); got != "noord-assistant,escalated,privileged-request" {
+		t.Errorf("tags = %s", got)
+	}
+	last := f.Requests()[len(f.Requests())-1]
+	if last.Method != http.MethodPost || last.Path != "/api/v1/tags/add" ||
+		last.Body["object"] != "Ticket" || last.Body["o_id"] != float64(tk.ID) || last.Body["item"] != "escalated" {
+		t.Errorf("request = %+v", last)
+	}
+	if err := c.AddTag(t.Context(), 99999, "escalated"); zammad.Status(err) != http.StatusUnprocessableEntity {
+		t.Errorf("unknown ticket: err = %v, want 422", err)
+	}
+}

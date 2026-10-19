@@ -47,19 +47,34 @@ WHERE i.kind = 'intent' AND i.occurred_at < @older_than
 ORDER BY i.id
 LIMIT @max_rows;
 
--- name: CountRecentOKOutcomes :one
--- CountRecentOKOutcomes counts a requester's ok outcomes for one tool since a
--- time: the tool server's rate limit (spec 0007).
+-- name: CountRecentOutcomes :one
+-- CountRecentOutcomes counts a requester's outcomes of one kind for one tool
+-- since a time: the tool server's rate limits (spec 0007, counting ok) and
+-- the blocked attempt count (spec 0009, counting denied_policy).
 SELECT count(*) FROM audit_log
-WHERE kind = 'outcome' AND outcome = 'ok'
+WHERE kind = 'outcome' AND outcome = @outcome
   AND tool_name = @tool_name AND requester_slack_id = @requester_slack_id
   AND occurred_at > @since;
 
--- name: ThreadHasOKOutcome :one
--- ThreadHasOKOutcome reports whether a tool already succeeded in a Slack
--- thread: one ticket per conversation (spec 0007).
+-- name: ThreadHasOutcome :one
+-- ThreadHasOutcome reports whether a tool has an outcome of one kind in a
+-- Slack thread: one ticket per conversation (spec 0007), and the blocked
+-- attempt, the once per thread escalation, and the close guard (spec 0009).
 SELECT EXISTS (
     SELECT 1 FROM audit_log
     WHERE slack_channel_id = @slack_channel_id AND slack_thread_ts = @slack_thread_ts
-      AND kind = 'outcome' AND outcome = 'ok' AND tool_name = @tool_name
+      AND kind = 'outcome' AND outcome = @outcome AND tool_name = @tool_name
 );
+
+-- name: ThreadTicketID :one
+-- ThreadTicketID is the ticket id in the result of the newest ok
+-- ticket_create outcome in a Slack thread (spec 0009), or 0 for none: no
+-- such outcome, or a result cut by the payload cap. Ticket ids start at 1.
+SELECT COALESCE((
+    SELECT CASE WHEN jsonb_typeof(result->'ticket_id') = 'number' THEN (result->>'ticket_id')::bigint END
+    FROM audit_log
+    WHERE slack_channel_id = @slack_channel_id AND slack_thread_ts = @slack_thread_ts
+      AND kind = 'outcome' AND outcome = 'ok' AND tool_name = 'ticket_create'
+    ORDER BY id DESC
+    LIMIT 1
+), 0)::bigint AS ticket_id;

@@ -42,12 +42,13 @@ type Config struct {
 	ToolTimeout          time.Duration
 	PostTimeout          time.Duration // the listener's reply timeout
 	ShutdownGrace        time.Duration
+	ITChannel            string // SLACK_IT_CHANNEL: where escalations are posted (spec 0009)
 }
 
 func (c Config) check() error {
 	var errs []error
-	if c.Model == "" || c.TeamID == "" {
-		errs = append(errs, errors.New("agent: needs a model and the workspace team id"))
+	if c.Model == "" || c.TeamID == "" || c.ITChannel == "" {
+		errs = append(errs, errors.New("agent: needs a model, the workspace team id, and the IT channel"))
 	}
 	if c.MaxTurns < 1 || c.MaxResponseTokens < 1 || c.MaxTokensPerTicket < 1 || c.MaxConcurrent < 1 || c.ConversationsPerHour < 1 {
 		errs = append(errs, errors.New("agent: every limit must be at least 1"))
@@ -261,10 +262,15 @@ func (a *Agent) detached(parent context.Context, d time.Duration) (context.Conte
 // reply timeout. It survives the shutdown grace too, so a turn cut short
 // still tells the user something. A failed post is logged, never retried.
 func (a *Agent) post(parent context.Context, in Inbound, text, kind string) {
+	a.postTo(parent, in.ChannelID, in.ThreadTS, in.EventID, kind, text)
+}
+
+// postTo sends text to a channel, in a thread unless thread is empty.
+func (a *Agent) postTo(parent context.Context, channel, thread, eventID, kind, text string) {
 	ctx := trace.ContextWithSpan(context.WithoutCancel(a.workCtx), trace.SpanFromContext(parent))
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.PostTimeout)
 	defer cancel()
-	if err := a.deps.Poster.Reply(ctx, in.ChannelID, in.ThreadTS, text); err != nil {
-		a.deps.Logger.Warn("agent_post_failed", "event_id", in.EventID, "kind", kind, "cause", cause(err))
+	if err := a.deps.Poster.Reply(ctx, channel, thread, text); err != nil {
+		a.deps.Logger.Warn("agent_post_failed", "event_id", eventID, "kind", kind, "cause", cause(err))
 	}
 }

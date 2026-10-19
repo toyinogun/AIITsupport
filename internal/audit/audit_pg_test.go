@@ -499,3 +499,83 @@ func TestPgThreadHasOK(t *testing.T) {
 		t.Error("another thread saw this thread's ticket")
 	}
 }
+
+// --- history reads (spec 0009) ---
+
+// covers: AC-5 (spec 0009). CountRecent counts only the named outcome.
+func TestPgCountRecentDenied(t *testing.T) {
+	r, _ := pgRecorder(t)
+	c := unlockCall()
+	c.Tool, c.Tier = "privileged_access_change", TierBlocked
+	since := time.Now().Add(-time.Hour)
+
+	for range 2 {
+		if err := r.Refuse(t.Context(), c, OutcomeDeniedPolicy, "tool is blocked"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Refuse(t.Context(), c, OutcomeDeniedIdentity, "requester not matched"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := r.CountRecent(t.Context(), c.Tool, c.RequesterSlackID, OutcomeDeniedPolicy, since); err != nil || n != 2 {
+		t.Fatalf("CountRecent(denied_policy) = %d, %v; want 2", n, err)
+	}
+	if n, err := r.CountRecent(t.Context(), c.Tool, c.RequesterSlackID, OutcomeOK, since); err != nil || n != 0 {
+		t.Errorf("CountRecent(ok) = %d, %v; want 0", n, err)
+	}
+}
+
+// covers: AC-3, AC-6 (spec 0009). ThreadHas matches the tool, the outcome,
+// and the thread.
+func TestPgThreadHas(t *testing.T) {
+	r, _ := pgRecorder(t)
+	c := unlockCall()
+	c.Tool, c.Tier = "privileged_access_change", TierBlocked
+
+	if err := r.Refuse(t.Context(), c, OutcomeDeniedPolicy, "tool is blocked"); err != nil {
+		t.Fatal(err)
+	}
+	if has, err := r.ThreadHas(t.Context(), c.Tool, OutcomeDeniedPolicy, c.ChannelID, c.ThreadTS); err != nil || !has {
+		t.Fatalf("ThreadHas(denied_policy) = %v, %v; want true", has, err)
+	}
+	if has, _ := r.ThreadHas(t.Context(), c.Tool, OutcomeOK, c.ChannelID, c.ThreadTS); has {
+		t.Error("a denied call counted as ok")
+	}
+	if has, _ := r.ThreadHas(t.Context(), "escalate", OutcomeDeniedPolicy, c.ChannelID, c.ThreadTS); has {
+		t.Error("another tool's outcome counted")
+	}
+}
+
+// covers: AC-4 (spec 0009). ThreadTicketID is the newest ok ticket_create's
+// stored ticket_id, and 0 for none or a cut result.
+func TestPgThreadTicketID(t *testing.T) {
+	r, _ := pgRecorder(t)
+	c := unlockCall()
+	c.Tool, c.TicketID, c.StoreResult = "ticket_create", 0, []string{"ticket_id"}
+
+	if id, err := r.ThreadTicketID(t.Context(), c.ChannelID, c.ThreadTS); err != nil || id != 0 {
+		t.Fatalf("empty thread = %d, %v; want 0", id, err)
+	}
+	for _, id := range []int{41, 42} {
+		if _, err := r.Run(t.Context(), c, okAction(Result{Data: map[string]any{"ticket_id": id}})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Refuse(t.Context(), c, OutcomeDeniedPolicy, "thread already has a ticket"); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := r.ThreadTicketID(t.Context(), c.ChannelID, c.ThreadTS); err != nil || id != 42 {
+		t.Fatalf("ThreadTicketID = %d, %v; want the newest, 42", id, err)
+	}
+	if id, _ := r.ThreadTicketID(t.Context(), c.ChannelID, "1700000000.000999"); id != 0 {
+		t.Errorf("another thread = %d, want 0", id)
+	}
+	// A result with no ticket_id (cut by the payload cap) reads as none.
+	c.StoreResult = []string{"ticket_number"}
+	if _, err := r.Run(t.Context(), c, okAction(Result{Data: map[string]any{"ticket_id": 43, "ticket_number": "70043"}})); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := r.ThreadTicketID(t.Context(), c.ChannelID, c.ThreadTS); err != nil || id != 0 {
+		t.Errorf("newest result without ticket_id = %d, %v; want 0", id, err)
+	}
+}

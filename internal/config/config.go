@@ -19,6 +19,7 @@ import (
 	"maps"
 	"net/url"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -66,7 +67,7 @@ type Agent struct {
 
 	SlackBotToken    string   `env:"SLACK_BOT_TOKEN"`
 	SlackAppToken    string   `env:"SLACK_APP_TOKEN"`
-	SlackITChannel   string   `env:"SLACK_IT_CHANNEL"`   // feature #11
+	SlackITChannel   string   `env:"SLACK_IT_CHANNEL"`   // required with both Slack tokens (spec 0009)
 	SlackITApprovers []string `env:"SLACK_IT_APPROVERS"` // feature #14
 
 	ToolServerURL string `env:"TOOLSERVER_URL" required:"true"`
@@ -112,6 +113,12 @@ type ToolServer struct {
 	ToolWriteWindow   time.Duration `env:"TOOL_WRITE_WINDOW" default:"1h"`
 	TicketCreateLimit int           `env:"TICKET_CREATE_LIMIT" default:"5"`
 	TicketMaxPending  time.Duration `env:"TICKET_MAX_PENDING" default:"720h"`
+
+	// Escalation (feature #11, spec 0009). ZammadPublicURL is Zammad's
+	// browser URL for ticket links, optional; the window bounds the blocked
+	// privileged attempt count.
+	ZammadPublicURL  string        `env:"ZAMMAD_PUBLIC_URL"`
+	PrivilegedWindow time.Duration `env:"PRIVILEGED_ATTEMPT_WINDOW" default:"24h"`
 
 	// Audit log writes (spec 0003). internal/audit validates the ranges.
 	AuditOutcomeRetries  int           `env:"AUDIT_OUTCOME_RETRIES" default:"3"`
@@ -292,8 +299,15 @@ func checkSlack(cfg Agent) error {
 	if cfg.SlackAppToken != "" && !strings.HasPrefix(cfg.SlackAppToken, "xapp-") {
 		errs = append(errs, errors.New("SLACK_APP_TOKEN must be an app level token starting xapp-"))
 	}
+	if !slackChannelID.MatchString(cfg.SlackITChannel) {
+		errs = append(errs, errors.New("SLACK_IT_CHANNEL must be a Slack channel id (C or G, then 2 to 20 of A-Z0-9) when the Slack tokens are set"))
+	}
 	return errors.Join(errs...)
 }
+
+// slackChannelID is a public or private channel id, the IT channel's format
+// (spec 0009, AC-13). Startup checks the format only, never membership.
+var slackChannelID = regexp.MustCompile(`^[CG][A-Z0-9]{2,20}$`)
 
 // LoadToolServer reads and validates the tool server's settings. It checks
 // configuration only, never reachability. The OU lists are parsed as DNs by
@@ -306,6 +320,7 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
+	cfg.ZammadPublicURL = strings.TrimRight(cfg.ZammadPublicURL, "/")
 	return cfg, nil
 }
 
@@ -356,10 +371,25 @@ func checkToolLayer(cfg ToolServer) error {
 	if len(cfg.ToolUserOUs) == 0 {
 		errs = append(errs, errors.New("TOOL_USER_OUS must name at least one OU"))
 	}
+	if cfg.PrivilegedWindow < time.Hour {
+		errs = append(errs, errors.New("PRIVILEGED_ATTEMPT_WINDOW must be at least 1h"))
+	}
+	if cfg.ZammadPublicURL != "" && !isPublicURL(cfg.ZammadPublicURL) {
+		errs = append(errs, errors.New("ZAMMAD_PUBLIC_URL must be an absolute http or https URL with a host and no credentials, query, or fragment"))
+	}
 	if len(cfg.ToolGroupOUs) == 0 {
 		errs = append(errs, errors.New("TOOL_GROUP_OUS must name at least one OU"))
 	}
 	return errors.Join(errs...)
+}
+
+// isPublicURL reports whether raw is an absolute http or https URL with a
+// host and no credentials, query, or fragment, the base of a ticket link
+// (spec 0009). Ticket links are posted to Slack, so userinfo is refused.
+func isPublicURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil &&
+		u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && !strings.Contains(raw, "#")
 }
 
 // isLDAPS reports whether raw parses as an ldaps URL with a host, the only

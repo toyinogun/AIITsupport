@@ -33,6 +33,8 @@ const (
 	CodeNotConfirmed      Code = "not_confirmed"
 	CodeFailed            Code = "failed"
 	CodePendingApproval   Code = "pending_approval"
+	CodeAlreadyEscalated  Code = "already_escalated"
+	CodeEscalateFirst     Code = "escalate_first"
 )
 
 // Reasons stored in audit_log.error. Fixed text only, never request data.
@@ -53,6 +55,10 @@ const (
 	reasonHelpdeskDown        = "helpdesk unavailable"
 	reasonUnlockNotConfirmed  = "unlock not confirmed"
 	reasonActionFailed        = "action failed"
+	reasonAlreadyEscalated    = "thread already escalated"
+	reasonEscalateFirst       = "escalate first"
+	alreadyEscalatedSentence  = "This conversation is already with IT."
+	escalateFirstSentence     = "A refused privileged request in this conversation has not been escalated yet; call escalate before closing the ticket."
 	pendingApprovalSentence   = "This request is waiting for IT approval."
 	invalidArgumentsSentence  = "The arguments did not match the tool's schema"
 	directoryDownSentence     = "The directory cannot be reached right now."
@@ -92,6 +98,8 @@ var (
 	refuseNoTicket          = refusal{CodeNoTicket, audit.OutcomeDeniedPolicy, reasonNoTicket, noTicketSentence}
 	refuseNotYours          = refusal{CodeNotYours, audit.OutcomeDeniedPolicy, reasonNotYours, notYoursSentence}
 	refuseTicketClosed      = refusal{CodeTicketClosed, audit.OutcomeDeniedPolicy, reasonTicketClosed, ticketClosedSentence}
+	refuseAlreadyEscalated  = refusal{CodeAlreadyEscalated, audit.OutcomeDeniedPolicy, reasonAlreadyEscalated, alreadyEscalatedSentence}
+	refuseEscalateFirst     = refusal{CodeEscalateFirst, audit.OutcomeDeniedPolicy, reasonEscalateFirst, escalateFirstSentence}
 )
 
 // handlerRefusals are the refusals a handler may return, found again by
@@ -101,7 +109,7 @@ var handlerRefusals = map[string]refusal{}
 func init() {
 	for _, r := range []refusal{
 		refuseNoHelpdeskAccount, refuseReadOnly, refuseProtected, refuseHasTicket,
-		refuseNoTicket, refuseNotYours, refuseTicketClosed,
+		refuseNoTicket, refuseNotYours, refuseTicketClosed, refuseAlreadyEscalated, refuseEscalateFirst,
 	} {
 		handlerRefusals[r.reason] = r
 	}

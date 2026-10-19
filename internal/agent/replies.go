@@ -22,6 +22,38 @@ const (
 	FooterResolved          = "_If you still need help, send me a new message (not in this thread)._"
 )
 
+// Escalation texts (spec 0009, Fixed texts).
+const (
+	FooterEscalated    = "_IT has this now and will follow up. For anything else, send me a new message (not in this thread)._"
+	BackstopTitle      = "Privileged request refused by the Noord assistant"
+	BackstopSummary    = "The user asked for a privileged change, which the assistant refused. The assistant did not escalate it itself, so this was escalated automatically. See the ticket and the audit log for this thread."
+	TextBackstopFailed = "I couldn't notify IT about this, so please contact them directly."
+)
+
+// The IT channel post (spec 0009, AC-9 and AC-12): one headline per
+// escalation reason, then fixed labels.
+var itHeadlines = map[string]string{
+	escalatePrivileged: ":rotating_light: *Privileged request refused*",
+	escalateOther:      ":busts_in_silhouette: *Request to act for someone else*",
+	escalateSecurity:   ":warning: *Security concern*",
+	escalateFailure:    ":construction: *Assistant could not finish*",
+	escalateRestart:    ":arrows_counterclockwise: *Interrupted by a restart*",
+	codeNotMatched:     ":grey_question: *Slack user not matched to a Noord account*",
+}
+
+const (
+	itRequesterLabel   = "Requester: "
+	itAttemptsLabel    = "Blocked privileged requests from this person in the last "
+	itRanLabel         = "Ran: "
+	itTicketLabel      = "Ticket: "
+	itSummaryLabel     = "Summary: "
+	itReasonLabel      = "Reason: "
+	itAlreadyEscalated = "Ticket: already escalated; see the audit log for this thread."
+	itNoTicket         = "No ticket: no single Noord account matches this Slack user."
+	// maxITSummaryRunes bounds the model's summary in the IT post.
+	maxITSummaryRunes = 1500
+)
+
 // The escalation ticket (AC-10, AC-11, AC-14).
 const (
 	EscalationTitle    = "Noord assistant could not finish this request"
@@ -60,6 +92,11 @@ const (
 	ReasonAmbiguous      Reason = "ambiguous"
 	ReasonAccountChanged Reason = "account_changed"
 	ReasonTooMany        Reason = "too_many"
+
+	// ReasonBackstop is code escalating a blocked request the model left
+	// unescalated (spec 0009, AC-10). A model escalation logs its own
+	// reason (privileged_request, other_person, security_concern).
+	ReasonBackstop Reason = "backstop"
 )
 
 // noteOpenings start the escalation note for each reason. directory_unavailable

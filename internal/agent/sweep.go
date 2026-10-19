@@ -15,8 +15,9 @@ import (
 // Sweep handles open conversations a turn stopped in the middle of, for
 // example a crash or a deploy (AC-14). cmd/agent runs it before the socket
 // starts, and Run runs it once more after the stale window. It reruns the
-// identity step, leaves IT a ticket when it can, tells the user, and sets
-// the conversation escalated. No tool call from history is replayed.
+// identity step, escalates through escalate when it can (spec 0009), tells
+// the user, and sets the conversation escalated. No tool call from history
+// is replayed.
 func (a *Agent) Sweep(ctx context.Context) {
 	staleBefore := a.deps.Now().Add(-a.cfg.staleWindow())
 	convs, err := a.deps.Store.ListInterrupted(ctx, staleBefore)
@@ -50,25 +51,47 @@ func (a *Agent) recoverInterrupted(ctx context.Context, c Conversation) {
 		return
 	}
 	in := Inbound{EventID: "", ChannelID: c.ChannelID, ThreadTS: c.ThreadTS}
-	tk := ticketOutcome{}
-	r, why, ok := a.reidentify(ctx, c)
+	var o escalationOutcome
+	r, account, why, ok := a.reidentify(ctx, c)
 	if ok {
-		tk = a.ensureTicket(ctx, r, a.lastUserText(ctx, c.ID), escalationNote(ReasonRestart, false))
+		o = a.escalateInterrupted(ctx, c, r, account)
 	}
-	if tk.created != 0 {
-		a.storeSweepTicket(ctx, c.ID, tk.created)
-	}
-	a.logEscalated(ctx, "", ReasonRestart, tk.exists, why)
+	a.logEscalated(ctx, "", ReasonRestart, o.exists(), why)
 	// The restart text says IT has it, so it needs a ticket.
-	if tk.exists {
+	if o.exists() {
 		a.post(ctx, in, TextRestart, "restart")
 	} else {
 		a.post(ctx, in, TextEscalatedNoTicket, "escalated_no_ticket")
 	}
 }
 
-// storeSweepTicket keeps the ticket the sweep created on the conversation it
-// already claimed, so the row points at IT's ticket like the turn path does.
+// escalateInterrupted escalates a claimed conversation through escalate:
+// privileged_request when its stored history holds a blocked result, else
+// restart (spec 0009, AC-11). It stores the ticket the call used when the
+// conversation has none, and posts to IT.
+func (a *Agent) escalateInterrupted(ctx context.Context, c Conversation, r mcpclient.Requester, account string) escalationOutcome {
+	calls := a.callsOrNone(ctx, c.ID) // a failed read escalates as restart
+	reason := escalateRestart
+	if blocked, _ := blockedUnescalated(calls); blocked {
+		reason = escalatePrivileged
+	}
+	e := codeEscalation{
+		reason:    reason,
+		title:     EscalationTitle,
+		summary:   escalationBody(a.lastUserText(ctx, c.ID)) + "\n\n" + escalationNote(ReasonRestart, false),
+		itSummary: noteOpenings[ReasonRestart],
+	}
+	o := a.escalateByCode(ctx, r, e)
+	if id := o.ticketID(); id != 0 && c.TicketID == 0 {
+		a.storeSweepTicket(ctx, c.ID, id)
+	}
+	a.announce(ctx, "", o, e, c.RequesterSlackID, account, calls)
+	return o
+}
+
+// storeSweepTicket keeps the ticket the sweep's escalation used on the
+// conversation it already claimed, so the row points at IT's ticket like
+// the turn path does.
 func (a *Agent) storeSweepTicket(ctx context.Context, id, ticketID int64) {
 	sctx, cancel := a.detached(ctx, a.cfg.ToolTimeout)
 	defer cancel()
@@ -78,18 +101,18 @@ func (a *Agent) storeSweepTicket(ctx context.Context, id, ticketID int64) {
 }
 
 // reidentify reruns the Slack gate and user_lookup for the stored requester.
-// A match must be the account the conversation already holds, if any. Without
-// a match, why is the cause token of the error that stopped it ("none" when
-// the person simply did not pass).
-func (a *Agent) reidentify(ctx context.Context, c Conversation) (r mcpclient.Requester, why string, ok bool) {
+// A match must be the account the conversation already holds, if any; that
+// account is returned. Without a match, why is the cause token of the error
+// that stopped it ("none" when the person simply did not pass).
+func (a *Agent) reidentify(ctx context.Context, c Conversation) (r mcpclient.Requester, account, why string, ok bool) {
 	uctx, cancel := a.detached(ctx, a.cfg.PostTimeout)
 	user, err := a.deps.Slack.UserInfo(uctx, c.RequesterSlackID)
 	cancel()
 	if err != nil {
-		return mcpclient.Requester{}, cause(err), false
+		return mcpclient.Requester{}, "", cause(err), false
 	}
 	if !passesGate(user, a.cfg.TeamID) {
-		return mcpclient.Requester{}, cause(nil), false
+		return mcpclient.Requester{}, "", cause(nil), false
 	}
 	r = mcpclient.Requester{
 		SlackID: c.RequesterSlackID, Email: strings.TrimSpace(user.Email),
@@ -97,13 +120,13 @@ func (a *Agent) reidentify(ctx context.Context, c Conversation) (r mcpclient.Req
 	}
 	res, err := a.callTool(ctx, r, toolUserLookup, nil)
 	if err != nil {
-		return mcpclient.Requester{}, cause(err), false
+		return mcpclient.Requester{}, "", cause(err), false
 	}
 	username, _ := res.Data["username"].(string)
 	if res.IsError || username == "" || (c.DirectoryAccount != "" && c.DirectoryAccount != username) {
-		return mcpclient.Requester{}, cause(nil), false
+		return mcpclient.Requester{}, "", cause(nil), false
 	}
-	return r, cause(nil), true
+	return r, username, cause(nil), true
 }
 
 // lastUserText is the newest stored user message that holds a text block.

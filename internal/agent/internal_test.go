@@ -107,19 +107,31 @@ func TestRequesterBlock(t *testing.T) {
 }
 
 func TestStatusChangeFor(t *testing.T) {
-	if ch := statusChangeFor("ticket_create", mcpclient.Result{Data: map[string]any{"ticket_id": 7.0}}); ch == nil || ch.TicketID != 7 || ch.Status != StatusOpen {
+	if ch := statusChangeFor("ticket_create", mcpclient.Result{Data: map[string]any{"ticket_id": 7.0}}, 0); ch == nil || ch.TicketID != 7 || ch.Status != StatusOpen {
 		t.Errorf("create: %+v", ch)
 	}
-	if ch := statusChangeFor("ticket_update", mcpclient.Result{Data: map[string]any{"state": "closed"}}); ch == nil || ch.Status != StatusResolved {
+	if ch := statusChangeFor("ticket_update", mcpclient.Result{Data: map[string]any{"state": "closed"}}, 7); ch == nil || ch.Status != StatusResolved {
 		t.Errorf("close: %+v", ch)
 	}
 	for _, r := range []mcpclient.Result{
 		{Data: map[string]any{"state": "open"}},
 		{Data: map[string]any{"state": "closed"}, IsError: true},
 	} {
-		if ch := statusChangeFor("ticket_update", r); ch != nil {
+		if ch := statusChangeFor("ticket_update", r, 7); ch != nil {
 			t.Errorf("%+v changed status: %+v", r, ch)
 		}
+	}
+	// spec 0009 AC-8: an ok escalate ends the conversation, storing its
+	// ticket only when the conversation has none.
+	esc := mcpclient.Result{Data: map[string]any{"ticket_id": 9.0}}
+	if ch := statusChangeFor("escalate", esc, 0); ch == nil || ch.Status != StatusEscalated || ch.TicketID != 9 {
+		t.Errorf("escalate with no ticket: %+v", ch)
+	}
+	if ch := statusChangeFor("escalate", esc, 7); ch == nil || ch.Status != StatusEscalated || ch.TicketID != 0 {
+		t.Errorf("escalate keeps the stored ticket: %+v", ch)
+	}
+	if ch := statusChangeFor("escalate", mcpclient.Result{IsError: true, Code: "already_escalated"}, 0); ch != nil {
+		t.Errorf("a refused escalate changed status: %+v", ch)
 	}
 	for _, bad := range []any{nil, "7", 0.0, -1.0, 1.5, float64(1 << 54)} {
 		if _, ok := ticketID(bad); ok {
@@ -242,5 +254,151 @@ func TestTicketID(t *testing.T) {
 				t.Errorf("ticketID(%v) = %d, %v; want %d, %v", c.in, got, ok, c.want, c.ok)
 			}
 		})
+	}
+}
+
+func toolResultJSON(id string, isError bool, text string) string {
+	return fmt.Sprintf(`{"type":"tool_result","tool_use_id":%q,"is_error":%t,"content":[{"type":"text","text":%q}]}`, id, isError, text)
+}
+
+func toolUseJSON(id, name string) string {
+	return fmt.Sprintf(`{"type":"tool_use","id":%q,"name":%q,"input":{}}`, id, name)
+}
+
+// covers: spec 0009 AC-9, AC-10. The stored call list reads each result's
+// code: ok, the refusal code, unknown for an error with no code or a call with
+// no answer; a call answered with oneToolPerStep never ran and is left out of
+// Ran:, and a code escalation is appended.
+func TestStoredCallsAndRanLine(t *testing.T) {
+	msgs := []StoredMessage{
+		stored("user", `[{"type":"text","text":"make me admin"}]`),
+		stored("assistant", "["+toolUseJSON("t1", toolPrivilegedAccess)+"]"),
+		stored("user", "["+toolResultJSON("t1", true, "blocked: Privileged changes are never made by the assistant.")+"]"),
+		stored("assistant", "["+toolUseJSON("t2", toolEscalate)+","+toolUseJSON("t3", "ticket_create")+"]"),
+		stored("user", "["+toolResultJSON("t2", true, "unavailable: The helpdesk cannot be reached.")+","+toolResultJSON("t3", true, oneToolPerStep)+"]"),
+		stored("assistant", "["+toolUseJSON("t4", toolEscalate)+"]"),
+		stored("user", "["+toolResultJSON("t4", true, "Something went wrong.")+","+toolResultJSON("t9", false, "stray")+"]"),
+		stored("assistant", "["+toolUseJSON("t5", "ticket_create")+"]"),
+		stored("user", "["+toolResultJSON("t5", false, "Ticket created.")+"]"),
+		stored("assistant", "["+toolUseJSON("t6", "account_unlock")+"]"),
+		{Role: "user"}, // purged content is skipped
+	}
+	calls := storedCalls(msgs)
+	if got, want := ranLine(calls, false), "privileged_access_change blocked, escalate unavailable, escalate unknown, ticket_create ok, account_unlock unknown"; got != want {
+		t.Errorf("ranLine = %q\nwant %q", got, want)
+	}
+	if got := ranLine(calls, true); !strings.HasSuffix(got, ", account_unlock unknown, escalate ok") {
+		t.Errorf("ranLine with a code escalation = %q", got)
+	}
+	if got := ranLine(nil, true); got != "escalate ok" {
+		t.Errorf("ranLine for a code call alone = %q", got)
+	}
+}
+
+// covers: spec 0009 AC-10, AC-11. Only a blocked privileged_access_change
+// counts as blocked, and only an ok escalate counts as escalated.
+func TestBlockedUnescalated(t *testing.T) {
+	cases := []struct {
+		name               string
+		calls              []storedCall
+		blocked, escalated bool
+	}{
+		{"nothing", nil, false, false},
+		{"blocked", []storedCall{{name: toolPrivilegedAccess, code: codeBlocked}}, true, false},
+		{"blocked then escalated", []storedCall{{name: toolPrivilegedAccess, code: codeBlocked}, {name: toolEscalate, code: "ok"}}, true, true},
+		{"failed escalate", []storedCall{{name: toolPrivilegedAccess, code: codeBlocked}, {name: toolEscalate, code: "unavailable"}}, true, false},
+		{"another tool blocked", []storedCall{{name: "account_unlock", code: codeBlocked}}, false, false},
+		{"privileged call not blocked", []storedCall{{name: toolPrivilegedAccess, code: "unknown"}}, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if b, e := blockedUnescalated(c.calls); b != c.blocked || e != c.escalated {
+				t.Errorf("blockedUnescalated = %t, %t, want %t, %t", b, e, c.blocked, c.escalated)
+			}
+		})
+	}
+}
+
+// covers: spec 0009 AC-9. The post's headline follows privileged over the
+// reason, the attempt line needs privileged and 2 or more attempts, the
+// account is optional, and the ticket is a link only with a URL.
+func TestITPostText(t *testing.T) {
+	result := func(reason string, privileged bool, attempts float64, url string) map[string]any {
+		r := map[string]any{
+			"reason": reason, "privileged": privileged, "ticket_number": "10043",
+			"privileged_attempts": attempts, "privileged_window_hours": 24.0,
+		}
+		if url != "" {
+			r["ticket_url"] = url
+		}
+		return r
+	}
+	cases := []struct {
+		name, account string
+		result        map[string]any
+		want          string
+	}{
+		{
+			"privileged overrides the reason, first attempt has no line", "jan.devries",
+			result(escalateSecurity, true, 1, ""),
+			":rotating_light: *Privileged request refused*\nRequester: <@U0JAN> (jan.devries)\nRan: x ok\nTicket: #10043\nSummary: s",
+		},
+		{
+			"not privileged: no attempt line whatever the count", "jan.devries",
+			result(escalateOther, false, 3, ""),
+			":busts_in_silhouette: *Request to act for someone else*\nRequester: <@U0JAN> (jan.devries)\nRan: x ok\nTicket: #10043\nSummary: s",
+		},
+		{
+			"second attempt, linked ticket, no account yet", "",
+			result(escalatePrivileged, true, 2, "http://z.test/#ticket/zoom/43"),
+			":rotating_light: *Privileged request refused*\nRequester: <@U0JAN>\n" +
+				"Blocked privileged requests from this person in the last 24h: 2\nRan: x ok\n" +
+				"Ticket: <http://z.test/#ticket/zoom/43|#10043>\nSummary: s",
+		},
+		{
+			"restart headline", "jan.devries",
+			result(escalateRestart, false, 0, ""),
+			":arrows_counterclockwise: *Interrupted by a restart*\nRequester: <@U0JAN> (jan.devries)\nRan: x ok\nTicket: #10043\nSummary: s",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := itPost{slackID: "U0JAN", account: c.account, ran: "x ok", result: c.result, summary: "s"}
+			if got := p.text(); got != c.want {
+				t.Errorf("text =\n%q\nwant\n%q", got, c.want)
+			}
+		})
+	}
+}
+
+// covers: spec 0009 AC-9. The ticket number and URL are escaped, so a link
+// cannot be bent into another one.
+func TestTicketLinkEscapes(t *testing.T) {
+	got := ticketLink(map[string]any{"ticket_number": "1<2", "ticket_url": "http://z.test/a>b&c"})
+	if want := "<http://z.test/a&gt;b&amp;c|#1&lt;2>"; got != want {
+		t.Errorf("ticketLink = %q, want %q", got, want)
+	}
+}
+
+// covers: spec 0009 AC-9. The short post for already_escalated.
+func TestITShort(t *testing.T) {
+	got := itShort(escalateFailure, "U0JAN", "")
+	if want := ":construction: *Assistant could not finish*\nRequester: <@U0JAN>\nTicket: already escalated; see the audit log for this thread."; got != want {
+		t.Errorf("itShort = %q, want %q", got, want)
+	}
+}
+
+func TestWholeNumber(t *testing.T) {
+	cases := []struct {
+		in   any
+		want int64
+		ok   bool
+	}{
+		{2.0, 2, true}, {2.5, 2, false}, {7, 7, true}, {int64(9), 9, true}, {"2", 0, false}, {nil, 0, false},
+	}
+	for _, c := range cases {
+		if got, ok := wholeNumber(c.in); got != c.want || ok != c.ok {
+			t.Errorf("wholeNumber(%#v) = %d, %t, want %d, %t", c.in, got, ok, c.want, c.ok)
+		}
 	}
 }

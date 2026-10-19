@@ -6,7 +6,9 @@ package toolstest
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +36,7 @@ type MemStore struct {
 	IntentErr  error // fails every intent insert
 	OutcomeErr error // fails every outcome insert
 	CountErr   error // fails the rate limit count
-	ThreadErr  error // fails the one ticket per thread read
+	ThreadErr  error // fails the thread reads (outcomes and ticket id)
 }
 
 // InsertAuditIntent stores an intent row, or fails with IntentErr.
@@ -106,8 +108,8 @@ func (s *MemStore) ExpireDueApprovals(context.Context, int32) ([]queries.Approva
 	return nil, ErrNotUsed
 }
 
-// CountRecentOKOutcomes counts like the SQL does, or fails with CountErr.
-func (s *MemStore) CountRecentOKOutcomes(ctx context.Context, p queries.CountRecentOKOutcomesParams) (int64, error) {
+// CountRecentOutcomes counts like the SQL does, or fails with CountErr.
+func (s *MemStore) CountRecentOutcomes(ctx context.Context, p queries.CountRecentOutcomesParams) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := cmp.Or(ctx.Err(), s.CountErr); err != nil {
@@ -115,7 +117,7 @@ func (s *MemStore) CountRecentOKOutcomes(ctx context.Context, p queries.CountRec
 	}
 	var n int64
 	for _, r := range s.rows {
-		if r.Kind == "outcome" && r.Outcome.String == "ok" && r.ToolName == p.ToolName &&
+		if r.Kind == "outcome" && r.Outcome == p.Outcome && r.ToolName == p.ToolName &&
 			r.RequesterSlackID == p.RequesterSlackID && r.OccurredAt.After(p.Since) {
 			n++
 		}
@@ -123,20 +125,50 @@ func (s *MemStore) CountRecentOKOutcomes(ctx context.Context, p queries.CountRec
 	return n, nil
 }
 
-// ThreadHasOKOutcome answers like the SQL does, or fails with ThreadErr.
-func (s *MemStore) ThreadHasOKOutcome(ctx context.Context, p queries.ThreadHasOKOutcomeParams) (bool, error) {
+// ThreadHasOutcome answers like the SQL does, or fails with ThreadErr.
+func (s *MemStore) ThreadHasOutcome(ctx context.Context, p queries.ThreadHasOutcomeParams) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := cmp.Or(ctx.Err(), s.ThreadErr); err != nil {
 		return false, err
 	}
 	for _, r := range s.rows {
-		if r.Kind == "outcome" && r.Outcome.String == "ok" && r.ToolName == p.ToolName &&
+		if r.Kind == "outcome" && r.Outcome == p.Outcome && r.ToolName == p.ToolName &&
 			r.SlackChannelID == p.SlackChannelID && r.SlackThreadTs == p.SlackThreadTs {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// ThreadTicketID answers like the SQL does (the newest ok ticket_create's
+// numeric result.ticket_id, else 0), or fails with ThreadErr.
+func (s *MemStore) ThreadTicketID(ctx context.Context, p queries.ThreadTicketIDParams) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := cmp.Or(ctx.Err(), s.ThreadErr); err != nil {
+		return 0, err
+	}
+	for _, r := range slices.Backward(s.rows) {
+		if r.Kind != "outcome" || r.Outcome.String != "ok" || r.ToolName != "ticket_create" ||
+			r.SlackChannelID != p.SlackChannelID || r.SlackThreadTs != p.SlackThreadTs {
+			continue
+		}
+		var res map[string]any
+		_ = json.Unmarshal(r.Result, &res)
+		id, _ := res["ticket_id"].(float64) // jsonb_typeof = 'number'
+		return int64(id), nil
+	}
+	return 0, nil
+}
+
+// Backdate moves every row stored so far back by d, to test time windows.
+func (s *MemStore) Backdate(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.rows {
+		s.rows[i].OccurredAt = s.rows[i].OccurredAt.Add(-d)
+	}
 }
 
 // InTx runs fn on the store itself; nothing rolls back.

@@ -130,6 +130,7 @@ const (
 	ToolTicketCreate           = "ticket_create"
 	ToolTicketUpdate           = "ticket_update"
 	ToolPrivilegedAccessChange = "privileged_access_change"
+	ToolEscalate               = "escalate"
 )
 
 // Argument bounds and values, part of the schema the model sees.
@@ -138,6 +139,8 @@ const (
 	maxBodyRunes    = 10000
 	maxNoteRunes    = 10000
 	maxSummaryRunes = 1000
+
+	maxEscalationSummaryRunes = 10000
 
 	stateOpen    = "open"
 	statePending = "pending"
@@ -202,6 +205,37 @@ func productionTools() []Tool {
 				{Name: "summary", Description: "What was asked for.", Required: true, MinRunes: 1, MaxRunes: maxSummaryRunes, FreeText: true},
 			},
 			Target: TargetNone,
+		},
+		{
+			Name: ToolEscalate,
+			Description: "Hand this conversation to IT with a summary: for a refused privileged request, a request to act " +
+				"for someone else, or a security concern. Tags this conversation's ticket for IT, or opens one if there is " +
+				"none yet, and notifies IT. Use it once, after privileged_access_change when that applies. Ends the conversation.",
+			Tier: audit.TierLow,
+			Fields: []Field{
+				{
+					Name: "reason", Required: true, MinRunes: 1, Enum: escalationReasons,
+					Description: "Why IT should look at this. Use privileged_request, other_person, or security_concern; " +
+						"the other values are reserved for the assistant's own code.",
+				},
+				{
+					Name: "title", Required: true, MinRunes: 1, MaxRunes: maxTitleRunes, NoNewline: true, FreeText: true,
+					Description: "A short title naming the user's underlying problem, or the request when there is none. " +
+						"Used only when this conversation has no ticket yet.",
+				},
+				{
+					Name: "summary", Required: true, MinRunes: 1, MaxRunes: maxEscalationSummaryRunes, FreeText: true,
+					Description: "What the user asked, what was refused or could not be done, and what IT should look at. Plain text.",
+				},
+			},
+			Check:  checkEscalate,
+			Target: TargetTicket,
+			Store:  []string{"reason"},
+			StoreResult: []string{
+				"ticket_id", "ticket_number", "reason", "initiator", "privileged", "created",
+				"privileged_attempts", "privileged_window_hours",
+			},
+			Handler: ReadHandler(escalate),
 		},
 	}
 }

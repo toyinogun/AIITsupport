@@ -53,7 +53,7 @@ func testConfig() Config {
 		BaseDN: base, UserOUs: []string{"OU=Users,OU=Noord"}, GroupOUs: []string{"OU=Groups,OU=Noord"},
 		DeniedGroups: []string{"SG-IT-Admins", "APP-Helpdesk-Agents", "SYNC-Entra-Users"},
 		CallTimeout:  5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour,
-		TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
+		TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour, PrivilegedWindow: 24 * time.Hour,
 	}
 }
 
@@ -79,7 +79,7 @@ func newHarness(t *testing.T, extra ...Tool) *harness {
 		t.Fatal(err)
 	}
 	h.d, err = NewDispatcher(reg, testConfig(), Systems{
-		Directory: h.dir, Writer: h.dir, Helpdesk: NewHelpdesk(client, "IT Support"),
+		Directory: h.dir, Writer: h.dir, Helpdesk: NewHelpdesk(client, "IT Support", "http://zammad.test/"),
 		Recorder: rec, KillSwitch: NewKillSwitch(h.ks.path, true),
 	}, logger)
 	if err != nil {
