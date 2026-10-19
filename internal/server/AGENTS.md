@@ -8,9 +8,9 @@ The small HTTP server both binaries run: `GET /healthz` on each, and the MCP end
 
 | File | Owns |
 |---|---|
-| `server.go` | `NewMux` (a mux with `GET /healthz`, plain text `ok`), `Run` (serve until the context ends, then shut down within 10 s), and `fixedMessage`, the `http.Server.ErrorLog` bridge |
+| `server.go` | `NewMux` (a mux with `GET /healthz`, plain text `ok`), `Run` (serve until the context ends, then shut down within 10 s; `WithLimits` sets one listener's timeouts and header cap), and `fixedMessage`, the `http.Server.ErrorLog` bridge |
 | `../../cmd/agent/main.go` | runs `Run` on `AGENT_HTTP_ADDR` with the bare mux, inside the agent's errgroup |
-| `../../cmd/toolserver/main.go` | adds the MCP handler at `mcpserver.Path` to the mux, then runs it on `TOOLSERVER_HTTP_ADDR` |
+| `../../cmd/toolserver/main.go` | adds the MCP handler at `mcpserver.Path` to the mux, then runs it on `TOOLSERVER_HTTP_ADDR`; when the `RESET_*` settings are set, also runs the reset page (`internal/resetpage`) on its own listener at `RESET_HTTP_ADDR`, with `WithLimits` and no MCP route or OpenTelemetry HTTP middleware (spec 0011, AC-16) |
 
 ## Conventions
 

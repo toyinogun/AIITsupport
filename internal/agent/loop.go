@@ -176,6 +176,7 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 	}
 	first := uses[0]
 	res, callErr := t.a.callTool(t.ctx, *t.requester, first.name, first.input)
+	res, link := stripResetLink(first.name, res) // before anything else sees it (spec 0011, AC-5)
 	answered := callErr == nil
 	t.toolCalls++
 
@@ -202,6 +203,9 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 		case StatusResolved:
 			t.conv.Status = StatusResolved
 			t.resolved = true
+			if first.name == toolPasswordResetLink {
+				t.postResetLink(link)
+			}
 		case StatusEscalated:
 			t.modelEscalated(first.input, res)
 		}
@@ -214,7 +218,8 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 
 // statusChangeFor is the conversation update a tool result causes (AC-6):
 // an ok ticket_create stores its ticket id, an ok ticket_update that closed
-// the ticket resolves the conversation, and an ok escalate ends it as
+// the ticket or an ok password_reset_link (spec 0011, AC-5) resolves the
+// conversation, keeping its ticket, and an ok escalate ends it as
 // escalated, storing its ticket only when the conversation has none
 // (spec 0009, AC-8). current is the conversation's ticket id.
 func statusChangeFor(tool string, r mcpclient.Result, current int64) *StatusChange {
@@ -236,6 +241,8 @@ func statusChangeFor(tool string, r mcpclient.Result, current int64) *StatusChan
 		if state, _ := r.Data["state"].(string); state == "closed" {
 			return &StatusChange{Status: StatusResolved}
 		}
+	case toolPasswordResetLink:
+		return &StatusChange{Status: StatusResolved}
 	}
 	return nil
 }

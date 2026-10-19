@@ -64,20 +64,34 @@ func (u *Users) Calls() int {
 // Post is one chat.postMessage.
 type Post struct {
 	Channel, Thread, Text string
+	NoUnfurl              bool // sent with ReplyNoUnfurl
 }
 
 // Poster is a fake chat.postMessage that records every post.
 type Poster struct {
-	mu    sync.Mutex
-	posts []Post
-	Err   error
+	mu          sync.Mutex
+	posts       []Post
+	Err         error
+	NoUnfurlErr error // fails ReplyNoUnfurl only
 }
 
 // Reply records the post.
 func (p *Poster) Reply(_ context.Context, channel, thread, text string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.posts = append(p.posts, Post{channel, thread, text})
+	p.posts = append(p.posts, Post{Channel: channel, Thread: thread, Text: text})
+	return p.Err
+}
+
+// ReplyNoUnfurl records the post as sent with unfurling off, or fails with
+// NoUnfurlErr when set (else Err).
+func (p *Poster) ReplyNoUnfurl(_ context.Context, channel, thread, text string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.posts = append(p.posts, Post{Channel: channel, Thread: thread, Text: text, NoUnfurl: true})
+	if p.NoUnfurlErr != nil {
+		return p.NoUnfurlErr
+	}
 	return p.Err
 }
 

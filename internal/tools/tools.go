@@ -18,6 +18,7 @@ import (
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
 	"github.com/toyinogun/AIITsupport/internal/ldap"
+	"github.com/toyinogun/AIITsupport/internal/resetlink"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
 )
 
@@ -63,7 +64,7 @@ type Result struct {
 	Text string
 }
 
-// Handler is a tool's code: a ReadHandler or an AccountHandler.
+// Handler is a tool's code: a ReadHandler, an AccountHandler, or a ResetHandler.
 type Handler interface{ handler() }
 
 // ReadHandler may read the directory and use the helpdesk; it cannot write
@@ -74,8 +75,14 @@ type ReadHandler func(ctx context.Context, d Deps, in Input) (Result, error)
 // and the dispatcher always runs it behind the kill switch and rate limit.
 type AccountHandler func(ctx context.Context, d AccountDeps, in Input) (Result, error)
 
+// ResetHandler issues a password reset link (spec 0011). It writes no
+// directory account itself, but the dispatcher treats it as an account
+// change: the kill switch and TOOL_WRITE_LIMIT apply.
+type ResetHandler func(ctx context.Context, d ResetDeps, in Input) (Result, error)
+
 func (ReadHandler) handler()    {}
 func (AccountHandler) handler() {}
+func (ResetHandler) handler()   {}
 
 // Directory is what every handler may read from AD. *ldap.Client satisfies it.
 type Directory interface {
@@ -83,6 +90,7 @@ type Directory interface {
 	Lock(ctx context.Context, dn string) (ldap.Lock, error)
 	GroupsByName(ctx context.Context, names []string) (map[string]ldap.Group, error)
 	InChainMemberOf(ctx context.Context, name string, parents []string) (bool, error)
+	UserInChainMemberOf(ctx context.Context, dn string, parents []string) (bool, error)
 }
 
 // DirectoryWriter is the directory's only write. *ldap.Writer satisfies it.
@@ -130,6 +138,29 @@ type AccountDeps struct {
 	Deps
 	Writer DirectoryWriter
 	Switch KillSwitch
+}
+
+// ResetLinks is the reset_links store. *resetlink.Store satisfies it.
+type ResetLinks interface {
+	Issue(ctx context.Context, in resetlink.Issue) (resetlink.Issued, error)
+	CountRecent(ctx context.Context, account string, window time.Duration) (int64, error)
+}
+
+// ResetSettings are the RESET_* values the issue handler uses.
+type ResetSettings struct {
+	PublicURL string        // RESET_PUBLIC_URL, no trailing slash
+	TTL       time.Duration // RESET_LINK_TTL
+	LinkLimit int           // RESET_LINK_LIMIT
+	Window    time.Duration // RESET_LINK_WINDOW
+}
+
+// ResetDeps is what the reset link handler may touch: Deps plus the link
+// store, its settings, and the account fence. It holds no directory writer.
+type ResetDeps struct {
+	Deps
+	Links    ResetLinks
+	Settings ResetSettings
+	Accounts *AccountFence
 }
 
 // Limits are the settings a handler checks.

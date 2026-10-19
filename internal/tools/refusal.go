@@ -35,6 +35,7 @@ const (
 	CodePendingApproval   Code = "pending_approval"
 	CodeAlreadyEscalated  Code = "already_escalated"
 	CodeEscalateFirst     Code = "escalate_first"
+	CodeAccountDisabled   Code = "account_disabled"
 )
 
 // Reasons stored in audit_log.error. Fixed text only, never request data.
@@ -57,6 +58,8 @@ const (
 	reasonActionFailed        = "action failed"
 	reasonAlreadyEscalated    = "thread already escalated"
 	reasonEscalateFirst       = "escalate first"
+	reasonAccountDisabled     = "account disabled"
+	accountDisabledSentence   = "This account is disabled, so no reset link can be sent."
 	alreadyEscalatedSentence  = "This conversation is already with IT."
 	escalateFirstSentence     = "A refused privileged request in this conversation has not been escalated yet; call escalate before closing the ticket."
 	pendingApprovalSentence   = "This request is waiting for IT approval."
@@ -100,6 +103,7 @@ var (
 	refuseTicketClosed      = refusal{CodeTicketClosed, audit.OutcomeDeniedPolicy, reasonTicketClosed, ticketClosedSentence}
 	refuseAlreadyEscalated  = refusal{CodeAlreadyEscalated, audit.OutcomeDeniedPolicy, reasonAlreadyEscalated, alreadyEscalatedSentence}
 	refuseEscalateFirst     = refusal{CodeEscalateFirst, audit.OutcomeDeniedPolicy, reasonEscalateFirst, escalateFirstSentence}
+	refuseAccountDisabled   = refusal{CodeAccountDisabled, audit.OutcomeDeniedPolicy, reasonAccountDisabled, accountDisabledSentence}
 )
 
 // handlerRefusals are the refusals a handler may return, found again by
@@ -110,6 +114,7 @@ func init() {
 	for _, r := range []refusal{
 		refuseNoHelpdeskAccount, refuseReadOnly, refuseProtected, refuseHasTicket,
 		refuseNoTicket, refuseNotYours, refuseTicketClosed, refuseAlreadyEscalated, refuseEscalateFirst,
+		refuseAccountDisabled, refuseRateLimited,
 	} {
 		handlerRefusals[r.reason] = r
 	}
@@ -163,6 +168,13 @@ func helpdeskFailure(err error) error {
 	}
 	return failed(err)
 }
+
+// Cause is cause for the reset page, which shares the tool layer's tokens.
+func Cause(err error) string { return cause(err) }
+
+// DirectoryReason is the fixed audit reason directoryFailure gives err:
+// "directory unavailable" or "action failed".
+func DirectoryReason(err error) string { return asFailure(directoryFailure(err)).reason }
 
 // cause names where an error came from as a fixed token that is safe to log
 // and holds no request data: an LDAP result code, a Zammad HTTP status, or a

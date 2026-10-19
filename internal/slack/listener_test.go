@@ -94,6 +94,10 @@ func (p *fakePoster) Reply(_ context.Context, channel, thread, text string) erro
 	return p.replyErr
 }
 
+func (p *fakePoster) ReplyNoUnfurl(ctx context.Context, channel, thread, text string) error {
+	return p.Reply(ctx, channel, thread, text)
+}
+
 func (p *fakePoster) got() []reply {
 	p.mu.Lock()
 	defer p.mu.Unlock()

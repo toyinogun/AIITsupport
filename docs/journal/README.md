@@ -57,5 +57,8 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0033](0033-sqlc-guesses-a-nullable-column-wrong.md) | 2026-10-19 | sqlc guessed the type of a nullable ticket id wrong three times | #11 Privileged request refusal & escalation | ~10 min | no |
 | [0034](0034-test-fake-refusals-missed-the-code-prefix.md) | 2026-10-19 | The agent's test fake sent refusals without the code the real tool server sends | #11 Privileged request refusal & escalation | ~5 min | post |
 | [0035](0035-zammad-merged-tickets-have-no-close-time.md) | 2026-10-19 | Zammad gives merged tickets no close time, and a reclosed ticket keeps its first one | #12 PII redaction & retention | ~20 min | both |
+| [0036](0036-samba-ignores-the-password-history-hint.md) | 2026-10-19 | Samba ignores the password history hint on a delegated reset | #13 Password reset links | ~10 min | post |
+| [0037](0037-denied-groups-would-block-every-reset.md) | 2026-10-19 | The denied groups list would have refused a reset link to almost everyone | #13 Password reset links | ~10 min | both |
+| [0038](0038-samba-keeps-the-old-password-for-an-hour.md) | 2026-10-19 | Samba kept accepting the old password for an hour after a reset | #13 Password reset links | ~15 min | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

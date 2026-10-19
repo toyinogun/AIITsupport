@@ -12,7 +12,14 @@ import (
 // escalated, and tells the user whether IT got a ticket.
 func (t *turn) failurePath(f *failure) string {
 	if t.resolved {
-		t.post(TextResolvedNoSummary, "resolved_no_summary")
+		switch {
+		case t.resetPostFailed:
+			t.post(TextResetLinkFailed, "reset_link_failed")
+		case t.resetPosted:
+			t.post(TextResolvedLinkNoSummary, "resolved_link_no_summary")
+		default:
+			t.post(TextResolvedNoSummary, "resolved_no_summary")
+		}
 		return OutcomeResolved
 	}
 	t.cause = f.cause

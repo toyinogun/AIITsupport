@@ -1,0 +1,13 @@
+{{define "content"}}
+<h1>Set a new password for {{.Account}}</h1>
+{{if .Message}}<p class="msg" role="alert">{{.Message}}</p>{{end}}
+<div class="rules">{{range .Rules}}<p>{{.}}</p>{{end}}</div>
+<form method="post" autocomplete="off">
+<input class="hidden" type="text" name="username" value="{{.Account}}" autocomplete="username" readonly aria-hidden="true" tabindex="-1">
+<label for="password">New password</label>
+<input id="password" type="password" name="password" autocomplete="new-password" required maxlength="256">
+<label for="confirm">Type it again</label>
+<input id="confirm" type="password" name="confirm" autocomplete="new-password" required maxlength="256">
+<button type="submit">Set password</button>
+</form>
+{{end}}

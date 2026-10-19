@@ -183,13 +183,15 @@ func (s *MemStore) All() []queries.AuditLog {
 
 // Directory is a fake directory that is also the writer.
 type Directory struct {
-	mu        sync.Mutex
-	Users     []ldap.User
-	Locked    map[string]time.Time // DN -> lock end; a zero end is locked until an admin clears it
-	Groups    map[string]ldap.Group
-	NestedIn  map[string][]string // group name -> parent DNs at any depth
-	Err       error               // returned by every read
-	CallCount int                 // reads made
+	mu       sync.Mutex
+	Users    []ldap.User
+	Locked   map[string]time.Time // DN -> lock end; a zero end is locked until an admin clears it
+	Groups   map[string]ldap.Group
+	NestedIn map[string][]string // group name -> parent DNs at any depth
+	// UserIn is user DN -> group DNs the user is in at any depth.
+	UserIn    map[string][]string
+	Err       error // returned by every read
+	CallCount int   // reads made
 	clears    []string
 	KeepLock  bool // ClearLockout succeeds but the lock stays (not confirmed)
 	WriterErr error
@@ -265,6 +267,24 @@ func (f *Directory) InChainMemberOf(_ context.Context, name string, parents []st
 	for _, p := range f.NestedIn[name] {
 		for _, want := range parents {
 			if strings.EqualFold(p, want) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// UserInChainMemberOf reports a membership listed in UserIn, or fails with Err.
+func (f *Directory) UserInChainMemberOf(_ context.Context, dn string, parents []string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return false, f.Err
+	}
+	for _, g := range f.UserIn[dn] {
+		for _, want := range parents {
+			if strings.EqualFold(g, want) {
 				return true, nil
 			}
 		}

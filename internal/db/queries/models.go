@@ -124,6 +124,22 @@ type LlmUsage struct {
 	CreatedAt        time.Time
 }
 
+type ResetLink struct {
+	ID               uuid.UUID
+	TokenHash        []byte
+	DirectoryAccount string
+	RequesterSlackID string
+	SlackChannelID   string
+	SlackThreadTs    string
+	ZammadTicketID   int64
+	IssueCallID      uuid.UUID
+	Status           string
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	UsedAt           pgtype.Timestamptz
+	VoidedAt         pgtype.Timestamptz
+}
+
 type SlackEvent struct {
 	EventID    string
 	ReceivedAt time.Time

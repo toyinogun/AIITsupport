@@ -20,6 +20,8 @@ GUID_LOCKOUT_TIME=28630ebf-41d5-11d1-a9c1-0000f80367c1
 GUID_MEMBER=bf9679c0-0de6-11d0-a285-00aa003049e2
 GUID_CLASS_USER=bf967aba-0de6-11d0-a285-00aa003049e2
 GUID_CLASS_GROUP=bf967a9c-0de6-11d0-a285-00aa003049e2
+# The Reset Password extended right (User-Force-Change-Password).
+GUID_RESET_PASSWORD=00299570-246d-11d0-a768-00aa006e0529
 
 fail() {
 	echo "entrypoint: $*" >&2
@@ -64,6 +66,12 @@ provision() {
 		--option="server services = -dns" \
 		--option="dns update command = /bin/true" \
 		--option="ldap server require strong auth = yes" >/dev/null
+	# Samba keeps accepting a replaced password for 60 minutes by default
+	# (old password allowed period), LDAP binds included, so a reset would not
+	# shut out a leaked password (spec 0011, journal 0038); 0 ends it at once.
+	# Provision silently drops this --option, so write it into [global].
+	sed -i 's/^\[global\]$/[global]\n\told password allowed period = 0/' /etc/samba/smb.conf
+	grep -q "old password allowed period = 0" /etc/samba/smb.conf || fail "could not set old password allowed period"
 }
 
 base_dn() {
@@ -99,6 +107,14 @@ skeleton() {
 	samba-tool user add svc-zammad "$SAMBA_ZAMMAD_PASSWORD" \
 		--userou="OU=Service Accounts,OU=Noord" -H "$SAM"
 	samba-tool user setexpiry svc-zammad --noexpiry -H "$SAM"
+
+	# The reset page's account (spec 0011). Optional, like the feature: no
+	# password means no account and no rights.
+	if [ -n "${SAMBA_PWRESET_PASSWORD:-}" ]; then
+		samba-tool user add svc-pwreset "$SAMBA_PWRESET_PASSWORD" \
+			--userou="OU=Service Accounts,OU=Noord" -H "$SAM"
+		samba-tool user setexpiry svc-pwreset --noexpiry -H "$SAM"
+	fi
 }
 
 # svc-itsupport may clear lockoutTime on users under OU=Users and write member
@@ -116,6 +132,20 @@ delegate() {
 	samba-tool dsacl set -H "$SAM" \
 		--objectdn="OU=Groups,OU=Noord,$base" \
 		--sddl="(OA;CIIO;WP;$GUID_MEMBER;$GUID_CLASS_GROUP;$sid)" >/dev/null
+
+	# svc-pwreset may reset passwords and clear lockoutTime on users under
+	# OU=Users, nothing else (spec 0011, AC-15).
+	if [ -n "${SAMBA_PWRESET_PASSWORD:-}" ]; then
+		reset_sid="$(ldbsearch -H "$SAM" -b "$base" "(sAMAccountName=svc-pwreset)" objectSid |
+			sed -n 's/^objectSid: //p')"
+		[ -n "$reset_sid" ] || fail "svc-pwreset has no objectSid"
+		samba-tool dsacl set -H "$SAM" \
+			--objectdn="OU=Users,OU=Noord,$base" \
+			--sddl="(OA;CIIO;CR;$GUID_RESET_PASSWORD;$GUID_CLASS_USER;$reset_sid)" >/dev/null
+		samba-tool dsacl set -H "$SAM" \
+			--objectdn="OU=Users,OU=Noord,$base" \
+			--sddl="(OA;CIIO;WP;$GUID_LOCKOUT_TIME;$GUID_CLASS_USER;$reset_sid)" >/dev/null
+	fi
 }
 
 # Provisioned as host "samba", Samba starts but never listens under any other

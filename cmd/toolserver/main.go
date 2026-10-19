@@ -1,7 +1,8 @@
 // Command toolserver is the MCP tool server, the only process allowed to
 // touch the client's systems (Samba AD, Entra, Zammad). It serves the tool
-// layer (spec 0007) at /mcp and health at /healthz. Startup checks
-// configuration only, never whether AD or Zammad are reachable.
+// layer (spec 0007) at /mcp and health at /healthz, and, when the RESET_*
+// settings are set, the password reset page on its own listener (spec 0011).
+// Startup checks configuration only, never whether AD or Zammad are reachable.
 package main
 
 import (
@@ -14,7 +15,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
 	"github.com/toyinogun/AIITsupport/internal/config"
@@ -22,6 +27,8 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/mcpserver"
+	"github.com/toyinogun/AIITsupport/internal/resetlink"
+	"github.com/toyinogun/AIITsupport/internal/resetpage"
 	"github.com/toyinogun/AIITsupport/internal/server"
 	"github.com/toyinogun/AIITsupport/internal/telemetry"
 	"github.com/toyinogun/AIITsupport/internal/tools"
@@ -69,22 +76,49 @@ func run() (err error) {
 	}
 	defer pool.Close()
 
-	mcp, err := toolLayer(cfg, toolCfg, rootCAs, audit.NewPgStore(pool), logger)
+	layer, err := toolLayer(cfg, toolCfg, rootCAs, audit.NewPgStore(pool), resetlink.NewStore(pool), logger)
 	if err != nil {
 		return err
 	}
 	mux := server.NewMux()
-	mux.Handle(mcpserver.Path, mcp)
+	mux.Handle(mcpserver.Path, layer.mcp)
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.HTTPAddr)
 	if err != nil {
 		return fmt.Errorf("listen on TOOLSERVER_HTTP_ADDR %s: %w", cfg.HTTPAddr, err)
 	}
+	var resetLn net.Listener
+	if layer.reset != nil {
+		if resetLn, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ResetHTTPAddr); err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("listen on RESET_HTTP_ADDR %s: %w", cfg.ResetHTTPAddr, err)
+		}
+	}
 	if cfg.KillSwitchFile == "" {
 		logger.Warn("kill_switch_file_unset", "read_only", cfg.ReadOnly)
 	}
 	logger.Info("tool server starting")
-	return server.Run(ctx, ln, mux, logger)
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return server.Run(ctx, ln, mux, logger) })
+	if layer.reset != nil {
+		g.Go(func() error {
+			return server.Run(ctx, resetLn, layer.reset.Handler(server.NewMux()), logger, server.WithLimits(resetLimits(cfg)))
+		})
+		g.Go(func() error { resetlink.Cleanup(ctx, layer.links, cfg.TicketRetentionDays, logger); return nil })
+	}
+	return g.Wait()
+}
+
+// resetLimits are the reset listener's server settings (spec 0011, AC-16);
+// the MCP listener keeps the defaults.
+func resetLimits(cfg config.ToolServer) server.Limits {
+	return server.Limits{
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   cfg.ToolCallTimeout + 5*time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 8 << 10,
+	}
 }
 
 // toolConfig is the tool layer's part of the settings.
@@ -103,15 +137,24 @@ func toolConfig(cfg config.ToolServer) tools.Config {
 	}
 }
 
-// toolLayer builds the dispatcher and its /mcp handler. It dials nothing.
-func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPool, store audit.Store, logger *slog.Logger) (http.Handler, error) {
+// layer is what toolLayer builds: the /mcp handler and, when the RESET_*
+// settings are set, the reset page and its store.
+type layer struct {
+	mcp   http.Handler
+	reset *resetpage.Page
+	links *resetlink.Store
+}
+
+// toolLayer builds the dispatcher, its /mcp handler, and the reset page. It
+// dials nothing.
+func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPool, store audit.Store, links *resetlink.Store, logger *slog.Logger) (layer, error) {
 	recorder, err := audit.NewRecorder(store, audit.Config{
 		OutcomeRetries:  cfg.AuditOutcomeRetries,
 		WriteTimeout:    cfg.AuditWriteTimeout,
 		MaxPayloadBytes: cfg.AuditMaxPayloadBytes,
 	}, logger)
 	if err != nil {
-		return nil, err
+		return layer{}, err
 	}
 	dir := ldap.Config{
 		Dialer:   ldap.Dialer{URL: cfg.LDAPURL, RootCAs: rootCAs, Timeout: cfg.LDAPTimeout},
@@ -121,23 +164,58 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 	}
 	desk, err := zammad.New(zammad.Options{BaseURL: cfg.ZammadURL, Auth: zammad.TokenAuth(cfg.ZammadToken), Timeout: cfg.ZammadTimeout})
 	if err != nil {
-		return nil, err
+		return layer{}, err
 	}
-	reg, err := tools.NewRegistry()
-	if err != nil {
-		return nil, err
-	}
-	d, err := tools.NewDispatcher(reg, toolCfg, tools.Systems{
-		Directory:  ldap.NewClient(dir),
+	reader := ldap.NewClient(dir)
+	helpdesk := tools.NewHelpdesk(desk, cfg.ZammadDefaultGroup, cfg.ZammadPublicURL)
+	killSwitch := tools.NewKillSwitch(cfg.KillSwitchFile, cfg.ReadOnly)
+	sys := tools.Systems{
+		Directory:  reader,
 		Writer:     ldap.NewWriter(dir),
-		Helpdesk:   tools.NewHelpdesk(desk, cfg.ZammadDefaultGroup, cfg.ZammadPublicURL),
+		Helpdesk:   helpdesk,
 		Recorder:   recorder,
-		KillSwitch: tools.NewKillSwitch(cfg.KillSwitchFile, cfg.ReadOnly),
-	}, logger)
-	if err != nil {
-		return nil, err
+		KillSwitch: killSwitch,
 	}
-	return mcpserver.Handler(d, mcpserver.Options{
+	var opts []tools.RegistryOption
+	if cfg.ResetEnabled() {
+		opts = append(opts, tools.WithPasswordReset())
+		sys.Reset = &tools.ResetSystem{Links: links, DeniedGroups: cfg.ResetDeniedGroups, Settings: tools.ResetSettings{
+			PublicURL: cfg.ResetPublicURL, TTL: cfg.ResetLinkTTL, LinkLimit: cfg.ResetLinkLimit, Window: cfg.ResetLinkWindow,
+		}}
+	}
+	reg, err := tools.NewRegistry(opts...)
+	if err != nil {
+		return layer{}, err
+	}
+	d, err := tools.NewDispatcher(reg, toolCfg, sys, logger)
+	if err != nil {
+		return layer{}, err
+	}
+	mcp, err := mcpserver.Handler(d, mcpserver.Options{
 		Token: cfg.ToolServerToken, MaxRequestBytes: int64(cfg.MaxRequestBytes), Logger: logger,
 	})
+	if err != nil || !cfg.ResetEnabled() {
+		return layer{mcp: mcp}, err
+	}
+	resetDir := dir
+	resetDir.BindDN, resetDir.Password = cfg.ResetLDAPBindDN, cfg.ResetLDAPBindPassword
+	page, err := resetpage.New(resetpage.Config{
+		Links:       links,
+		Directory:   reader,
+		Writer:      ldap.NewPasswordWriter(resetDir),
+		Tickets:     helpdesk,
+		Accounts:    tools.NewAccountFence(reader, cfg.ResetDeniedGroups, logger),
+		Recorder:    recorder,
+		KillSwitch:  killSwitch,
+		BaseDN:      cfg.LDAPBaseDN,
+		UserOUs:     cfg.ToolUserOUs,
+		CallTimeout: cfg.ToolCallTimeout,
+		MaxInflight: cfg.ResetMaxInflight,
+		SecureHSTS:  strings.HasPrefix(cfg.ResetPublicURL, "https://"),
+		Logger:      logger,
+	})
+	if err != nil {
+		return layer{}, err
+	}
+	return layer{mcp: mcp, reset: page, links: links}, nil
 }

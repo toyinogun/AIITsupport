@@ -28,6 +28,9 @@ type turn struct {
 	resolved  bool                 // ticket_update closed it in this turn (AC-6)
 	escalated bool                 // an ok escalate ended it in this turn (spec 0009, AC-8)
 
+	resetPosted     bool // the reset_link post went out (spec 0011, AC-5)
+	resetPostFailed bool // an ok password_reset_link whose link was not posted
+
 	modelCalls int
 	toolCalls  int
 	reason     Reason // set when the turn escalates
@@ -107,6 +110,9 @@ func (t *turn) run() string {
 	}
 	var footer, outcome string
 	switch {
+	case t.resolved && t.resetPostFailed:
+		t.post(TextResetLinkFailed, "reset_link_failed")
+		return OutcomeResolved
 	case t.resolved:
 		footer, outcome = FooterResolved, OutcomeResolved
 	case t.escalated:

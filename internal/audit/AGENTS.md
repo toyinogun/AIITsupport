@@ -8,7 +8,7 @@ The only way the tool server writes `audit_log` and `approvals` (spec 0003). `Re
 
 | File | Owns |
 |---|---|
-| `audit.go` | `Call`, `Result`, `Tier`, `Outcome`, `Config`, `Recorder`, `Run`, `Refuse`, the outcome retry, panic and cancel handling |
+| `audit.go` | `Call`, `Result`, `Tier`, `Outcome`, `Config`, `Recorder`, `Run`, `Refuse`, `CallIDFrom` (the intent's call id inside a `Run` action), the outcome retry, panic and cancel handling |
 | `approvals.go` | `Defer`, `Decide`, `Expire`, and the audit pair each approval move writes |
 | `payload.go` | the allow list filter (`encodeKept`, `"_omitted"` count, size cap) and `WithReason` |
 | `history.go` | the tool server's history reads, all failing with `ErrAuditUnavailable`: `CountRecent` and `ThreadHas` take the outcome to match (`ok` for the rate limits and one ticket per thread, spec 0007; `denied_policy` for the blocked attempt count and the close guard, spec 0009), `CountRecentOK` and `ThreadHasOK` wrap them for `ok`, and `ThreadTicketID` finds the thread's ticket (spec 0009) |
