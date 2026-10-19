@@ -85,3 +85,11 @@ An independent read of the first draft found load bearing gaps; you chose to app
 - **The ticket id and `resolved` are stored in the same transaction as the tool result** that produced them, so a crash can't leave a ticket the conversation doesn't know about (which would turn the escalation's `ticket_create` into a `has_ticket` refusal with no id to note on).
 - **Detached contexts with named budgets** for started tool calls, their stores, posts, and the escalation ticket, plus `AGENT_SHUTDOWN_GRACE`, so a shutdown or a passed deadline never cuts a write's record or a reply mid flight. The cost is a worst case turn of about 95 seconds.
 - **Per thread first in, first out workers** rather than a mutex per thread, because Go mutexes don't promise arrival order; a queue cap of 10 with a `busy` reply bounds memory, and a `shutdown` reply covers messages still waiting at exit.
+
+### From the review (another model, 2026-10-19)
+
+The fresh model review of the build (`docs/reviews/2026-10-19-docs-spec-0008.md`) found one major gap, and the fix amends AC-17 and AC-14 in place:
+
+- **Failure causes were dropped.** Every model, tool server, `users.info`, and post failure logged only a reason, so a bad API key, a missing Slack scope, and an outage looked the same. AC-17 now adds a fixed `cause` token read from the error's type, never its text, because an error's text can quote content (AC-17's whole point). The Slack adapter names its own `slack_<code>` token, so the agent never imports slack-go. Runner up: log the error text after redaction, rejected because no redactor can know every shape a third party error message takes.
+- **The sweep lost its ticket id.** The sweep claims a conversation (`escalated`) before it makes the ticket, so the id could no longer be written by the open only status update. `SetConversationTicket` now fills it in and never replaces a stored id. Claim first stays, since it stops a new message and the sweep acting on one thread together. Runner up: make the ticket before claiming, rejected because a turn could start in the thread meanwhile.
+
