@@ -164,9 +164,9 @@ spec [0007](../specs/0007-tool-server-risk-tiers/index.md) · code in `internal/
 The thinnest real thread: a user says they are locked out in Slack, the agent confirms the Slack user matches the directory user, unlocks, opens and closes a ticket with a summary, and the audit log shows it all. This is the walking skeleton.
 **Done when:** a real locked Noord user gets unlocked from Slack in under 60 seconds with a closed ticket and audit row; a Slack user who does not match the directory gets no write action.
 - [x] Design it (spec): `/architect locked out user flow`
-- [ ] Build it: `/develop locked out user flow`
+- [x] Build it: `/develop locked out user flow`
   - [x] Tracer thread: `internal/llm`, pricing, the Slack gate, code `user_lookup`, the model loop, the listener hand off (AC-3 to AC-5, AC-15, AC-16, AC-18)
-  - [ ] The ticket around the unlock, with the live run under 60 seconds (AC-6 to AC-9, AC-12)
+  - [x] The ticket around the unlock, with the live run under 60 seconds (AC-6 to AC-9, AC-12)
   - [x] The other doors: channel redirect, empty message, closed thread, hourly cap, the Slack email setting (AC-1 to AC-4, AC-19)
   - [x] Failure path, per thread workers, shutdown drain, and the restart sweep (AC-5, AC-10, AC-11, AC-13, AC-14, AC-16)
   - [x] Hygiene, trace propagation, boundary tests, docs (AC-17, AC-18)
