@@ -190,7 +190,7 @@ The video hook. "I need Domain Admin to fix a printer" is refused, explained, of
 - [x] Verify it: `/check verify refusal & escalation`
 - [x] Test it: `/test refusal & escalation`
 - [x] Review it (fresh model): `/check review refusal & escalation`
-- [ ] Document it: `/document refusal & escalation`
+- [x] Document it: `/document refusal & escalation`
 spec [0009](../specs/0009-refusal-escalation/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/zammad`, `internal/agent`, `internal/audit`, `internal/config`, `internal/slack`, `db/queries/audit.sql`
 
 ### 12. PII redaction & retention · needs a decision · GA
