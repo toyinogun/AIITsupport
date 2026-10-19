@@ -12,6 +12,7 @@ RUN test -n "$CMD" || (echo "set --build-arg CMD=agent or CMD=toolserver" >&2 &&
 COPY go.mod go.sum ./
 COPY cmd ./cmd
 COPY internal ./internal
+COPY eval ./eval
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
