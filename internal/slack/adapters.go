@@ -10,6 +10,7 @@ import (
 	"github.com/slack-go/slack/socketmode"
 
 	"github.com/toyinogun/AIITsupport/internal/agent"
+	"github.com/toyinogun/AIITsupport/internal/cause"
 )
 
 // socket adapts slack-go's Socket Mode client.
@@ -29,7 +30,7 @@ type poster struct {
 func (p poster) Check(ctx context.Context) (string, error) {
 	res, err := p.api.AuthTestContext(ctx)
 	if err != nil {
-		return "", err
+		return "", wrapErr(err)
 	}
 	if res.TeamID == "" {
 		return "", errNoTeam
@@ -78,14 +79,14 @@ func toSlackUser(u *slackapi.User) agent.SlackUser {
 }
 
 // slackError hands the agent a Slack Web API error's fixed cause token
-// (agent.Causer), so its logs say why a call failed without the error text.
+// (cause.Causer), so its logs say why a call failed without the error text.
 // Error and Unwrap keep the original error.
 type slackError struct {
 	err   error
 	cause string
 }
 
-var _ agent.Causer = slackError{}
+var _ cause.Causer = slackError{}
 
 func (e slackError) Error() string { return e.err.Error() }
 func (e slackError) Unwrap() error { return e.err }

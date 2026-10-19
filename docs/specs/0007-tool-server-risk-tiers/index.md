@@ -305,5 +305,5 @@ Tracer Bullet inside the feature: first prove one real call goes agent client â†
 - [ ] #15: group tools call `Fence.CheckGroup`; the grantable list (no distribution lists); a target other than the requester needs its own membership check.
 - [ ] #17: the Helm chart mounts the kill switch ConfigMap and sets `KILL_SWITCH_FILE`, starting at `read_only`; the NetworkPolicy for `/mcp`; the runbook's "switch to read only" page is one `kubectl` command.
 - [ ] #19: eval tickets for each refusal code, including a colleague unlock request (expected: escalate), an injected extra argument, and a closed ticket.
-- [ ] #12: confirm the hygiene test from AC-20 stays as the redaction rules land.
+- [x] #12: confirm the hygiene test from AC-20 stays as the redaction rules land. It stays (`TestToolCallLog`). [Spec 0010](../0010-pii-redaction-retention/index.md) adds the allow listed log handler, the source scan, the redacting span exporter, and a tool server canary over the unlock and refusal flows (`internal/mcpserver`).
 - [x] Scope #9 done when wording: "flipping the kill switch blocks every account change".

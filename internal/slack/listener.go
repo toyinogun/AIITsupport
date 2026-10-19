@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/toyinogun/AIITsupport/internal/agent"
+	"github.com/toyinogun/AIITsupport/internal/cause"
 )
 
 // ReplyTimeout bounds one chat.postMessage call; the agent posts with it.
@@ -141,7 +142,7 @@ func (l *Listener) CheckBotToken(ctx context.Context) (string, error) {
 			return "", ErrBotTokenRejected
 		}
 		wait := backoff(attempt)
-		l.Logger.Warn("slack_connect_failed", "api", "auth.test", "attempt", attempt, "backoff_ms", wait.Milliseconds(), "error", err.Error())
+		l.Logger.Warn("slack_connect_failed", "api", "auth.test", "attempt", attempt, "backoff_ms", wait.Milliseconds(), "cause", cause.Of(err))
 		if err := l.sleepFor(ctx, wait); err != nil {
 			return "", nil //nolint:nilerr // shutting down during the retry is not a failure
 		}
@@ -184,7 +185,7 @@ func (l *Listener) handle(ctx context.Context, evt socketmode.Event) {
 		}
 	case socketmode.EventTypeConnectionError:
 		if e, ok := evt.Data.(*slackapi.ConnectionErrorEvent); ok {
-			l.Logger.Warn("slack_connect_failed", "api", "apps.connections.open", "attempt", e.Attempt, "backoff_ms", e.Backoff.Milliseconds(), "error", e.Error())
+			l.Logger.Warn("slack_connect_failed", "api", "apps.connections.open", "attempt", e.Attempt, "backoff_ms", e.Backoff.Milliseconds(), "cause", cause.Of(wrapErr(e.ErrorObj)))
 		}
 	case socketmode.EventTypeConnected:
 		l.Logger.Info("slack_connected")
@@ -193,7 +194,7 @@ func (l *Listener) handle(ctx context.Context, evt socketmode.Event) {
 	case socketmode.EventTypeEventsAPI:
 		if evt.Request != nil {
 			if err := l.Socket.Ack(*evt.Request); err != nil {
-				l.Logger.Warn("slack_ack_failed", "error", err.Error())
+				l.Logger.Warn("slack_ack_failed", "cause", cause.Of(err))
 			}
 		}
 		if api, ok := evt.Data.(slackevents.EventsAPIEvent); ok {
@@ -213,7 +214,7 @@ func (l *Listener) onEvent(ctx context.Context, api slackevents.EventsAPIEvent) 
 	cancel()
 	if err != nil {
 		// At most once (spec 0003): no record, no reply.
-		l.Logger.Error("slack_event_dedup_failed", "event_id", msg.EventID, "error", err.Error())
+		l.Logger.Error("slack_event_dedup_failed", "event_id", msg.EventID, "cause", cause.Of(err))
 		return
 	}
 	if n == 0 {
@@ -284,7 +285,7 @@ func (l *Listener) purge(ctx context.Context) {
 	n, err := l.Dedup.PurgeSeenEventsBefore(ctx, cutoff)
 	if err != nil {
 		if ctx.Err() == nil {
-			l.Logger.Warn("slack_event_purge_failed", "error", err.Error())
+			l.Logger.Warn("slack_event_purge_failed", "cause", cause.Of(err))
 		}
 		return
 	}

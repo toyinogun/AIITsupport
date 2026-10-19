@@ -32,3 +32,4 @@ That `go mod tidy` on `go.mod` was enough.
 
 ## Seen again
 - 2026-10-19, #10 Locked out user: adding `anthropic-sdk-go` v1.82.0 to `go.mod` left `tools.mod` wanting the SDK at a different version (`go mod tidy -diff -modfile=tools.mod` proposed v1.66.0). Fixed with `go get -modfile=tools.mod github.com/anthropics/anthropic-sdk-go@v1.82.0`, then `go mod tidy -modfile=tools.mod`. Pin the same version in both files, not just tidy. See also [0029](0029-sdk-tests-pull-an-ambiguous-import.md).
+- 2026-10-19, #12 PII redaction & retention: the source scan test imports `golang.org/x/tools` directly, which `go.mod` got from `go get` and `go mod tidy`. `tools.mod` still listed it as `// indirect`, so `go mod tidy -diff -modfile=tools.mod` failed `make check`. Fixed with `go mod tidy -modfile=tools.mod`.

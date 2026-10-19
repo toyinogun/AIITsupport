@@ -20,6 +20,7 @@ import (
 const (
 	StepBootstrap = "bootstrap"
 	StepBackdate  = "backdate"
+	StepRetention = "retention"
 )
 
 const (

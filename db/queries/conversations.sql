@@ -59,6 +59,14 @@ WHERE m.conversation_id = c.id
   AND c.status <> 'open' AND c.closed_at < @cutoff::timestamptz
   AND m.content IS NOT NULL;
 
+-- name: CloseIdleConversationsBefore :execrows
+-- CloseIdleConversationsBefore ends open conversations with no activity
+-- since the cutoff (spec 0010, AC-8): they become resolved, closed at their
+-- last activity, so the content purge counts from then. updated_at stays.
+UPDATE conversations
+SET status = 'resolved', closed_at = updated_at
+WHERE status = 'open' AND updated_at < @cutoff::timestamptz;
+
 -- name: CountRecentConversations :one
 -- CountRecentConversations is what AGENT_CONVERSATIONS_PER_HOUR is checked
 -- against (spec 0008, AC-19).

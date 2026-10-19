@@ -32,10 +32,32 @@ type LookupFunc func(key string) (string, bool)
 
 // Common holds settings both binaries read.
 type Common struct {
-	LogLevel            string `env:"LOG_LEVEL" default:"info" oneof:"debug|info|warn|error"`
-	ToolServerToken     string `env:"TOOLSERVER_TOKEN" required:"true"`
-	OTelEndpoint        string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	TicketRetentionDays int    `env:"TICKET_RETENTION_DAYS"` // default owned by feature #12
+	LogLevel        string `env:"LOG_LEVEL" default:"info" oneof:"debug|info|warn|error"`
+	ToolServerToken string `env:"TOOLSERVER_TOKEN" required:"true"`
+	OTelEndpoint    string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	Retention
+}
+
+// Retention is the one retention window (spec 0010): the days after a
+// conversation or an assistant ticket ends before its text is purged. It is
+// in Common for both binaries and in SeedHelpdesk for the Zammad scheduler,
+// which seed helpdesk installs; checkRetention guards every loader.
+type Retention struct {
+	TicketRetentionDays int `env:"TICKET_RETENTION_DAYS" default:"30"`
+}
+
+// The range TICKET_RETENTION_DAYS must fall in.
+const (
+	minRetentionDays = 1
+	maxRetentionDays = 365
+)
+
+// checkRetention refuses a retention window outside 1 to 365 days.
+func checkRetention(r Retention) error {
+	if r.TicketRetentionDays < minRetentionDays || r.TicketRetentionDays > maxRetentionDays {
+		return fmt.Errorf("TICKET_RETENTION_DAYS must be between %d and %d", minRetentionDays, maxRetentionDays)
+	}
+	return nil
 }
 
 // Agent holds the Slack facing agent's settings. It never receives client
@@ -216,6 +238,7 @@ type SeedFiles struct {
 type SeedHelpdesk struct {
 	Seed
 	Zammad
+	Retention
 
 	ZammadAdminEmail    string        `env:"SEED_ZAMMAD_ADMIN_EMAIL" default:"zammad-admin@noord.example"`
 	ZammadAdminPassword string        `env:"SEED_ZAMMAD_ADMIN_PASSWORD" required:"true"`
@@ -232,7 +255,7 @@ func (a Agent) SlackConfigured() bool {
 func LoadAgent(lookup LookupFunc) (Agent, error) {
 	var cfg Agent
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkSlack(cfg), checkToolServerToken(cfg.ToolServerToken), checkAgentLoop(cfg))
+	err = errors.Join(err, checkSlack(cfg), checkToolServerToken(cfg.ToolServerToken), checkAgentLoop(cfg), checkRetention(cfg.Retention))
 	if err != nil {
 		return Agent{}, fmt.Errorf("agent config: %w", err)
 	}
@@ -316,7 +339,7 @@ var slackChannelID = regexp.MustCompile(`^[CG][A-Z0-9]{2,20}$`)
 func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg))
+	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg), checkRetention(cfg.Retention))
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
@@ -462,7 +485,7 @@ func checkSeedEntra(cfg Seed) error {
 func LoadSeedHelpdesk(lookup LookupFunc) (SeedHelpdesk, error) {
 	var cfg SeedHelpdesk
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkSeedEntra(cfg.Seed), checkZammadToken(cfg.ZammadToken))
+	err = errors.Join(err, checkSeedEntra(cfg.Seed), checkZammadToken(cfg.ZammadToken), checkRetention(cfg.Retention))
 	errs := missing(map[string]string{
 		"SEED_ZAMMAD_BIND_PASSWORD": cfg.ZammadBindPassword,
 		"ZAMMAD_URL":                cfg.ZammadURL,

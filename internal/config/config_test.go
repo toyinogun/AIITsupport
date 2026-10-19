@@ -300,9 +300,12 @@ func TestUnsetSettingWithoutDefaultStaysZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadToolServer: %v", err)
 	}
-	if cfg.TicketRetentionDays != 0 || cfg.ApprovalTimeout != 0 || cfg.KillSwitchFile != "" {
-		t.Errorf("unset settings should stay zero, got TicketRetentionDays=%d ApprovalTimeout=%v KillSwitchFile=%q",
-			cfg.TicketRetentionDays, cfg.ApprovalTimeout, cfg.KillSwitchFile)
+	if cfg.ApprovalTimeout != 0 || cfg.KillSwitchFile != "" {
+		t.Errorf("unset settings should stay zero, got ApprovalTimeout=%v KillSwitchFile=%q",
+			cfg.ApprovalTimeout, cfg.KillSwitchFile)
+	}
+	if cfg.TicketRetentionDays != 30 {
+		t.Errorf("TicketRetentionDays = %d, want the default 30 (spec 0010)", cfg.TicketRetentionDays)
 	}
 }
 
@@ -952,5 +955,48 @@ func TestLDAPURLMustBeLDAPS(t *testing.T) {
 	}
 	if _, err := LoadToolServer(envFrom(minimalToolServerEnv())); err != nil {
 		t.Errorf("the default ldaps URL was refused: %v", err)
+	}
+}
+
+// covers: AC-7 (spec 0010). Unset gives 30; 0, 366, and abc stop the agent,
+// the tool server, and seed helpdesk with an error naming the setting.
+func TestTicketRetentionDays(t *testing.T) {
+	loaders := map[string]struct {
+		env  func() map[string]string
+		load func(LookupFunc) (int, error)
+	}{
+		"agent": {minimalAgentEnv, func(l LookupFunc) (int, error) {
+			cfg, err := LoadAgent(l)
+			return cfg.TicketRetentionDays, err
+		}},
+		"toolserver": {minimalToolServerEnv, func(l LookupFunc) (int, error) {
+			cfg, err := LoadToolServer(l)
+			return cfg.TicketRetentionDays, err
+		}},
+		"seed helpdesk": {minimalSeedHelpdeskEnv, func(l LookupFunc) (int, error) {
+			cfg, err := LoadSeedHelpdesk(l)
+			return cfg.TicketRetentionDays, err
+		}},
+	}
+	for name, c := range loaders {
+		t.Run(name, func(t *testing.T) {
+			if days, err := c.load(envFrom(c.env())); err != nil || days != 30 {
+				t.Errorf("unset: days = %d, err = %v; want 30", days, err)
+			}
+			for _, v := range []string{"1", "365"} {
+				env := c.env()
+				env["TICKET_RETENTION_DAYS"] = v
+				if _, err := c.load(envFrom(env)); err != nil {
+					t.Errorf("%s: %v", v, err)
+				}
+			}
+			for _, v := range []string{"0", "366", "abc", "-5"} {
+				env := c.env()
+				env["TICKET_RETENTION_DAYS"] = v
+				if _, err := c.load(envFrom(env)); err == nil || !strings.Contains(err.Error(), "TICKET_RETENTION_DAYS") {
+					t.Errorf("%s: err = %v, want one naming TICKET_RETENTION_DAYS", v, err)
+				}
+			}
+		})
 	}
 }

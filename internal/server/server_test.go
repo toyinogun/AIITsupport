@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -220,4 +221,63 @@ func waitForRun(t *testing.T, done <-chan error) error {
 		t.Fatal("Run did not return after the context was cancelled")
 		return nil
 	}
+}
+
+// covers: AC-3 (spec 0010). A panic in a handler, which the standard library
+// logs with its value and a stack, becomes one fixed http_server_error line.
+func TestServerErrorsLogAFixedLine(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	var logs syncWriter
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	mux := NewMux()
+	mux.HandleFunc("GET /boom", func(http.ResponseWriter, *http.Request) { panic("ZEBRA alice@noord.example") })
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, ln, mux, logger) }()
+
+	if resp, err := http.Get("http://" + ln.Addr().String() + "/boom"); err == nil {
+		_ = resp.Body.Close()
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	out := logs.String()
+	if !strings.Contains(out, `"level":"ERROR","msg":"http_server_error"}`) {
+		t.Errorf("logs lack a bare http_server_error line:\n%s", out)
+	}
+	if strings.Contains(out, "ZEBRA") || strings.Contains(out, "noord.example") || strings.Contains(out, "goroutine") {
+		t.Errorf("logs carry the standard library's text:\n%s", out)
+	}
+}
+
+// covers: AC-3 (spec 0010). The bridge drops the text of a TLS handshake
+// error line, the other thing http.Server writes to ErrorLog.
+func TestErrorLogBridgeDropsText(t *testing.T) {
+	var buf bytes.Buffer
+	l := slog.NewLogLogger(fixedMessage{slog.NewJSONHandler(&buf, nil)}, slog.LevelError)
+	l.Printf("http: TLS handshake error from %s: %s", "10.0.0.7:5555", "remote error: tls: bad certificate")
+	if got := buf.String(); strings.Contains(got, "10.0.0.7") || strings.Contains(got, "tls") || !strings.Contains(got, `"msg":"http_server_error"`) {
+		t.Errorf("line = %s", got)
+	}
+}
+
+type syncWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
 }

@@ -41,9 +41,15 @@ type env struct {
 // mounts it: /healthz open, /mcp behind the token.
 func start(t *testing.T) *env {
 	t.Helper()
+	return startWith(t, func(w io.Writer) *slog.Logger { return slog.New(slog.NewJSONHandler(w, nil)) })
+}
+
+// startWith is start with the logger newLogger builds over the env's logs.
+func startWith(t *testing.T, newLogger func(io.Writer) *slog.Logger) *env {
+	t.Helper()
 	e := &env{store: &toolstest.MemStore{}, dir: toolstest.NewDirectory(), zammad: zammadtest.New(t), logs: &bytes.Buffer{}, requests: &atomic.Int32{}}
 	e.zammad.AddUser("eva.peters")
-	logger := slog.New(slog.NewJSONHandler(e.logs, nil))
+	logger := newLogger(e.logs)
 	rec, err := audit.NewRecorder(e.store, audit.Config{WriteTimeout: time.Second, MaxPayloadBytes: 4096}, logger)
 	if err != nil {
 		t.Fatal(err)

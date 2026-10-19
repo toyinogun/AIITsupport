@@ -136,4 +136,15 @@ type Store interface {
 	SumTokens(ctx context.Context, id int64) (int64, error)
 	CountRecentConversations(ctx context.Context, requesterSlackID string, since time.Time) (int64, error)
 	ListInterrupted(ctx context.Context, staleBefore time.Time) ([]Conversation, error)
+	RetentionStore
+}
+
+// RetentionStore is what the retention pass writes (spec 0010, AC-8).
+type RetentionStore interface {
+	// CloseIdleConversations makes open conversations with no activity
+	// since cutoff resolved, closed at their last activity.
+	CloseIdleConversations(ctx context.Context, cutoff time.Time) (int64, error)
+	// PurgeMessageContent clears the stored text of conversations that
+	// ended before cutoff. Open conversations are never touched.
+	PurgeMessageContent(ctx context.Context, cutoff time.Time) (int64, error)
 }

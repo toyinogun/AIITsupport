@@ -14,6 +14,7 @@ import (
 	"github.com/toyinogun/AIITsupport/eval"
 	"github.com/toyinogun/AIITsupport/internal/agent"
 	"github.com/toyinogun/AIITsupport/internal/agent/agenttest"
+	"github.com/toyinogun/AIITsupport/internal/logging"
 )
 
 const (
@@ -56,6 +57,7 @@ type harness struct {
 	model  *agenttest.Model
 	store  *agenttest.Store
 	logs   *syncBuffer
+	redact bool // log through logging.New, as cmd/agent does
 }
 
 func testConfig(t *testing.T) agent.Config {
@@ -79,6 +81,7 @@ type option func(*harness)
 
 func withConfig(f func(*agent.Config)) option { return func(h *harness) { f(&h.cfg) } }
 func withTools(t *agenttest.Tools) option     { return func(h *harness) { h.tools = t } }
+func withProductionLogger() option            { return func(h *harness) { h.redact = true } }
 
 // newHarness builds an agent with a locked Jan, the default tools, and the
 // scripted model.
@@ -96,9 +99,13 @@ func newHarness(t *testing.T, model *agenttest.Model, opts ...option) *harness {
 	for _, o := range opts {
 		o(h)
 	}
+	logger := slog.New(slog.NewJSONHandler(h.logs, nil))
+	if h.redact {
+		logger = logging.New(h.logs, "debug", "agent")
+	}
 	a, err := agent.New(h.cfg, agent.Deps{
 		Slack: h.users, Poster: h.poster, Tools: h.tools, Model: h.model, Store: h.store,
-		Logger: slog.New(slog.NewJSONHandler(h.logs, nil)),
+		Logger: logger,
 		Now:    func() time.Time { return now },
 	})
 	if err != nil {

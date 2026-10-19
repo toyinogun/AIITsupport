@@ -21,6 +21,7 @@ const testMarker = MarkerPrefix + "test"
 type fakeRunner struct {
 	bootstrap func() (Output, error)
 	backdate  func(stdin []byte) (Output, error)
+	retention func(env map[string]string) (Output, error)
 	calls     []string
 	envs      []map[string]string
 	stdin     []byte
@@ -38,6 +39,11 @@ func (r *fakeRunner) Run(_ context.Context, step string, env map[string]string, 
 			return r.backdate(stdin)
 		}
 		return Output{Stdout: []byte("I, Rails log line\nNOORD_RESULT {\"state\":\"seeded\"}\n")}, nil
+	case StepRetention:
+		if r.retention != nil {
+			return r.retention(env)
+		}
+		return Output{Stdout: []byte("I, Rails log line\nNOORD_RESULT {\"days\":" + env["NOORD_RETENTION_DAYS"] + ",\"matches\":2}\n")}, nil
 	}
 	return Output{}, errors.New("unknown step " + step)
 }
@@ -73,8 +79,9 @@ func fixture(t *testing.T) (Seeder, *fakeRunner, *zammadtest.Fake, map[string]sy
 	r := &fakeRunner{}
 	s := Seeder{
 		Runner: r, Admin: admin, Assistant: assistant, Content: c, Model: m, Marker: testMarker, Group: "IT Support",
-		Secrets: Secrets{AdminEmail: zammadtest.AdminLogin, AdminPassword: "admin-secret-value", BindPassword: "bind-secret-value", AssistantToken: zammadtest.Token},
-		Now:     func() time.Time { return time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC) },
+		Secrets:       Secrets{AdminEmail: zammadtest.AdminLogin, AdminPassword: "admin-secret-value", BindPassword: "bind-secret-value", AssistantToken: zammadtest.Token},
+		Now:           func() time.Time { return time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC) },
+		RetentionDays: 30,
 	}
 	return s, r, f, users
 }
@@ -103,8 +110,11 @@ func TestSeedFreshOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if strings.Join(r.calls, ",") != "bootstrap,backdate" {
-		t.Errorf("steps = %v", r.calls)
+	if strings.Join(r.calls, ",") != "bootstrap,backdate,retention" {
+		t.Errorf("steps = %v, want the retention scheduler after the marker", r.calls)
+	}
+	if r.envs[2]["NOORD_RETENTION_DAYS"] != "30" || res.RetentionDays != 30 || res.RetentionMatches != 2 {
+		t.Errorf("retention env %v, result %+v", r.envs[2], res)
 	}
 	if res.Tickets != 20 || res.Answers != 15 || res.Categories != 6 || res.Articles < 20 {
 		t.Errorf("result = %+v", res)
@@ -169,8 +179,19 @@ func TestSeedAlreadySeeded(t *testing.T) {
 	if err != nil || !res.AlreadySeeded {
 		t.Fatalf("Run = %+v, %v", res, err)
 	}
-	if writes(f) != 0 || len(r.calls) != 1 {
-		t.Errorf("writes=%d steps=%v, want none after bootstrap", writes(f), r.calls)
+	if writes(f) != 0 || strings.Join(r.calls, ",") != "bootstrap,retention" {
+		t.Errorf("writes=%d steps=%v, want only the retention scheduler after bootstrap", writes(f), r.calls)
+	}
+	if res.RetentionDays != 30 || res.RetentionMatches != 2 {
+		t.Errorf("result = %+v, want the scheduler's window and matches", res)
+	}
+
+	// covers: AC-9 (spec 0010). A rerun with another window updates the
+	// same scheduler through the same step.
+	s.RetentionDays = 45
+	r.calls, r.envs = nil, nil
+	if res, err := s.Run(t.Context()); err != nil || res.RetentionDays != 45 || r.envs[1]["NOORD_RETENTION_DAYS"] != "45" {
+		t.Errorf("rerun = %+v, %v, env %v", res, err, r.envs)
 	}
 
 	other, err := zammad.New(zammad.Options{BaseURL: f.URL(), Timeout: 5 * time.Second, Auth: zammad.TokenAuth("a-token-that-changed-since-the-seed-000")})
@@ -178,8 +199,31 @@ func TestSeedAlreadySeeded(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Assistant = other
+	r.calls = nil
 	if _, err := s.Run(t.Context()); err == nil || !strings.Contains(err.Error(), "make helpdesk-reset") {
 		t.Errorf("changed token: err = %v", err)
+	}
+	if strings.Join(r.calls, ",") != "bootstrap" {
+		t.Errorf("steps = %v, want no retention step after a failed token check", r.calls)
+	}
+}
+
+// covers: AC-9 (spec 0010). A failed retention step fails the run, and a
+// step that set another window than asked is refused.
+func TestSeedRetentionStepFailure(t *testing.T) {
+	s, r, _, _ := fixture(t)
+	r.bootstrap = result(map[string]any{"state": "already_seeded"})
+	r.retention = func(map[string]string) (Output, error) {
+		return Output{Stderr: []byte("NOORD_FAILED job: invalid")}, errors.New("exit status 1")
+	}
+	if _, err := s.Run(t.Context()); err == nil || !strings.Contains(err.Error(), "retention scheduler") {
+		t.Errorf("failed step: err = %v", err)
+	}
+	r.retention = func(map[string]string) (Output, error) {
+		return Output{Stdout: []byte("NOORD_RESULT {\"days\":7,\"matches\":0}\n")}, nil
+	}
+	if _, err := s.Run(t.Context()); err == nil || !strings.Contains(err.Error(), "want 30") {
+		t.Errorf("wrong window: err = %v", err)
 	}
 }
 
@@ -190,8 +234,8 @@ func TestSeedNeedsReset(t *testing.T) {
 	if _, err := s.Run(t.Context()); !errors.Is(err, ErrNeedsReset) {
 		t.Fatalf("err = %v, want ErrNeedsReset", err)
 	}
-	if writes(f) != 0 {
-		t.Errorf("%d writes", writes(f))
+	if writes(f) != 0 || strings.Join(r.calls, ",") != "bootstrap" {
+		t.Errorf("%d writes, steps %v; want none, and the scheduler untouched", writes(f), r.calls)
 	}
 }
 
@@ -290,6 +334,15 @@ func TestMarker(t *testing.T) {
 	mustWrite(filepath.Join(hd, ".DS_Store"), "junk")
 	if m2, _ := Marker(dir, hd, ca, users); m2 != m1 {
 		t.Error("a dotfile or the argument order changed the marker")
+	}
+	// covers: AC-9 (spec 0010). The retention rules never change the marker.
+	mustWrite(filepath.Join(hd, "rails", "retention.rb"), "rules")
+	if m2, _ := Marker(dir, hd, users, ca); m2 != m1 {
+		t.Error("rails/retention.rb changed the marker")
+	}
+	mustWrite(filepath.Join(hd, "rails", "backdate.rb"), "step")
+	if m2, _ := Marker(dir, hd, users, ca); m2 == m1 {
+		t.Error("another rails step did not change the marker")
 	}
 	mustWrite(ca, "new cert")
 	m3, _ := Marker(dir, hd, users, ca)

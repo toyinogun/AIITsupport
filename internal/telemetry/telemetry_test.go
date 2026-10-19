@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -12,14 +13,17 @@ import (
 // restoreGlobalProvider puts back whatever tracer provider was installed before the test.
 func restoreGlobalProvider(t *testing.T) {
 	t.Helper()
-	prev := otel.GetTracerProvider()
-	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+	prev, prevHandler := otel.GetTracerProvider(), otel.GetErrorHandler()
+	t.Cleanup(func() {
+		otel.SetTracerProvider(prev)
+		otel.SetErrorHandler(prevHandler)
+	})
 }
 
 func TestSetupWithoutEndpointIsNoOp(t *testing.T) {
 	restoreGlobalProvider(t)
 
-	shutdown, err := Setup(t.Context(), "agent", "")
+	shutdown, err := Setup(t.Context(), "agent", "", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
@@ -35,7 +39,7 @@ func TestSetupWithEndpointInstallsExportingProvider(t *testing.T) {
 	restoreGlobalProvider(t)
 
 	// Nothing listens here. The exporter connects lazily, so Setup still succeeds.
-	shutdown, err := Setup(t.Context(), "agent", "http://127.0.0.1:1/v1/traces")
+	shutdown, err := Setup(t.Context(), "agent", "http://127.0.0.1:1/v1/traces", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}

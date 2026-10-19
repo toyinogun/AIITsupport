@@ -34,7 +34,7 @@ func Run(ctx context.Context, ln net.Listener, h http.Handler, logger *slog.Logg
 	srv := &http.Server{
 		Handler:           h,
 		ReadHeaderTimeout: readHeaderTimeout,
-		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
+		ErrorLog:          slog.NewLogLogger(fixedMessage{logger.Handler()}, slog.LevelError),
 	}
 
 	serveErr := make(chan error, 1)
@@ -60,3 +60,23 @@ func Run(ctx context.Context, ln net.Listener, h http.Handler, logger *slog.Logg
 	logger.Info("http server stopped")
 	return nil
 }
+
+// errorMessage is the one line the standard library's server errors become
+// (spec 0010, AC-3). Their text can quote a TLS peer or a panic value, so it
+// never reaches the log.
+const errorMessage = "http_server_error"
+
+// fixedMessage is the bridge behind http.Server.ErrorLog: it replaces each
+// record's message with errorMessage and drops its attributes.
+type fixedMessage struct{ inner slog.Handler }
+
+func (h fixedMessage) Enabled(ctx context.Context, l slog.Level) bool {
+	return h.inner.Enabled(ctx, l)
+}
+
+func (h fixedMessage) Handle(ctx context.Context, r slog.Record) error {
+	return h.inner.Handle(ctx, slog.NewRecord(r.Time, r.Level, errorMessage, r.PC))
+}
+
+func (h fixedMessage) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h fixedMessage) WithGroup(string) slog.Handler      { return h }

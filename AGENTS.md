@@ -79,6 +79,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - `internal/zammad` never writes a Zammad user, organization, or user token: its transport refuses them (`ErrUserWrite`), because Zammad lets any agent token do it. See [internal/zammad/AGENTS.md](internal/zammad/AGENTS.md).
 - Entra has two app registrations: only `cmd/seed` holds the seed app (`SEED_GRAPH_*`, user writes); the tool server app (`GRAPH_*`) reads users and changes phone methods only. `internal/graph` refuses any user without the `noord-sync` marker (`ErrNotManaged`). See [internal/graph/AGENTS.md](internal/graph/AGENTS.md).
 - Log with `log/slog` only; the standard `log` package is denied (depguard `no-std-log`). slog messages are static strings with snake_case keys (sloglint).
+- Every log and span key must be on `internal/logging`'s allow list (the source scan fails CI otherwise); any other value prints `[redacted]`. Never log error text: log `cause` from `cause.Of`. See [internal/logging/AGENTS.md](internal/logging/AGENTS.md) (spec 0010).
 - Silence a real false positive with `//nolint:<linter> // <reason>` on the narrowest line. A wider exclusion goes in `.golangci.yml` with a comment saying why.
 - CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match.
 
@@ -120,5 +121,9 @@ Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, 
 - [internal/agent/AGENTS.md](internal/agent/AGENTS.md): the agent loop (spec 0008): the code checked requester, the bounded model loop, the failure path, workers, and the restart sweep
 - [internal/tools/AGENTS.md](internal/tools/AGENTS.md): the tool layer (registry, risk tiers, the dispatcher pipeline, kill switch, fence), plus `internal/mcpserver` and `internal/mcpclient`
 - [internal/ldap/AGENTS.md](internal/ldap/AGENTS.md): the one LDAPS layer (dialer, DN helpers, lock state, the tool server's directory reads and its one write)
+- [internal/logging/AGENTS.md](internal/logging/AGENTS.md): the redacting slog logger, the one allow list for log and span keys, the source scan, and the canary helper (spec 0010)
+- [internal/telemetry/AGENTS.md](internal/telemetry/AGENTS.md): OpenTelemetry setup, the redacting span exporter, and the throttled export error handler
+- [internal/cause/AGENTS.md](internal/cause/AGENTS.md): `cause.Of`, the fixed failure tokens logged in place of error text
+- [internal/server/AGENTS.md](internal/server/AGENTS.md): the health and MCP HTTP server both binaries run, its shutdown, and the fixed `http_server_error` line
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
