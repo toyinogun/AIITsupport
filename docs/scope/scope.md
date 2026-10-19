@@ -37,7 +37,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 10 | Locked out user, end to end | Slice 1 | done |
 | 11 | Privileged request refusal & escalation | Slice 2 | done |
 | 12 | PII redaction & retention | Slice 2 | done |
-| 13 | Password reset links | Slice 3 | planned |
+| 13 | Password reset links | Slice 3 | in-progress |
 | 14 | MFA re-registration with approval | Slice 4 | planned |
 | 15 | Access requests via group owner | Slice 5 | planned |
 | 16 | Knowledge base answers | Slice 6 | planned |
@@ -211,10 +211,18 @@ spec [0010](../specs/0010-pii-redaction-retention/index.md) · code in `internal
 
 ## Slice 3: Password reset links
 
-### 13. Password reset links · needs a decision
+### 13. Password reset links · in-progress
 Send a self service reset link after the identity check, the other half of the Monday morning lockout pile.
 **Done when:** a verified user gets a working reset link from Slack, the ticket closes with a summary, and an unverified user gets none.
-- [ ] Design it (spec): `/architect password reset links`
+- [x] Design it (spec): `/architect password reset links`
+- [ ] Build it: `/develop password reset links`
+  - [ ] Tracer thread: `svc-pwreset` probed live on Samba, `reset_links`, the tool, the reset page's happy path on its own listener, the agent's strip and unfurl free post, the prompt, one live reset from Slack (AC-1, AC-2, AC-4, AC-5, AC-7, AC-11, AC-15, AC-20)
+  - [ ] The other doors: the issue refusals, the page's field, paused, account, claim race, and revert paths (AC-3, AC-6, AC-8 to AC-10, AC-12, AC-13)
+  - [ ] Failure and operations: Zammad down, post failure texts, config, the hourly cleanup, listener timeouts and headers (AC-4, AC-5, AC-14, AC-16 to AC-18)
+  - [ ] Proof and docs: the canary, boundary and least privilege tests, the password reset runbook, amendment notes (AC-15, AC-19)
+- [ ] Verify it: `/check verify password reset links`
+- [ ] Test it: `/test password reset links`
+spec [0011](../specs/0011-password-reset-links/index.md)
 
 ## Slice 4: MFA re-registration with approval
 
@@ -303,6 +311,8 @@ Out of scope for this build pass, kept so the plan stays honest. Pick up only if
 - **Teams channel**: a second channel next to Slack · needs a decision
 - **Multi agent handoff**: another agent calls these tools with scoped permissions · needs a decision
 - **Mailbox and SharePoint permissions**: stretch from the PRD · needs a decision · GA
+- **Second factor on the reset page**: a code over a channel Slack does not control, before a real client relies on reset links · needs a decision · from spec 0011
+- **Entra password parity**: writeback or a hybrid sync so a Samba reset also changes the Entra password · needs a decision · from spec 0011
 
 Never in scope: hardware, printers, on site fixes, and admin tier changes such as Domain Admins or Global Admin.
 
