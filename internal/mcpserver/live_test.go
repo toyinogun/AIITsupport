@@ -131,10 +131,10 @@ func startLive(t *testing.T, ldapURL string) *live {
 		BaseDN: base, UserOUs: []string{"OU=Users,OU=Noord"}, GroupOUs: []string{"OU=Groups,OU=Noord"},
 		DeniedGroups: []string{"SG-IT-Admins", "APP-Helpdesk-Agents", "SYNC-Entra-Users"},
 		CallTimeout:  15 * time.Second, WriteLimit: 3, WriteWindow: time.Hour,
-		TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
+		TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour, PrivilegedWindow: 24 * time.Hour,
 	}, tools.Systems{
 		Directory: ldap.NewClient(dir), Writer: ldap.NewWriter(dir),
-		Helpdesk: tools.NewHelpdesk(zc, "IT Support"), Recorder: rec,
+		Helpdesk: tools.NewHelpdesk(zc, "IT Support", ""), Recorder: rec,
 		KillSwitch: tools.NewKillSwitch(l.ks, true),
 	}, logger)
 	if err != nil {

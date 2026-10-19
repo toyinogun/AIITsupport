@@ -11,17 +11,28 @@ import (
 
 // Tool names the agent code calls itself or reads results from (spec 0007).
 const (
-	toolUserLookup   = "user_lookup"
-	toolTicketCreate = "ticket_create"
-	toolTicketUpdate = "ticket_update"
+	toolUserLookup       = "user_lookup"
+	toolTicketCreate     = "ticket_create"
+	toolTicketUpdate     = "ticket_update"
+	toolPrivilegedAccess = "privileged_access_change"
+	toolEscalate         = "escalate"
+)
+
+// escalate's reasons (spec 0009, AC-2). The last two are code only.
+const (
+	escalatePrivileged = "privileged_request"
+	escalateOther      = "other_person"
+	escalateSecurity   = "security_concern"
+	escalateFailure    = "assistant_failure"
+	escalateRestart    = "restart"
 )
 
 // Tool result codes the agent code acts on (spec 0007, refusal table).
 const (
-	codeNotMatched   = "not_matched"
-	codeAmbiguous    = "ambiguous"
-	codeHasTicket    = "has_ticket"
-	codeTicketClosed = "ticket_closed"
+	codeNotMatched       = "not_matched"
+	codeAmbiguous        = "ambiguous"
+	codeBlocked          = "blocked"
+	codeAlreadyEscalated = "already_escalated"
 )
 
 // passesGate is the Slack gate (AC-3): a full, active, human member of this
@@ -61,8 +72,10 @@ func (t *turn) identify() (string, bool) {
 	if res.IsError {
 		switch res.Code {
 		case codeNotMatched:
+			t.a.postIT(t.ctx, t.in.EventID, kindITNotMatched, itNotMatched(t.in.UserID, codeNotMatched))
 			return t.refuse(ReasonNotMatched, TextNotMatched), true
 		case codeAmbiguous:
+			t.a.postIT(t.ctx, t.in.EventID, kindITNotMatched, itNotMatched(t.in.UserID, codeAmbiguous))
 			return t.refuse(ReasonAmbiguous, TextNotMatched), true
 		default:
 			return t.failurePath(fail(ReasonDirectoryUnavailable)), true

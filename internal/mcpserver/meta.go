@@ -47,6 +47,14 @@ func parseMeta(m map[string]any) (tools.Requester, error) {
 			return r, errBadMeta
 		}
 	}
+	// The initiator is optional; when present it must be exactly code
+	// (spec 0009, AC-2).
+	if raw, present := m[mcpclient.MetaInitiator]; present {
+		if s, _ := raw.(string); s != tools.InitiatorCode {
+			return r, errBadMeta
+		}
+		r.Initiator = tools.InitiatorCode
+	}
 	return r, nil
 }
 

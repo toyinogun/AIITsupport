@@ -78,7 +78,7 @@ func (t *turn) request() (anthropic.MessageNewParams, *failure) {
 		return anthropic.MessageNewParams{}, failErr(ReasonToolServerUnavailable, err)
 	}
 	choice := anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{DisableParallelToolUse: anthropic.Bool(true)}}
-	if t.resolved {
+	if t.resolved || t.escalated {
 		none := anthropic.NewToolChoiceNoneParam()
 		choice = anthropic.ToolChoiceUnionParam{OfNone: &none}
 	}
@@ -187,7 +187,7 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 	if err != nil {
 		return &failure{reason: ReasonStoreUnavailable, cause: cause(err), unknown: !answered}
 	}
-	change := statusChangeFor(first.name, res)
+	change := statusChangeFor(first.name, res, t.conv.TicketID)
 	ctx, cancel := t.a.detached(t.ctx, t.a.cfg.ToolTimeout)
 	defer cancel()
 	if err := t.a.deps.Store.AppendToolResult(ctx, t.conv.ID, content, change); err != nil {
@@ -198,9 +198,12 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 			t.conv.TicketID = change.TicketID
 			t.requester.TicketID = change.TicketID
 		}
-		if change.Status == StatusResolved {
+		switch change.Status {
+		case StatusResolved:
 			t.conv.Status = StatusResolved
 			t.resolved = true
+		case StatusEscalated:
+			t.modelEscalated(first.input, res)
 		}
 	}
 	if !answered {
@@ -211,12 +214,20 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 
 // statusChangeFor is the conversation update a tool result causes (AC-6):
 // an ok ticket_create stores its ticket id, an ok ticket_update that closed
-// the ticket resolves the conversation.
-func statusChangeFor(tool string, r mcpclient.Result) *StatusChange {
+// the ticket resolves the conversation, and an ok escalate ends it as
+// escalated, storing its ticket only when the conversation has none
+// (spec 0009, AC-8). current is the conversation's ticket id.
+func statusChangeFor(tool string, r mcpclient.Result, current int64) *StatusChange {
 	if r.IsError {
 		return nil
 	}
 	switch tool {
+	case toolEscalate:
+		ch := &StatusChange{Status: StatusEscalated}
+		if id, ok := ticketID(r.Data["ticket_id"]); ok && current == 0 {
+			ch.TicketID = id
+		}
+		return ch
 	case toolTicketCreate:
 		if id, ok := ticketID(r.Data["ticket_id"]); ok {
 			return &StatusChange{Status: StatusOpen, TicketID: id}
@@ -227,6 +238,26 @@ func statusChangeFor(tool string, r mcpclient.Result) *StatusChange {
 		}
 	}
 	return nil
+}
+
+// modelEscalated follows the model's ok escalate once its transaction
+// committed: the conversation is escalated, and IT hears at once, before the
+// next model call, so a later failure in the turn cannot swallow the post
+// (spec 0009, AC-8 and AC-9).
+func (t *turn) modelEscalated(input map[string]any, res mcpclient.Result) {
+	t.conv.Status, t.escalated = StatusEscalated, true
+	reason, _ := res.Data["reason"].(string)
+	t.reason = Reason(reason)
+	t.a.logEscalated(t.ctx, t.in.EventID, t.reason, true, cause(nil))
+	calls, _ := t.a.listCalls(t.ctx, t.conv.ID) // a failed read leaves Ran: empty; the post still goes
+	summary, _ := input["summary"].(string)
+	displayName, _ := t.lookup["display_name"].(string)
+	department, _ := t.lookup["department"].(string)
+	post := itPost{
+		slackID: t.requester.SlackID, account: t.accountName(),
+		ran: ranLine(calls, false), result: res.Data, summary: modelSummary(summary, displayName, department),
+	}
+	t.a.postIT(t.ctx, t.in.EventID, kindITEscalation, post.text())
 }
 
 // maxTicketID is the largest id JSON carries exactly (2^53 - 1).

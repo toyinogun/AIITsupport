@@ -56,4 +56,11 @@ func TestRequesterMeta(t *testing.T) {
 	if _, ok := m[MetaTicketID]; ok {
 		t.Error("a requester with no ticket sent a ticket id")
 	}
+	if _, ok := m[MetaInitiator]; ok {
+		t.Error("a model requester sent an initiator")
+	}
+	m, _ = Requester{SlackID: "U01", Email: "e@noord.example", ChannelID: "C01", ThreadTS: "1760000000.000100", Initiator: InitiatorCode}.meta()
+	if m[MetaInitiator] != "code" {
+		t.Errorf("code requester meta = %v", m)
+	}
 }

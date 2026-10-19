@@ -115,3 +115,21 @@ func (c *Client) TicketStates(ctx context.Context) ([]TicketState, error) {
 	err := c.Do(ctx, Request{Method: http.MethodGet, Path: "/api/v1/ticket_states", Out: &out})
 	return out, err
 }
+
+// tagObjectTicket is the tag API's object name for a ticket.
+const tagObjectTicket = "Ticket"
+
+type tagBody struct {
+	Object string `json:"object"`
+	OID    int    `json:"o_id"`
+	Item   string `json:"item"`
+}
+
+// AddTag adds one tag to a ticket. Zammad answers true whether or not the
+// ticket already had it.
+func (c *Client) AddTag(ctx context.Context, ticketID int, tag string) error {
+	return c.Do(ctx, Request{
+		Method: http.MethodPost, Path: "/api/v1/tags/add",
+		Body: tagBody{Object: tagObjectTicket, OID: ticketID, Item: tag},
+	})
+}

@@ -107,19 +107,31 @@ func TestRequesterBlock(t *testing.T) {
 }
 
 func TestStatusChangeFor(t *testing.T) {
-	if ch := statusChangeFor("ticket_create", mcpclient.Result{Data: map[string]any{"ticket_id": 7.0}}); ch == nil || ch.TicketID != 7 || ch.Status != StatusOpen {
+	if ch := statusChangeFor("ticket_create", mcpclient.Result{Data: map[string]any{"ticket_id": 7.0}}, 0); ch == nil || ch.TicketID != 7 || ch.Status != StatusOpen {
 		t.Errorf("create: %+v", ch)
 	}
-	if ch := statusChangeFor("ticket_update", mcpclient.Result{Data: map[string]any{"state": "closed"}}); ch == nil || ch.Status != StatusResolved {
+	if ch := statusChangeFor("ticket_update", mcpclient.Result{Data: map[string]any{"state": "closed"}}, 7); ch == nil || ch.Status != StatusResolved {
 		t.Errorf("close: %+v", ch)
 	}
 	for _, r := range []mcpclient.Result{
 		{Data: map[string]any{"state": "open"}},
 		{Data: map[string]any{"state": "closed"}, IsError: true},
 	} {
-		if ch := statusChangeFor("ticket_update", r); ch != nil {
+		if ch := statusChangeFor("ticket_update", r, 7); ch != nil {
 			t.Errorf("%+v changed status: %+v", r, ch)
 		}
+	}
+	// spec 0009 AC-8: an ok escalate ends the conversation, storing its
+	// ticket only when the conversation has none.
+	esc := mcpclient.Result{Data: map[string]any{"ticket_id": 9.0}}
+	if ch := statusChangeFor("escalate", esc, 0); ch == nil || ch.Status != StatusEscalated || ch.TicketID != 9 {
+		t.Errorf("escalate with no ticket: %+v", ch)
+	}
+	if ch := statusChangeFor("escalate", esc, 7); ch == nil || ch.Status != StatusEscalated || ch.TicketID != 0 {
+		t.Errorf("escalate keeps the stored ticket: %+v", ch)
+	}
+	if ch := statusChangeFor("escalate", mcpclient.Result{IsError: true, Code: "already_escalated"}, 0); ch != nil {
+		t.Errorf("a refused escalate changed status: %+v", ch)
 	}
 	for _, bad := range []any{nil, "7", 0.0, -1.0, 1.5, float64(1 << 54)} {
 		if _, ok := ticketID(bad); ok {

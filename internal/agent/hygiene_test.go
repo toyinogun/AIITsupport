@@ -123,3 +123,51 @@ func TestFailureCausesAreFixedTokens(t *testing.T) {
 		t.Errorf("logs hold the error or message text:\n%s", logs)
 	}
 }
+
+// covers: spec 0009 AC-16. Over a model escalation, a backstop, and a
+// failure path escalation, no log line or span attribute holds an escalate
+// title or summary, or the message text; the IT posts hold no message text,
+// email, display name, or department.
+func TestEscalationsHoldNoPersonalData(t *testing.T) {
+	rec := recorder()
+	before := len(rec.Ended())
+
+	model := newHarness(t, agenttest.NewModel(
+		agenttest.CallTool("t1", "privileged_access_change", map[string]any{"summary": "ZEBRA admin"}),
+		agenttest.CallTool("t2", "escalate", map[string]any{"reason": "privileged_request", "title": "ZEBRA title", "summary": "ZEBRA summary"}),
+		agenttest.Answer("ZEBRA answer"),
+	))
+	model.send(dm("Ev1", "ZEBRA make me admin"))
+	backstop := newHarness(t, agenttest.NewModel(
+		agenttest.CallTool("t1", "privileged_access_change", map[string]any{"summary": "ZEBRA admin"}),
+		agenttest.Answer("ZEBRA answer"),
+	))
+	backstop.send(dm("Ev2", "ZEBRA make me admin"))
+	failed := newHarness(t, agenttest.NewModel(agenttest.Fail(errors.New("ZEBRA down"))))
+	failed.send(dm("Ev3", "ZEBRA locked out"))
+
+	var seen, it strings.Builder
+	for _, h := range []*harness{model, backstop, failed} {
+		seen.WriteString(h.logs.String())
+		it.WriteString(strings.Join(h.itPosts(), "\n"))
+	}
+	for _, s := range rec.Ended()[before:] {
+		for _, a := range s.Attributes() {
+			seen.WriteString(string(a.Key) + "=" + a.Value.String() + " ")
+		}
+	}
+	if strings.Contains(seen.String(), "ZEBRA") {
+		t.Errorf("logs or spans hold a title, summary, or message:\n%s", seen.String())
+	}
+	posts := it.String()
+	for _, secret := range []string{"ZEBRA make me admin", "ZEBRA locked out", janEmail, "Jan de Vries", "Operations"} {
+		if strings.Contains(posts, secret) {
+			t.Errorf("IT posts hold %q:\n%s", secret, posts)
+		}
+	}
+	for _, want := range []string{`"reason":"privileged_request"`, `"reason":"backstop"`, `"reason":"model_unavailable"`} {
+		if !strings.Contains(seen.String(), want) {
+			t.Errorf("logs lack agent_escalated %s", want)
+		}
+	}
+}

@@ -30,6 +30,7 @@ type Config struct {
 	WriteWindow       time.Duration // TOOL_WRITE_WINDOW
 	TicketCreateLimit int           // TICKET_CREATE_LIMIT
 	TicketMaxPending  time.Duration // TICKET_MAX_PENDING
+	PrivilegedWindow  time.Duration // PRIVILEGED_ATTEMPT_WINDOW
 }
 
 // Check refuses an OU list that is empty or holds an entry that is empty,
@@ -49,8 +50,9 @@ func (c Config) Check() error {
 			}
 		}
 	}
-	if c.CallTimeout <= 0 || c.WriteWindow <= 0 || c.TicketMaxPending <= 0 || c.WriteLimit < 1 || c.TicketCreateLimit < 1 {
-		errs = append(errs, errors.New("tool layer timeouts and limits must be positive"))
+	if c.CallTimeout <= 0 || c.WriteWindow <= 0 || c.TicketMaxPending <= 0 || c.WriteLimit < 1 || c.TicketCreateLimit < 1 ||
+		c.PrivilegedWindow < time.Hour {
+		errs = append(errs, errors.New("tool layer timeouts and limits must be positive, and the privileged attempt window at least 1h"))
 	}
 	return errors.Join(errs...)
 }
@@ -158,7 +160,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, t *Tool, req Request) (Respon
 	}
 	// 4. Arguments, before identity or any other system. Nothing is stored
 	// from a call that fails here.
-	args, bad := t.parseArgs(req.Args, CheckEnv{Now: now, MaxPending: d.cfg.TicketMaxPending})
+	args, bad := t.parseArgs(req.Args, CheckEnv{Now: now, MaxPending: d.cfg.TicketMaxPending, Initiator: req.Requester.Initiator})
 	if bad != nil {
 		return d.refuseInvalid(ctx, call, bad.field)
 	}
@@ -272,7 +274,7 @@ func (d *Dispatcher) run(ctx context.Context, t *Tool, call audit.Call, in Input
 		Helpdesk:  d.sys.Helpdesk,
 		History:   d.sys.Recorder,
 		Fence:     d.fence,
-		Limits:    Limits{TicketMaxPending: d.cfg.TicketMaxPending},
+		Limits:    Limits{TicketMaxPending: d.cfg.TicketMaxPending, PrivilegedWindow: d.cfg.PrivilegedWindow},
 	}
 	var res Result
 	var handlerErr error

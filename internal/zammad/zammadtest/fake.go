@@ -226,6 +226,8 @@ func (f *Fake) route(w http.ResponseWriter, r *http.Request, who string, body ma
 		f.getTicket(w, idFrom(ticketPath, p, 1))
 	case r.Method == http.MethodPost && p == "/api/v1/ticket_articles":
 		f.createArticle(w, body)
+	case r.Method == http.MethodPost && p == "/api/v1/tags/add":
+		f.addTag(w, body)
 	case r.Method == http.MethodPost && categoryPath.MatchString(p):
 		f.kbWrite(w, who, func() map[string]any { return f.store(f.cats, body) })
 	case r.Method == http.MethodPost && answersPath.MatchString(p):
@@ -321,6 +323,45 @@ func (f *Fake) createArticle(w http.ResponseWriter, body map[string]any) {
 	art := f.store(f.articles, body)
 	t["article_ids"] = append(t["article_ids"].([]any), art["id"])
 	writeJSON(w, http.StatusCreated, art)
+}
+
+// addTag adds a tag to a ticket's comma separated tags, as Zammad's tag
+// API does; adding one it already has is not an error.
+func (f *Fake) addTag(w http.ResponseWriter, body map[string]any) {
+	t, ok := f.tickets[toInt(body["o_id"])]
+	item, _ := body["item"].(string)
+	if body["object"] != "Ticket" || !ok || item == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "no such ticket or tag"})
+		return
+	}
+	tags := splitTags(t["tags"])
+	if !slices.Contains(tags, item) {
+		tags = append(tags, item)
+	}
+	t["tags"] = strings.Join(tags, ",")
+	writeJSON(w, http.StatusCreated, true)
+}
+
+// Tags returns a ticket's tags in the order they were added.
+func (f *Fake) Tags(ticketID int) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tickets[ticketID]
+	if !ok {
+		return nil
+	}
+	return splitTags(t["tags"])
+}
+
+func splitTags(v any) []string {
+	s, _ := v.(string)
+	var out []string
+	for tag := range strings.SplitSeq(s, ",") {
+		if tag = strings.TrimSpace(tag); tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
 }
 
 // kbWrite refuses the assistant (knowledge_base.reader only), as Zammad does.

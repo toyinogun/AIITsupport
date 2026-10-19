@@ -99,6 +99,7 @@ func toolConfig(cfg config.ToolServer) tools.Config {
 		WriteWindow:       cfg.ToolWriteWindow,
 		TicketCreateLimit: cfg.TicketCreateLimit,
 		TicketMaxPending:  cfg.TicketMaxPending,
+		PrivilegedWindow:  cfg.PrivilegedWindow,
 	}
 }
 
@@ -129,7 +130,7 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 	d, err := tools.NewDispatcher(reg, toolCfg, tools.Systems{
 		Directory:  ldap.NewClient(dir),
 		Writer:     ldap.NewWriter(dir),
-		Helpdesk:   tools.NewHelpdesk(desk, cfg.ZammadDefaultGroup),
+		Helpdesk:   tools.NewHelpdesk(desk, cfg.ZammadDefaultGroup, cfg.ZammadPublicURL),
 		Recorder:   recorder,
 		KillSwitch: tools.NewKillSwitch(cfg.KillSwitchFile, cfg.ReadOnly),
 	}, logger)

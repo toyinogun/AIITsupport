@@ -24,7 +24,13 @@ const (
 	MetaChannelID = "noord.example/channel_id"
 	MetaThreadTS  = "noord.example/thread_ts"
 	MetaTicketID  = "noord.example/ticket_id"
+	// MetaInitiator is set, to InitiatorCode, only on calls agent code makes
+	// outside the model loop (spec 0009, AC-2 and AC-17).
+	MetaInitiator = "noord.example/initiator"
 )
+
+// InitiatorCode is the one value MetaInitiator may carry.
+const InitiatorCode = "code"
 
 // clientName is how the agent introduces itself in MCP initialize.
 const clientName = "noord-agent"
@@ -40,6 +46,9 @@ type Requester struct {
 	ChannelID string
 	ThreadTS  string
 	TicketID  int64 // the thread's ticket, 0 before ticket_create
+	// Initiator is "" for the model's calls, or InitiatorCode for a call
+	// agent code makes by itself (the backstop, the failure path, the sweep).
+	Initiator string
 }
 
 func (r Requester) meta() (mcp.Meta, error) {
@@ -49,6 +58,9 @@ func (r Requester) meta() (mcp.Meta, error) {
 	m := mcp.Meta{MetaSlackID: r.SlackID, MetaEmail: r.Email, MetaChannelID: r.ChannelID, MetaThreadTS: r.ThreadTS}
 	if r.TicketID != 0 {
 		m[MetaTicketID] = r.TicketID
+	}
+	if r.Initiator != "" {
+		m[MetaInitiator] = r.Initiator
 	}
 	return m, nil
 }

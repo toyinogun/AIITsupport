@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/toyinogun/AIITsupport/internal/zammad"
@@ -19,17 +20,19 @@ const (
 // Helpdesk is the Zammad client plus what the tools add: the default group
 // and the ticket states, loaded once per process.
 type Helpdesk struct {
-	api   HelpdeskAPI
-	group string // ZAMMAD_DEFAULT_GROUP
+	api       HelpdeskAPI
+	group     string // ZAMMAD_DEFAULT_GROUP
+	publicURL string // ZAMMAD_PUBLIC_URL, no trailing slash; empty for no ticket links
 
 	mu     sync.Mutex
 	byName map[string]int
 	byID   map[int]string
 }
 
-// NewHelpdesk wraps api; tickets go to group.
-func NewHelpdesk(api HelpdeskAPI, group string) *Helpdesk {
-	return &Helpdesk{api: api, group: group}
+// NewHelpdesk wraps api; tickets go to group, and ticket links start with
+// publicURL (empty for none).
+func NewHelpdesk(api HelpdeskAPI, group, publicURL string) *Helpdesk {
+	return &Helpdesk{api: api, group: group, publicURL: strings.TrimSuffix(publicURL, "/")}
 }
 
 // states returns the state maps, loading them on first success. A failed

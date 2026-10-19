@@ -134,6 +134,7 @@ func runSlack(ctx context.Context, cfg config.Agent, m agentModel, pool *pgxpool
 		ToolTimeout:          cfg.ToolTimeout,
 		PostTimeout:          slack.ReplyTimeout,
 		ShutdownGrace:        cfg.ShutdownGrace,
+		ITChannel:            cfg.SlackITChannel,
 	}, agent.Deps{
 		Slack: listener.Users, Poster: listener.Poster, Tools: m.client,
 		Model: m.model, Store: agent.NewStore(pool), Logger: logger,

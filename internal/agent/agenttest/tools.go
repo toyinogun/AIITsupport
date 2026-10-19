@@ -3,6 +3,7 @@ package agenttest
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -48,6 +49,7 @@ func NewTools(username string, locked bool) *Tools {
 			return OK("Ticket updated.", map[string]any{"ticket_id": float64(c.Requester.TicketID), "state": state}), nil
 		},
 		"privileged_access_change": Respond(Refused("blocked", "Privileged changes are never made by the assistant. Escalate to IT.")),
+		"escalate":                 Escalated(43, "10043", false),
 	}}
 }
 
@@ -66,9 +68,32 @@ func OK(text string, data map[string]any) mcpclient.Result {
 	return mcpclient.Result{Text: text, Data: data}
 }
 
-// Refused is a refusal or failure with its code.
-func Refused(code, text string) mcpclient.Result {
-	return mcpclient.Result{Text: text, Data: map[string]any{"code": code}, IsError: true, Code: code}
+// Refused is a refusal or failure with its code. Its text starts with
+// "<code>: ", as the tool server's does.
+func Refused(code, sentence string) mcpclient.Result {
+	return mcpclient.Result{Text: code + ": " + sentence, Data: map[string]any{"code": code}, IsError: true, Code: code}
+}
+
+// Escalated answers escalate ok with the given ticket, echoing the call's
+// reason and initiator; privileged is the thread's blocked attempt flag.
+// Two attempts in 24h are reported when privileged.
+func Escalated(ticketID int, number string, privileged bool) Handler {
+	return func(_ context.Context, c ToolCall) (mcpclient.Result, error) {
+		initiator := "model"
+		if c.Requester.Initiator == mcpclient.InitiatorCode {
+			initiator = "code"
+		}
+		attempts := 1.0
+		if privileged {
+			attempts = 2
+		}
+		return OK("Escalated to IT.", map[string]any{
+			"ticket_id": float64(ticketID), "ticket_number": number,
+			"ticket_url": "http://127.0.0.1:58080/#ticket/zoom/" + strconv.Itoa(ticketID),
+			"reason":     c.Args["reason"], "initiator": initiator, "privileged": privileged,
+			"created": c.Requester.TicketID == 0, "privileged_attempts": attempts, "privileged_window_hours": 24.0,
+		}), nil
+	}
 }
 
 // LookupResult is user_lookup's answer for a matched requester.

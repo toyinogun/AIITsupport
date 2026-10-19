@@ -32,6 +32,7 @@ type Field struct {
 type CheckEnv struct {
 	Now        time.Time
 	MaxPending time.Duration
+	Initiator  string // the call's _meta initiator, InitiatorCode or empty
 }
 
 // invalid says which schema field failed; empty when the failure has no

@@ -42,8 +42,11 @@ func (p poster) Check(ctx context.Context) (string, error) {
 var errNoTeam = errors.New("auth.test returned no team id")
 
 func (p poster) Reply(ctx context.Context, channel, threadTS, text string) error {
-	_, _, err := p.api.PostMessageContext(ctx, channel,
-		slackapi.MsgOptionText(text, false), slackapi.MsgOptionTS(threadTS))
+	opts := []slackapi.MsgOption{slackapi.MsgOptionText(text, false)}
+	if threadTS != "" { // an empty thread posts to the channel itself (the IT channel, spec 0009)
+		opts = append(opts, slackapi.MsgOptionTS(threadTS))
+	}
+	_, _, err := p.api.PostMessageContext(ctx, channel, opts...)
 	return wrapErr(err)
 }
 

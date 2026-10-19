@@ -32,7 +32,7 @@ func (s *slowStates) TicketStates(ctx context.Context) ([]zammad.TicketState, er
 // (TOOL_CALL_TIMEOUT), instead of queueing behind the load.
 func TestStatesWaitersHonorTheirDeadline(t *testing.T) {
 	api := &slowStates{release: make(chan struct{})}
-	h := NewHelpdesk(api, "IT Support")
+	h := NewHelpdesk(api, "IT Support", "")
 	first := make(chan error, 1)
 	go func() {
 		_, _, err := h.states(context.Background())
@@ -59,7 +59,7 @@ func TestStatesWaitersHonorTheirDeadline(t *testing.T) {
 func TestStatesAreCachedAfterTheFirstLoad(t *testing.T) {
 	api := &slowStates{release: make(chan struct{})}
 	close(api.release)
-	h := NewHelpdesk(api, "IT Support")
+	h := NewHelpdesk(api, "IT Support", "")
 
 	for range 3 {
 		byName, byID, err := h.states(t.Context())
@@ -74,7 +74,7 @@ func TestStatesAreCachedAfterTheFirstLoad(t *testing.T) {
 
 func TestStatesRetryAfterAFailedLoad(t *testing.T) {
 	api := &slowStates{release: make(chan struct{})}
-	h := NewHelpdesk(api, "IT Support")
+	h := NewHelpdesk(api, "IT Support", "")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, _, err := h.states(ctx); err == nil {

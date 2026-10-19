@@ -26,6 +26,7 @@ type turn struct {
 	account   string               // the matched username
 	lookup    map[string]any       // this turn's user_lookup data
 	resolved  bool                 // ticket_update closed it in this turn (AC-6)
+	escalated bool                 // an ok escalate ended it in this turn (spec 0009, AC-8)
 
 	modelCalls int
 	toolCalls  int
@@ -104,12 +105,35 @@ func (t *turn) run() string {
 	if f != nil {
 		return t.failurePath(f)
 	}
-	footer, outcome := FooterOpen, OutcomeOpen
-	if t.resolved {
+	var footer, outcome string
+	switch {
+	case t.resolved:
 		footer, outcome = FooterResolved, OutcomeResolved
+	case t.escalated:
+		footer, outcome = FooterEscalated, OutcomeEscalated
+	default:
+		answer, footer, outcome = t.backstop(answer)
 	}
 	t.post(answer+"\n\n"+footer, "answer")
 	return outcome
+}
+
+// accountName is the directory account for the IT post: the conversation's,
+// or this turn's match when the row has none yet (spec 0009, AC-9).
+func (t *turn) accountName() string {
+	if t.conv.DirectoryAccount != "" {
+		return t.conv.DirectoryAccount
+	}
+	return t.account
+}
+
+// newTicket is id when the conversation has no ticket yet, else 0, because
+// SetConversationStatus overwrites a stored id (spec 0009, AC-8).
+func (t *turn) newTicket(id int64) int64 {
+	if t.conv.TicketID != 0 {
+		return 0
+	}
+	return id
 }
 
 // checkHourlyCap stops a requester who started too many conversations in the

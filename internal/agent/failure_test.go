@@ -13,18 +13,27 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/mcpclient"
 )
 
-// wantEscalatedWithNote checks the escalated ending: a ticket created with
-// the fixed title and the user's message, a note opening for the reason, and
-// the escalated_with_ticket post.
-func (h *harness) wantEscalatedWithNote(r agent.Reason, unknown bool) {
+// wantEscalatedWithNote checks the escalated ending (spec 0009, AC-11): one
+// code escalate with the fixed title and the user's message plus the
+// reason's note, an IT post with the note's opening as its summary, and the
+// escalated_with_ticket post.
+func (h *harness) wantEscalatedWithNote(r agent.Reason, unknown bool, message string) {
 	h.t.Helper()
 	h.wantStatus(agent.StatusEscalated)
 	posts := h.poster.Texts()
 	if len(posts) == 0 || posts[len(posts)-1] != agent.TextEscalatedWithTicket {
 		h.t.Errorf("posts = %q, want the escalated_with_ticket text last", posts)
 	}
-	if note := h.lastNote(); note != agent.EscalationNote(r, unknown) {
-		h.t.Errorf("note = %q, want %q", note, agent.EscalationNote(r, unknown))
+	e := h.lastEscalation()
+	wantSummary := agent.EscalationIntro + "\n\n" + message + "\n\n" + agent.EscalationNote(r, unknown)
+	if e.Requester.Initiator != mcpclient.InitiatorCode || e.Args["title"] != agent.EscalationTitle ||
+		e.Args["summary"] != wantSummary || e.Args["reason"] != "assistant_failure" {
+		h.t.Errorf("escalation = %+v, want the code call with summary %q", e, wantSummary)
+	}
+	it := h.itPosts()
+	if len(it) != 1 || !strings.HasPrefix(it[0], ":construction: *Assistant could not finish*\n") ||
+		!strings.HasSuffix(it[0], "\nSummary: "+agent.NoteOpening(r)) || strings.Contains(it[0], message) {
+		h.t.Errorf("IT posts = %q, want one with the note opening and no user text", it)
 	}
 	if !strings.Contains(h.logs.String(), `"msg":"agent_escalated","event_id":"Ev1","reason":"`+string(r)+`","ticket":true`) {
 		h.t.Errorf("logs lack agent_escalated for %s:\n%s", r, h.logs.String())
@@ -65,14 +74,8 @@ func TestFailureReasons(t *testing.T) {
 				tc.setup(h)
 			}
 			h.send(dm("Ev1", "I'm locked out"))
-			h.wantEscalatedWithNote(tc.reason, false)
-			calls := h.tools.Calls()
-			create := calls[len(calls)-2]
-			if create.Tool != "ticket_create" || create.Args["title"] != agent.EscalationTitle ||
-				create.Args["body"] != agent.EscalationIntro+"\n\nI'm locked out" {
-				t.Errorf("escalation create = %+v", create)
-			}
-			if c := h.conv(); c.TicketID != 42 {
+			h.wantEscalatedWithNote(tc.reason, false, "I'm locked out")
+			if c := h.conv(); c.TicketID != 43 {
 				t.Errorf("ticket id = %d, want the escalation ticket stored", c.TicketID)
 			}
 		})
@@ -90,51 +93,81 @@ func TestBrokenHistory(t *testing.T) {
 	if len(h.model.Calls()) != 0 {
 		t.Error("a broken history was sent to the model")
 	}
-	h.wantEscalatedWithNote(agent.ReasonHistoryInvalid, false)
+	h.wantEscalatedWithNote(agent.ReasonHistoryInvalid, false, "hello?")
 }
 
-// covers: AC-10. The escalation ticket's cases: a stored id gets a note
-// only; has_ticket gets no note but counts; a failed note still counts; a
-// closed ticket does not.
-func TestEnsureTicketCases(t *testing.T) {
-	failAfterCreate := func() *agenttest.Model {
-		return agenttest.NewModel(
-			agenttest.CallTool("t1", "ticket_create", map[string]any{"title": "x", "body": "y"}),
-			agenttest.Fail(errors.New("down")),
-		)
+// covers: AC-10 and spec 0009 AC-11. The failure path's escalate cases: a
+// stored ticket is kept; a found one is stored; already_escalated still
+// counts (with the short IT post); any other refusal or no answer means no
+// ticket; a blocked attempt makes it privileged_request; and a turn already
+// escalated makes no call.
+func TestFailurePathEscalation(t *testing.T) {
+	failAfter := func(steps ...agenttest.Step) *agenttest.Model {
+		return agenttest.NewModel(append(steps, agenttest.Fail(errors.New("down")))...)
 	}
-	t.Run("stored id: note only", func(t *testing.T) {
-		h := newHarness(t, failAfterCreate())
+	create := agenttest.CallTool("t1", "ticket_create", map[string]any{"title": "x", "body": "y"})
+	t.Run("stored id kept", func(t *testing.T) {
+		h := newHarness(t, failAfter(create))
 		h.send(dm("Ev1", "I'm locked out"))
-		h.wantTools("user_lookup", "ticket_create", "ticket_update")
-		h.wantEscalatedWithNote(agent.ReasonModelUnavailable, false)
+		h.wantTools("user_lookup", "ticket_create", "escalate")
+		h.wantEscalatedWithNote(agent.ReasonModelUnavailable, false, "I'm locked out")
+		if e := h.lastEscalation(); e.Requester.TicketID != 42 || h.conv().TicketID != 42 {
+			t.Errorf("escalate ticket %d, stored %d; want 42 kept", e.Requester.TicketID, h.conv().TicketID)
+		}
 	})
-	t.Run("has_ticket: no note", func(t *testing.T) {
-		h := newHarness(t, agenttest.NewModel(agenttest.Fail(errors.New("down"))))
-		h.tools.Set("ticket_create", agenttest.Respond(agenttest.Refused("has_ticket", "This conversation already has a ticket.")))
+	t.Run("found ticket stored", func(t *testing.T) {
+		h := newHarness(t, failAfter())
+		h.tools.Set("escalate", agenttest.Escalated(77, "10077", false))
 		h.send(dm("Ev1", "I'm locked out"))
-		h.wantTools("user_lookup", "ticket_create")
+		if c := h.conv(); c.TicketID != 77 || c.Status != agent.StatusEscalated {
+			t.Errorf("conversation = %+v, want ticket 77", c)
+		}
+	})
+	t.Run("already escalated counts", func(t *testing.T) {
+		h := newHarness(t, failAfter())
+		h.tools.Set("escalate", agenttest.Respond(agenttest.Refused("already_escalated", "This conversation is already with IT.")))
+		h.send(dm("Ev1", "I'm locked out"))
 		h.wantPosts(agent.TextAck, agent.TextEscalatedWithTicket)
+		want := ":construction: *Assistant could not finish*\nRequester: <@U0JAN> (jan.devries)\nTicket: already escalated; see the audit log for this thread."
+		if it := h.itPosts(); len(it) != 1 || it[0] != want {
+			t.Errorf("IT posts = %q, want the short post", it)
+		}
 	})
-	t.Run("note fails: ticket still counts", func(t *testing.T) {
-		h := newHarness(t, agenttest.NewModel(agenttest.Fail(errors.New("down"))))
-		h.tools.Set("ticket_update", agenttest.NoAnswer())
-		h.send(dm("Ev1", "I'm locked out"))
-		h.wantTools("user_lookup", "ticket_create", "ticket_update")
+	for name, handler := range map[string]agenttest.Handler{
+		"closed: no ticket":    agenttest.Respond(agenttest.Refused("ticket_closed", "That ticket is already closed.")),
+		"no answer: no ticket": agenttest.NoAnswer(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, failAfter())
+			h.tools.Set("escalate", handler)
+			h.send(dm("Ev1", "I'm locked out"))
+			h.wantPosts(agent.TextAck, agent.TextEscalatedNoTicket)
+			h.wantStatus(agent.StatusEscalated)
+			if it := h.itPosts(); len(it) != 0 {
+				t.Errorf("IT posts = %q, want none", it)
+			}
+		})
+	}
+	t.Run("blocked: privileged_request", func(t *testing.T) {
+		h := newHarness(t, failAfter(agenttest.CallTool("t1", "privileged_access_change", map[string]any{"summary": "Domain Admin"})))
+		h.tools.Set("escalate", agenttest.Escalated(43, "10043", true))
+		h.send(dm("Ev1", "I need Domain Admin"))
+		if e := h.lastEscalation(); e.Args["reason"] != "privileged_request" {
+			t.Errorf("reason = %v, want privileged_request", e.Args["reason"])
+		}
+		if it := h.itPosts(); len(it) != 1 || !strings.HasPrefix(it[0], ":rotating_light: *Privileged request refused*\n") ||
+			!strings.Contains(it[0], "\nRan: privileged_access_change blocked, escalate ok\n") {
+			t.Errorf("IT posts = %q", it)
+		}
+	})
+	t.Run("escalated in the turn: no call", func(t *testing.T) {
+		h := newHarness(t, failAfter(agenttest.CallTool("t1", "escalate", map[string]any{"reason": "other_person", "title": "t", "summary": "s"})))
+		h.send(dm("Ev1", "Unlock Eva's account"))
+		h.wantTools("user_lookup", "escalate")
 		h.wantPosts(agent.TextAck, agent.TextEscalatedWithTicket)
-	})
-	t.Run("create fails: no ticket", func(t *testing.T) {
-		h := newHarness(t, agenttest.NewModel(agenttest.Fail(errors.New("down"))))
-		h.tools.Set("ticket_create", agenttest.Respond(agenttest.Refused("unavailable", "The helpdesk cannot be reached right now.")))
-		h.send(dm("Ev1", "I'm locked out"))
-		h.wantPosts(agent.TextAck, agent.TextEscalatedNoTicket)
-		h.wantStatus(agent.StatusEscalated)
-	})
-	t.Run("ticket closed: no ticket", func(t *testing.T) {
-		h := newHarness(t, failAfterCreate())
-		h.tools.Set("ticket_update", agenttest.Respond(agenttest.Refused("ticket_closed", "That ticket is already closed.")))
-		h.send(dm("Ev1", "I'm locked out"))
-		h.wantPosts(agent.TextAck, agent.TextEscalatedNoTicket)
+		if it := h.itPosts(); len(it) != 1 {
+			t.Errorf("IT posts = %q, want only the model's", it)
+		}
 	})
 }
 
@@ -178,8 +211,8 @@ func TestStartedCallFinishesPastTheDeadline(t *testing.T) {
 	if b := blocks(t, last); last.Role != "user" || b[0].OfToolResult == nil || b[0].OfToolResult.ToolUseID != "t2" || b[0].OfToolResult.IsError.Value {
 		t.Errorf("the slow unlock's result was not stored: %s", last.Content)
 	}
-	h.wantEscalatedWithNote(agent.ReasonMessageTimeout, false)
-	h.wantTools("user_lookup", "ticket_create", "account_unlock", "ticket_update")
+	h.wantEscalatedWithNote(agent.ReasonMessageTimeout, false, "I'm locked out")
+	h.wantTools("user_lookup", "ticket_create", "account_unlock", "escalate")
 }
 
 // covers: AC-11. A call with no answer stores the unknown result and the note says so.
@@ -195,7 +228,7 @@ func TestNoAnswerStoresUnknown(t *testing.T) {
 	if b[0].OfToolResult == nil || !b[0].OfToolResult.IsError.Value || b[0].OfToolResult.Content[0].OfText.Text != agent.UnknownToolResult {
 		t.Errorf("stored result = %s", msgs[len(msgs)-1].Content)
 	}
-	h.wantEscalatedWithNote(agent.ReasonToolServerUnavailable, true)
+	h.wantEscalatedWithNote(agent.ReasonToolServerUnavailable, true, "I'm locked out")
 }
 
 // covers: AC-5. Two tool_use blocks in one message: only the first runs; the

@@ -14,23 +14,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countRecentOKOutcomes = `-- name: CountRecentOKOutcomes :one
+const countRecentOutcomes = `-- name: CountRecentOutcomes :one
 SELECT count(*) FROM audit_log
-WHERE kind = 'outcome' AND outcome = 'ok'
-  AND tool_name = $1 AND requester_slack_id = $2
-  AND occurred_at > $3
+WHERE kind = 'outcome' AND outcome = $1
+  AND tool_name = $2 AND requester_slack_id = $3
+  AND occurred_at > $4
 `
 
-type CountRecentOKOutcomesParams struct {
+type CountRecentOutcomesParams struct {
+	Outcome          pgtype.Text
 	ToolName         string
 	RequesterSlackID string
 	Since            time.Time
 }
 
-// CountRecentOKOutcomes counts a requester's ok outcomes for one tool since a
-// time: the tool server's rate limit (spec 0007).
-func (q *Queries) CountRecentOKOutcomes(ctx context.Context, arg CountRecentOKOutcomesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countRecentOKOutcomes, arg.ToolName, arg.RequesterSlackID, arg.Since)
+// CountRecentOutcomes counts a requester's outcomes of one kind for one tool
+// since a time: the tool server's rate limits (spec 0007, counting ok) and
+// the blocked attempt count (spec 0009, counting denied_policy).
+func (q *Queries) CountRecentOutcomes(ctx context.Context, arg CountRecentOutcomesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentOutcomes,
+		arg.Outcome,
+		arg.ToolName,
+		arg.RequesterSlackID,
+		arg.Since,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -240,25 +247,58 @@ func (q *Queries) ListUnconfirmedCalls(ctx context.Context, arg ListUnconfirmedC
 	return items, nil
 }
 
-const threadHasOKOutcome = `-- name: ThreadHasOKOutcome :one
+const threadHasOutcome = `-- name: ThreadHasOutcome :one
 SELECT EXISTS (
     SELECT 1 FROM audit_log
     WHERE slack_channel_id = $1 AND slack_thread_ts = $2
-      AND kind = 'outcome' AND outcome = 'ok' AND tool_name = $3
+      AND kind = 'outcome' AND outcome = $3 AND tool_name = $4
 )
 `
 
-type ThreadHasOKOutcomeParams struct {
+type ThreadHasOutcomeParams struct {
 	SlackChannelID pgtype.Text
 	SlackThreadTs  pgtype.Text
+	Outcome        pgtype.Text
 	ToolName       string
 }
 
-// ThreadHasOKOutcome reports whether a tool already succeeded in a Slack
-// thread: one ticket per conversation (spec 0007).
-func (q *Queries) ThreadHasOKOutcome(ctx context.Context, arg ThreadHasOKOutcomeParams) (bool, error) {
-	row := q.db.QueryRow(ctx, threadHasOKOutcome, arg.SlackChannelID, arg.SlackThreadTs, arg.ToolName)
+// ThreadHasOutcome reports whether a tool has an outcome of one kind in a
+// Slack thread: one ticket per conversation (spec 0007), and the blocked
+// attempt, the once per thread escalation, and the close guard (spec 0009).
+func (q *Queries) ThreadHasOutcome(ctx context.Context, arg ThreadHasOutcomeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, threadHasOutcome,
+		arg.SlackChannelID,
+		arg.SlackThreadTs,
+		arg.Outcome,
+		arg.ToolName,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const threadTicketID = `-- name: ThreadTicketID :one
+SELECT COALESCE((
+    SELECT CASE WHEN jsonb_typeof(result->'ticket_id') = 'number' THEN (result->>'ticket_id')::bigint END
+    FROM audit_log
+    WHERE slack_channel_id = $1 AND slack_thread_ts = $2
+      AND kind = 'outcome' AND outcome = 'ok' AND tool_name = 'ticket_create'
+    ORDER BY id DESC
+    LIMIT 1
+), 0)::bigint AS ticket_id
+`
+
+type ThreadTicketIDParams struct {
+	SlackChannelID pgtype.Text
+	SlackThreadTs  pgtype.Text
+}
+
+// ThreadTicketID is the ticket id in the result of the newest ok
+// ticket_create outcome in a Slack thread (spec 0009), or 0 for none: no
+// such outcome, or a result cut by the payload cap. Ticket ids start at 1.
+func (q *Queries) ThreadTicketID(ctx context.Context, arg ThreadTicketIDParams) (int64, error) {
+	row := q.db.QueryRow(ctx, threadTicketID, arg.SlackChannelID, arg.SlackThreadTs)
+	var ticket_id int64
+	err := row.Scan(&ticket_id)
+	return ticket_id, err
 }

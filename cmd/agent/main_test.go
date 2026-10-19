@@ -19,6 +19,7 @@ func clearEnv(t *testing.T) {
 	for _, name := range []string{
 		"AGENT_DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "OTEL_EXPORTER_OTLP_ENDPOINT", "LOG_LEVEL", "READ_ONLY", "AGENT_HTTP_ADDR",
 		"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "LLM_PROVIDER", "LLM_MODEL", "ANTHROPIC_API_KEY", "AGENT_MAX_CONCURRENT",
+		"SLACK_IT_CHANNEL",
 	} {
 		t.Setenv(name, "")
 	}
@@ -151,6 +152,7 @@ func TestRunRefusesABadModelSetup(t *testing.T) {
 			requiredEnv(t, "postgres://unused")
 			t.Setenv("SLACK_BOT_TOKEN", "xoxb-test")
 			t.Setenv("SLACK_APP_TOKEN", "xapp-test")
+			t.Setenv("SLACK_IT_CHANNEL", "C0ITDESK")
 			t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 			for k, v := range tc.env {
 				t.Setenv(k, v)
