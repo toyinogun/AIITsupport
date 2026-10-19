@@ -36,7 +36,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 9 | Tool server & risk tiers | Slice 1 | done |
 | 10 | Locked out user, end to end | Slice 1 | done |
 | 11 | Privileged request refusal & escalation | Slice 2 | done |
-| 12 | PII redaction & retention | Slice 2 | planned |
+| 12 | PII redaction & retention | Slice 2 | in-progress |
 | 13 | Password reset links | Slice 3 | planned |
 | 14 | MFA re-registration with approval | Slice 4 | planned |
 | 15 | Access requests via group owner | Slice 5 | planned |
@@ -193,10 +193,21 @@ The video hook. "I need Domain Admin to fix a printer" is refused, explained, of
 - [x] Document it: `/document refusal & escalation`
 spec [0009](../specs/0009-refusal-escalation/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/zammad`, `internal/agent`, `internal/audit`, `internal/config`, `internal/slack`, `db/queries/audit.sql`
 
-### 12. PII redaction & retention · needs a decision · GA
+### 12. PII redaction & retention · in-progress · GA
 Keep personal data out of logs and traces, and keep ticket bodies only as long as the retention setting says. Lands before more data flows through the system.
 **Done when:** logs and traces from the unlock and refusal flows show no names, emails, or ticket bodies in clear; old ticket bodies are purged per the retention setting.
-- [ ] Design it (spec): `/architect pii redaction & retention`
+- [x] Design it (spec): `/architect pii redaction & retention`
+- [ ] Build it: `/develop pii redaction & retention`
+  - [ ] No error text: shared `internal/cause`, the Slack listener's cause tokens, the fixed HTTP server error line (AC-3)
+  - [ ] The nets: the allow listed slog handler, the typed source scan, the redacting span exporter (AC-1, AC-2, AC-4)
+  - [ ] Proof: the canary tests over unlock and refusal, and one live grep on `make dev` (AC-5, AC-6)
+  - [ ] Retention: `TICKET_RETENTION_DAYS`, the agent's hourly idle close and content purge, the Zammad `noord-retention` scheduler with its live test (AC-7 to AC-10)
+  - [ ] Runbook and docs: `docs/runbooks/data-retention.md`, nested `AGENTS.md` facts, the #12 follow ups in specs 0003, 0007, 0009 (AC-11)
+- [ ] Verify it: `/check verify pii redaction & retention`
+- [ ] Test it: `/test pii redaction & retention`
+- [ ] Review it (fresh model): `/check review pii redaction & retention`
+- [ ] Document it: `/document pii redaction & retention`
+spec [0010](../specs/0010-pii-redaction-retention/index.md)
 
 ## Slice 3: Password reset links
 
