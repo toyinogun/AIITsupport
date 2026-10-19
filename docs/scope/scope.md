@@ -36,7 +36,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 9 | Tool server & risk tiers | Slice 1 | done |
 | 10 | Locked out user, end to end | Slice 1 | done |
 | 11 | Privileged request refusal & escalation | Slice 2 | done |
-| 12 | PII redaction & retention | Slice 2 | in-progress |
+| 12 | PII redaction & retention | Slice 2 | done |
 | 13 | Password reset links | Slice 3 | planned |
 | 14 | MFA re-registration with approval | Slice 4 | planned |
 | 15 | Access requests via group owner | Slice 5 | planned |
@@ -193,7 +193,7 @@ The video hook. "I need Domain Admin to fix a printer" is refused, explained, of
 - [x] Document it: `/document refusal & escalation`
 spec [0009](../specs/0009-refusal-escalation/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/zammad`, `internal/agent`, `internal/audit`, `internal/config`, `internal/slack`, `db/queries/audit.sql`
 
-### 12. PII redaction & retention · in-progress · GA
+### 12. PII redaction & retention · done · GA
 Keep personal data out of logs and traces, and keep ticket bodies only as long as the retention setting says. Lands before more data flows through the system.
 **Done when:** logs and traces from the unlock and refusal flows show no names, emails, or ticket bodies in clear; old ticket bodies are purged per the retention setting.
 - [x] Design it (spec): `/architect pii redaction & retention`
@@ -206,7 +206,7 @@ Keep personal data out of logs and traces, and keep ticket bodies only as long a
 - [x] Verify it: `/check verify pii redaction & retention`
 - [x] Test it: `/test pii redaction & retention`
 - [x] Review it (fresh model): `/check review pii redaction & retention`
-- [ ] Document it: `/document pii redaction & retention`
+- [x] Document it: `/document pii redaction & retention`
 spec [0010](../specs/0010-pii-redaction-retention/index.md) · code in `internal/logging`, `internal/telemetry`, `internal/cause`, `internal/canary`, `internal/server`, `internal/slack`, `internal/agent` (`retention.go`), `internal/config`, `internal/seed/helpdesk`, `seed/helpdesk/rails/retention.rb`, `db/queries/conversations.sql`, `docs/runbooks/data-retention.md`
 
 ## Slice 3: Password reset links

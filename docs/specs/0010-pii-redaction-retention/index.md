@@ -1,7 +1,7 @@
 # 0010. PII redaction and retention: allow listed log and span keys, an hourly content purge, and a Zammad retention scheduler
 
 **Date**: 2026-10-19
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
