@@ -15,7 +15,8 @@ The agent loop (spec 0008). The Slack listener hands every accepted message to `
 | `loop.go` | the model loop: budgets, request, `llm.call`, usage rows, the one tool per step rule, `statusChangeFor` |
 | `history.go` | stored content as block arrays, `buildHistory` and the tool_use / tool_result pairing check, the tool result text |
 | `failure.go` | `failurePath`, `ensureTicket` and its cases, the escalation body and note |
-| `sweep.go` | `Sweep` for conversations a restart interrupted |
+| `sweep.go` | `Sweep` for conversations a restart interrupted; it stores the ticket it creates with `Store.SetTicket` |
+| `cause.go` | `cause()`, the fixed cause token for an error, and `Causer` for adapter errors that name their own token |
 | `tooldefs.go` | the cached `tools/list` conversion (no `user_lookup`), cache marks |
 | `replies.go` | every fixed text, the escalation title and notes, `Reason` and outcome tokens |
 | `pgstore.go` | `NewStore`: the `Store` over sqlc, with the one transaction for a tool result and its status change |
@@ -29,7 +30,8 @@ The agent loop (spec 0008). The Slack listener hands every accepted message to `
 - **Contexts.** The turn context (`AGENT_MESSAGE_TIMEOUT`) derives from the agent's work context, never from the signal. Started tool calls, result stores, usage rows, status writes, the escalation ticket, and every post run on `detached` contexts: they ignore the turn deadline but keep the span and still end when `AGENT_SHUTDOWN_GRACE` runs out.
 - **No retries of tool calls**, and nothing from history is replayed. The SDK's own retry (`AGENT_MAX_RETRIES`) covers the model call.
 - **Fixed texts live in `replies.go`.** The eval asserts on them; change them with the spec. Fixed texts carry no footer and are never stored.
-- **Logs and spans** carry ids, counts, and fixed tokens only (`agent_turn_done`, `agent_escalated`, `agent_post_failed`, `agent_status_write_failed`, `agent_interrupted`, `agent_thread_busy`, `agent_sweep_failed`); never message text, email, Slack user id, names, departments, account names, ticket titles, or model output. `TestLogsAndSpansHoldNoPersonalData` guards this.
+- **Logs and spans** carry ids, counts, and fixed tokens only (`agent_turn_done`, `agent_escalated`, `agent_post_failed`, `agent_slack_profile_failed`, `agent_status_write_failed`, `agent_interrupted`, `agent_thread_busy`, `agent_sweep_failed`); never message text, email, Slack user id, names, departments, account names, ticket titles, or model output. `TestLogsAndSpansHoldNoPersonalData` guards this.
+- **Say why, never what.** A failure's `cause` (on `agent_escalated`, `agent_post_failed`, `agent_slack_profile_failed`, and the `llm.call` and `agent.turn` spans) comes from `cause(err)`, which reads the error's type: `anthropic_<status>`, `mcp_rpc_<code>`, `postgres_<sqlstate>`, `slack_<code>` (from `internal/slack`'s `wrapErr`), `deadline`, `network`, or `other`. Never log `err.Error()`, it can quote content. `TestFailureCausesAreFixedTokens` guards this.
 - This package and `internal/llm` are on the credential boundary: depguard `agent-credential-boundary` covers their files and `cmd/agent/boundary_test.go` checks their transitive imports.
 
 ## Gotchas

@@ -40,6 +40,16 @@ func (s *pgStore) SetStatus(ctx context.Context, id int64, ch StatusChange) (Con
 	return setStatus(ctx, s.q, id, ch)
 }
 
+func (s *pgStore) SetTicket(ctx context.Context, id, ticketID int64) error {
+	err := s.q.SetConversationTicket(ctx, queries.SetConversationTicketParams{
+		ID: id, ZammadTicketID: pgtype.Int8{Int64: ticketID, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("set conversation ticket: %w", err)
+	}
+	return nil
+}
+
 func setStatus(ctx context.Context, q *queries.Queries, id int64, ch StatusChange) (Conversation, error) {
 	params := queries.SetConversationStatusParams{Status: ch.Status, ID: id}
 	if ch.DirectoryAccount != "" {

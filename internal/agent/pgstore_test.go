@@ -147,3 +147,29 @@ func TestPgListInterrupted(t *testing.T) {
 		t.Errorf("interrupted = %+v, want threads 1.0 and 2.0 only (not %d)", got, recent.ID)
 	}
 }
+
+// covers: AC-14 and the review (2026-10-19). The sweep claims a conversation
+// (escalated) before it makes a ticket, so SetTicket fills in the id on a
+// closed conversation, but never replaces one already stored.
+func TestPgSetTicket(t *testing.T) {
+	tdb := dbtest.New(t)
+	s := agent.NewStore(tdb.Agent)
+	ctx := t.Context()
+	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetStatus(ctx, c.ID, agent.StatusChange{Status: agent.StatusEscalated}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTicket(ctx, c.ID, 26); err != nil {
+		t.Fatalf("set ticket on an escalated conversation: %v", err)
+	}
+	if err := s.SetTicket(ctx, c.ID, 27); err != nil {
+		t.Fatalf("second set ticket: %v", err)
+	}
+	c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	if c.TicketID != 26 || c.Status != agent.StatusEscalated {
+		t.Errorf("after set ticket = %+v, want ticket 26 and still escalated", c)
+	}
+}

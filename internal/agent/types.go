@@ -123,6 +123,9 @@ type Store interface {
 	UpsertConversation(ctx context.Context, channelID, threadTS, requesterSlackID string) (Conversation, error)
 	// SetStatus changes an open conversation; ErrNotOpen otherwise.
 	SetStatus(ctx context.Context, id int64, ch StatusChange) (Conversation, error)
+	// SetTicket stores a ticket id on a conversation in any status, unless
+	// one is already stored (the restart sweep, AC-14).
+	SetTicket(ctx context.Context, id, ticketID int64) error
 	AppendMessage(ctx context.Context, id int64, role string, content json.RawMessage) error
 	// AppendToolResult stores a tool result message and, when ch is not nil,
 	// the status change it causes, in one transaction (AC-6). If the

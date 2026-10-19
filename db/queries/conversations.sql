@@ -22,6 +22,14 @@ SET status = @status::text,
 WHERE id = @id AND status = 'open'
 RETURNING *;
 
+-- name: SetConversationTicket :exec
+-- SetConversationTicket fills in the ticket id the restart sweep created
+-- after it had already claimed the conversation (spec 0008, AC-14). It never
+-- replaces an id that is already stored.
+UPDATE conversations
+SET zammad_ticket_id = @zammad_ticket_id, updated_at = now()
+WHERE id = @id AND zammad_ticket_id IS NULL;
+
 -- name: AppendMessage :one
 -- AppendMessage takes the next seq from the conversation's counter; the row
 -- lock serialises concurrent appends, so seq stays gapless. No rows back

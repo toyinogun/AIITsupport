@@ -100,6 +100,20 @@ func (s *Store) setStatus(id int64, ch agent.StatusChange) (agent.Conversation, 
 	return r.Conversation, nil
 }
 
+// SetTicket stores a ticket id unless one is already stored.
+func (s *Store) SetTicket(ctx context.Context, id, ticketID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "SetTicket"); err != nil {
+		return err
+	}
+	if r := s.find(id); r != nil && r.TicketID == 0 {
+		r.TicketID = ticketID
+		r.updatedAt = s.Now()
+	}
+	return nil
+}
+
 // AppendMessage stores the next message with a gapless seq.
 func (s *Store) AppendMessage(ctx context.Context, id int64, role string, content json.RawMessage) error {
 	s.mu.Lock()

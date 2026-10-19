@@ -1,11 +1,19 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/toyinogun/AIITsupport/internal/mcpclient"
@@ -156,5 +164,51 @@ func TestNewChecksItsInputs(t *testing.T) {
 	}
 	if _, err := New(cfg, Deps{}); err == nil {
 		t.Error("New accepted missing dependencies")
+	}
+}
+
+// adapterError is an adapter error that names its own cause, like the Slack adapter's.
+type adapterError struct{ token, text string }
+
+func (e adapterError) Error() string { return e.text }
+func (e adapterError) Cause() string { return e.token }
+
+// dialError is a transport error.
+type dialError struct{}
+
+func (dialError) Error() string   { return "dial tcp: connection refused ZEBRA" }
+func (dialError) Timeout() bool   { return false }
+func (dialError) Temporary() bool { return false }
+
+// covers: the review's major finding (2026-10-19). Every failure gets a fixed
+// cause token from its type, never from its text.
+func TestCause(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
+	apiErr := func(code int) error {
+		return &anthropic.Error{StatusCode: code, Request: req, Response: &http.Response{StatusCode: code, Request: req}}
+	}
+	cases := map[string]struct {
+		err  error
+		want string
+	}{
+		"none":            {nil, "none"},
+		"deadline":        {fmt.Errorf("call: %w", context.DeadlineExceeded), "deadline"},
+		"canceled":        {context.Canceled, "canceled"},
+		"anthropic 401":   {apiErr(401), "anthropic_401"},
+		"wrapped 529":     {fmt.Errorf("model: %w", apiErr(529)), "anthropic_529"},
+		"json-rpc":        {fmt.Errorf("call tool x: %w", &jsonrpc.Error{Code: -32602, Message: "ZEBRA"}), "mcp_rpc_-32602"},
+		"network":         {fmt.Errorf("connect: %w", dialError{}), "network"},
+		"adapter token":   {fmt.Errorf("users.info: %w", adapterError{"slack_missing_scope", "ZEBRA"}), "slack_missing_scope"},
+		"bad token":       {adapterError{"Slack ZEBRA error!", "x"}, "other"},
+		"long token":      {adapterError{strings.Repeat("a", 65), "x"}, "other"},
+		"plain":           {errors.New("ZEBRA went wrong"), "other"},
+		"store sentinel":  {ErrNotOpen, "not_open"},
+		"postgres":        {fmt.Errorf("append: %w", &pgconn.PgError{Code: "40001", Message: "ZEBRA"}), "postgres_40001"},
+		"deadline in api": {fmt.Errorf("x: %w", errors.Join(apiErr(500), context.DeadlineExceeded)), "deadline"},
+	}
+	for name, c := range cases {
+		if got := cause(c.err); got != c.want {
+			t.Errorf("%s: cause = %q, want %q", name, got, c.want)
+		}
 	}
 }

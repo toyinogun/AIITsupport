@@ -17,14 +17,14 @@ func (t *turn) failurePath(f *failure) string {
 		t.post(TextResolvedNoSummary, "resolved_no_summary")
 		return OutcomeResolved
 	}
-	t.reason = f.reason
+	t.reason, t.cause = f.reason, f.cause
 	var tk ticketOutcome
 	if t.requester != nil {
 		tk = t.a.ensureTicket(t.ctx, *t.requester, t.in.Text, escalationNote(f.reason, f.unknown))
 		t.toolCalls += tk.calls
 	}
 	t.setStatus(StatusChange{Status: StatusEscalated, TicketID: tk.created})
-	t.a.logEscalated(t.ctx, t.in.EventID, f.reason, tk.exists)
+	t.a.logEscalated(t.ctx, t.in.EventID, f.reason, tk.exists, f.cause)
 	if tk.exists {
 		t.post(TextEscalatedWithTicket, "escalated_with_ticket")
 	} else {

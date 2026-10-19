@@ -241,6 +241,25 @@ func (q *Queries) SetConversationStatus(ctx context.Context, arg SetConversation
 	return i, err
 }
 
+const setConversationTicket = `-- name: SetConversationTicket :exec
+UPDATE conversations
+SET zammad_ticket_id = $1, updated_at = now()
+WHERE id = $2 AND zammad_ticket_id IS NULL
+`
+
+type SetConversationTicketParams struct {
+	ZammadTicketID pgtype.Int8
+	ID             int64
+}
+
+// SetConversationTicket fills in the ticket id the restart sweep created
+// after it had already claimed the conversation (spec 0008, AC-14). It never
+// replaces an id that is already stored.
+func (q *Queries) SetConversationTicket(ctx context.Context, arg SetConversationTicketParams) error {
+	_, err := q.db.Exec(ctx, setConversationTicket, arg.ZammadTicketID, arg.ID)
+	return err
+}
+
 const upsertConversation = `-- name: UpsertConversation :one
 
 INSERT INTO conversations (slack_channel_id, slack_thread_ts, requester_slack_id)

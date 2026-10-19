@@ -13,6 +13,7 @@ import (
 // last message is the user's or a tool_use are handled; with a match they
 // get a ticket with the restart note and the restart text, without one
 // escalated_no_ticket; all end escalated; nothing from history is replayed.
+// A ticket the sweep created is stored on the conversation (review, 2026-10-19).
 func TestSweep(t *testing.T) {
 	h := newHarness(t, agenttest.NewModel())
 	h.users.Set("U0GUEST", agent.SlackUser{TeamID: agenttest.Team, IsRestricted: true, IsEmailConfirmed: true, Email: "guest@example.com"})
@@ -45,6 +46,10 @@ func TestSweep(t *testing.T) {
 		if got.Status != status {
 			t.Errorf("thread %s status = %s, want %s", conv.ThreadTS, got.Status, status)
 		}
+	}
+	// The ticket the sweep created is stored on the conversation it claimed.
+	if got, _ := h.store.Conversation(a.ChannelID, a.ThreadTS); got.TicketID != 42 {
+		t.Errorf("thread 1.0 ticket id = %d, want 42", got.TicketID)
 	}
 	if !strings.Contains(h.logs.String(), `"msg":"agent_interrupted","conversation_id":1`) {
 		t.Errorf("logs:\n%s", h.logs.String())

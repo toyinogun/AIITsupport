@@ -30,15 +30,20 @@ type turn struct {
 	modelCalls int
 	toolCalls  int
 	reason     Reason // set when the turn escalates
+	cause      string // the fixed cause token of the error that ended it, if any
 }
 
 // failure stops the turn and takes the failure path (AC-10).
 type failure struct {
 	reason  Reason
-	unknown bool // the last tool call never got an answer (AC-11)
+	cause   string // the fixed token of the error behind it ("none" without one)
+	unknown bool   // the last tool call never got an answer (AC-11)
 }
 
-func fail(r Reason) *failure { return &failure{reason: r} }
+func fail(r Reason) *failure { return &failure{reason: r, cause: cause(nil)} }
+
+// failErr is a failure caused by err; only err's fixed cause token is kept.
+func failErr(r Reason, err error) *failure { return &failure{reason: r, cause: cause(err)} }
 
 // runTurn handles one DM message from the moment it holds a concurrency slot.
 func (a *Agent) runTurn(in Inbound) {
@@ -59,6 +64,9 @@ func (a *Agent) runTurn(in Inbound) {
 	if t.reason != "" {
 		attrs = append(attrs, attribute.String("escalation_reason", string(t.reason)))
 	}
+	if t.cause != "" {
+		attrs = append(attrs, attribute.String("cause", t.cause))
+	}
 	span.SetAttributes(attrs...)
 	a.logTurnDone(ctx, in, outcome, t.modelCalls, t.toolCalls, start)
 }
@@ -72,7 +80,7 @@ func (t *turn) run() string {
 	}
 	conv, err := t.a.deps.Store.UpsertConversation(t.ctx, t.in.ChannelID, t.in.ThreadTS, t.in.UserID)
 	if err != nil {
-		return t.failurePath(t.storeFailure())
+		return t.failurePath(t.storeFailure(err))
 	}
 	t.conv, t.hasConv = conv, true
 	if conv.Status != StatusOpen {
@@ -110,7 +118,7 @@ func (t *turn) checkHourlyCap() (string, bool) {
 	since := t.a.deps.Now().Add(-time.Hour)
 	n, err := t.a.deps.Store.CountRecentConversations(t.ctx, t.in.UserID, since)
 	if err != nil {
-		return t.failurePath(t.storeFailure()), true
+		return t.failurePath(t.storeFailure(err)), true
 	}
 	if n <= t.a.cfg.ConversationsPerHour {
 		return "", false
@@ -124,27 +132,27 @@ func (t *turn) storeUserMessage() *failure {
 	if t.conv.DirectoryAccount == "" {
 		conv, err := t.a.deps.Store.SetStatus(t.ctx, t.conv.ID, StatusChange{Status: StatusOpen, DirectoryAccount: t.account})
 		if err != nil {
-			return t.storeFailure()
+			return t.storeFailure(err)
 		}
 		t.conv = conv
 	}
 	content, err := encodeBlocks(userText(t.in.Text))
 	if err != nil {
-		return fail(ReasonStoreUnavailable)
+		return failErr(ReasonStoreUnavailable, err)
 	}
 	if err := t.a.deps.Store.AppendMessage(t.ctx, t.conv.ID, RoleUser, content); err != nil {
-		return t.storeFailure()
+		return t.storeFailure(err)
 	}
 	return nil
 }
 
 // storeFailure names a failed store call: the turn deadline when it has
 // passed, else the database.
-func (t *turn) storeFailure() *failure {
+func (t *turn) storeFailure(err error) *failure {
 	if t.deadlinePassed() {
-		return fail(ReasonMessageTimeout)
+		return failErr(ReasonMessageTimeout, err)
 	}
-	return fail(ReasonStoreUnavailable)
+	return failErr(ReasonStoreUnavailable, err)
 }
 
 func (t *turn) deadlinePassed() bool { return t.ctx.Err() != nil }
@@ -154,7 +162,7 @@ func (t *turn) deadlinePassed() bool { return t.ctx.Err() != nil }
 func (t *turn) refuse(r Reason, text string) string {
 	t.reason = r
 	t.setStatus(StatusChange{Status: StatusEscalated})
-	t.a.logEscalated(t.ctx, t.in.EventID, r, false)
+	t.a.logEscalated(t.ctx, t.in.EventID, r, false, cause(nil))
 	t.post(text, string(r))
 	return OutcomeEscalated
 }
@@ -188,8 +196,10 @@ func (a *Agent) logTurnDone(ctx context.Context, in Inbound, outcome string, mod
 		"latency_ms", latency.Milliseconds(), "trace_id", traceID(ctx))
 }
 
-func (a *Agent) logEscalated(ctx context.Context, eventID string, r Reason, ticket bool) {
-	a.deps.Logger.Info("agent_escalated", "event_id", eventID, "reason", string(r), "ticket", ticket, "trace_id", traceID(ctx))
+// logEscalated logs one move to escalated; cause is a fixed token from cause().
+func (a *Agent) logEscalated(ctx context.Context, eventID string, r Reason, ticket bool, cause string) {
+	a.deps.Logger.Info("agent_escalated", "event_id", eventID, "reason", string(r), "ticket", ticket,
+		"cause", cause, "trace_id", traceID(ctx))
 }
 
 // slackTime parses a Slack ts ("1760000000.000100") as a time.

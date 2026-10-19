@@ -265,6 +265,6 @@ func (a *Agent) post(parent context.Context, in Inbound, text, kind string) {
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.PostTimeout)
 	defer cancel()
 	if err := a.deps.Poster.Reply(ctx, in.ChannelID, in.ThreadTS, text); err != nil {
-		a.deps.Logger.Warn("agent_post_failed", "event_id", in.EventID, "kind", kind)
+		a.deps.Logger.Warn("agent_post_failed", "event_id", in.EventID, "kind", kind, "cause", cause(err))
 	}
 }

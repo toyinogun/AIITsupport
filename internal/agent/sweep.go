@@ -51,10 +51,14 @@ func (a *Agent) recoverInterrupted(ctx context.Context, c Conversation) {
 	}
 	in := Inbound{EventID: "", ChannelID: c.ChannelID, ThreadTS: c.ThreadTS}
 	tk := ticketOutcome{}
-	if r, ok := a.reidentify(ctx, c); ok {
+	r, why, ok := a.reidentify(ctx, c)
+	if ok {
 		tk = a.ensureTicket(ctx, r, a.lastUserText(ctx, c.ID), escalationNote(ReasonRestart, false))
 	}
-	a.logEscalated(ctx, "", ReasonRestart, tk.exists)
+	if tk.created != 0 {
+		a.storeSweepTicket(ctx, c.ID, tk.created)
+	}
+	a.logEscalated(ctx, "", ReasonRestart, tk.exists, why)
 	// The restart text says IT has it, so it needs a ticket.
 	if tk.exists {
 		a.post(ctx, in, TextRestart, "restart")
@@ -63,28 +67,43 @@ func (a *Agent) recoverInterrupted(ctx context.Context, c Conversation) {
 	}
 }
 
+// storeSweepTicket keeps the ticket the sweep created on the conversation it
+// already claimed, so the row points at IT's ticket like the turn path does.
+func (a *Agent) storeSweepTicket(ctx context.Context, id, ticketID int64) {
+	sctx, cancel := a.detached(ctx, a.cfg.ToolTimeout)
+	defer cancel()
+	if err := a.deps.Store.SetTicket(sctx, id, ticketID); err != nil {
+		a.deps.Logger.Warn("agent_status_write_failed", "conversation_id", id, "cause", cause(err))
+	}
+}
+
 // reidentify reruns the Slack gate and user_lookup for the stored requester.
-// A match must be the account the conversation already holds, if any.
-func (a *Agent) reidentify(ctx context.Context, c Conversation) (mcpclient.Requester, bool) {
+// A match must be the account the conversation already holds, if any. Without
+// a match, why is the cause token of the error that stopped it ("none" when
+// the person simply did not pass).
+func (a *Agent) reidentify(ctx context.Context, c Conversation) (r mcpclient.Requester, why string, ok bool) {
 	uctx, cancel := a.detached(ctx, a.cfg.PostTimeout)
 	user, err := a.deps.Slack.UserInfo(uctx, c.RequesterSlackID)
 	cancel()
-	if err != nil || !passesGate(user, a.cfg.TeamID) {
-		return mcpclient.Requester{}, false
+	if err != nil {
+		return mcpclient.Requester{}, cause(err), false
 	}
-	r := mcpclient.Requester{
+	if !passesGate(user, a.cfg.TeamID) {
+		return mcpclient.Requester{}, cause(nil), false
+	}
+	r = mcpclient.Requester{
 		SlackID: c.RequesterSlackID, Email: strings.TrimSpace(user.Email),
 		ChannelID: c.ChannelID, ThreadTS: c.ThreadTS, TicketID: c.TicketID,
 	}
-	res, answered := a.callTool(ctx, r, toolUserLookup, nil)
-	if !answered || res.IsError {
-		return mcpclient.Requester{}, false
+	res, err := a.callTool(ctx, r, toolUserLookup, nil)
+	if err != nil {
+		return mcpclient.Requester{}, cause(err), false
 	}
 	username, _ := res.Data["username"].(string)
-	if username == "" || (c.DirectoryAccount != "" && c.DirectoryAccount != username) {
-		return mcpclient.Requester{}, false
+	if res.IsError || username == "" || (c.DirectoryAccount != "" && c.DirectoryAccount != username) {
+		return mcpclient.Requester{}, cause(nil), false
 	}
-	return r, true
+	return r, cause(nil), true
 }
 
 // lastUserText is the newest stored user message that holds a text block.

@@ -37,6 +37,8 @@ func passesGate(u SlackUser, teamID string) bool {
 func (t *turn) identify() (string, bool) {
 	user, err := t.a.deps.Slack.UserInfo(t.ctx, t.in.UserID)
 	if err != nil {
+		t.cause = cause(err)
+		t.a.deps.Logger.Warn("agent_slack_profile_failed", "event_id", t.in.EventID, "cause", t.cause)
 		t.post(TextSlackTryAgain, "slack_try_again")
 		return OutcomeSlackRetry, true
 	}
@@ -51,10 +53,10 @@ func (t *turn) identify() (string, bool) {
 	if t.deadlinePassed() {
 		return t.failurePath(fail(ReasonMessageTimeout)), true
 	}
-	res, answered := t.a.callTool(t.ctx, r, toolUserLookup, nil)
+	res, err := t.a.callTool(t.ctx, r, toolUserLookup, nil)
 	t.toolCalls++
-	if !answered {
-		return t.failurePath(fail(ReasonToolServerUnavailable)), true
+	if err != nil {
+		return t.failurePath(failErr(ReasonToolServerUnavailable, err)), true
 	}
 	if res.IsError {
 		switch res.Code {
@@ -79,15 +81,16 @@ func (t *turn) identify() (string, bool) {
 
 // callTool runs one tool call on a detached context bounded by
 // AGENT_TOOL_TIMEOUT, so a started call finishes even past the turn
-// deadline (AC-11). answered is false when the tool server gave no answer.
-func (a *Agent) callTool(parent context.Context, r mcpclient.Requester, tool string, args map[string]any) (mcpclient.Result, bool) {
+// deadline (AC-11). The error is set when the tool server gave no answer;
+// the result then holds the fixed unknown text.
+func (a *Agent) callTool(parent context.Context, r mcpclient.Requester, tool string, args map[string]any) (mcpclient.Result, error) {
 	ctx, cancel := a.detached(parent, a.cfg.ToolTimeout)
 	defer cancel()
 	res, err := a.deps.Tools.Call(ctx, r, tool, args)
 	if err != nil {
-		return mcpclient.Result{Text: UnknownToolResult, IsError: true}, false
+		return mcpclient.Result{Text: UnknownToolResult, IsError: true}, err
 	}
-	return res, true
+	return res, nil
 }
 
 // requesterBlock is the second system block, rebuilt every turn from that

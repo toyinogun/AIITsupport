@@ -57,14 +57,14 @@ func (t *turn) loop() (string, *failure) {
 func (t *turn) request() (anthropic.MessageNewParams, *failure) {
 	used, err := t.a.deps.Store.SumTokens(t.ctx, t.conv.ID)
 	if err != nil {
-		return anthropic.MessageNewParams{}, t.storeFailure()
+		return anthropic.MessageNewParams{}, t.storeFailure(err)
 	}
 	if used >= t.a.cfg.MaxTokensPerTicket {
 		return anthropic.MessageNewParams{}, fail(ReasonTokenBudget)
 	}
 	stored, err := t.a.deps.Store.ListMessages(t.ctx, t.conv.ID)
 	if err != nil {
-		return anthropic.MessageNewParams{}, t.storeFailure()
+		return anthropic.MessageNewParams{}, t.storeFailure(err)
 	}
 	msgs, err := buildHistory(stored)
 	if err != nil {
@@ -73,9 +73,9 @@ func (t *turn) request() (anthropic.MessageNewParams, *failure) {
 	defs, err := t.a.toolDefs.get(t.ctx, t.a.deps.Tools)
 	if err != nil {
 		if t.deadlinePassed() {
-			return anthropic.MessageNewParams{}, fail(ReasonMessageTimeout)
+			return anthropic.MessageNewParams{}, failErr(ReasonMessageTimeout, err)
 		}
-		return anthropic.MessageNewParams{}, fail(ReasonToolServerUnavailable)
+		return anthropic.MessageNewParams{}, failErr(ReasonToolServerUnavailable, err)
 	}
 	choice := anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{DisableParallelToolUse: anthropic.Bool(true)}}
 	if t.resolved {
@@ -104,10 +104,11 @@ func (t *turn) callModel(params anthropic.MessageNewParams) (*anthropic.Message,
 	resp, err := t.a.deps.Model.New(ctx, params)
 	if err != nil {
 		span.SetStatus(codes.Error, "model call failed")
+		span.SetAttributes(attribute.String("cause", cause(err)))
 		if t.deadlinePassed() {
-			return nil, fail(ReasonMessageTimeout)
+			return nil, failErr(ReasonMessageTimeout, err)
 		}
-		return nil, fail(ReasonModelUnavailable)
+		return nil, failErr(ReasonModelUnavailable, err)
 	}
 	u := resp.Usage
 	span.SetAttributes(
@@ -142,7 +143,7 @@ func (t *turn) recordUsage(resp *anthropic.Message) *failure {
 		PricingDate:    t.a.cfg.Price.PricingDate,
 	})
 	if err != nil {
-		return fail(ReasonStoreUnavailable)
+		return failErr(ReasonStoreUnavailable, err)
 	}
 	return nil
 }
@@ -151,10 +152,10 @@ func (t *turn) recordUsage(resp *anthropic.Message) *failure {
 func (t *turn) storeAssistant(resp *anthropic.Message) *failure {
 	content, err := encodeBlocks(assistantContent(resp))
 	if err != nil {
-		return fail(ReasonStoreUnavailable)
+		return failErr(ReasonStoreUnavailable, err)
 	}
 	if err := t.a.deps.Store.AppendMessage(t.ctx, t.conv.ID, RoleAssistant, content); err != nil {
-		return t.storeFailure()
+		return t.storeFailure(err)
 	}
 	return nil
 }
@@ -174,7 +175,8 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 		return fail(ReasonMessageTimeout)
 	}
 	first := uses[0]
-	res, answered := t.a.callTool(t.ctx, *t.requester, first.name, first.input)
+	res, callErr := t.a.callTool(t.ctx, *t.requester, first.name, first.input)
+	answered := callErr == nil
 	t.toolCalls++
 
 	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewToolResultBlock(first.id, toolResultText(res), res.IsError)}
@@ -183,13 +185,13 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 	}
 	content, err := encodeBlocks(blocks)
 	if err != nil {
-		return &failure{reason: ReasonStoreUnavailable, unknown: !answered}
+		return &failure{reason: ReasonStoreUnavailable, cause: cause(err), unknown: !answered}
 	}
 	change := statusChangeFor(first.name, res)
 	ctx, cancel := t.a.detached(t.ctx, t.a.cfg.ToolTimeout)
 	defer cancel()
 	if err := t.a.deps.Store.AppendToolResult(ctx, t.conv.ID, content, change); err != nil {
-		return &failure{reason: ReasonStoreUnavailable, unknown: !answered}
+		return &failure{reason: ReasonStoreUnavailable, cause: cause(err), unknown: !answered}
 	}
 	if change != nil {
 		if change.TicketID != 0 {
@@ -202,7 +204,7 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 		}
 	}
 	if !answered {
-		return &failure{reason: ReasonToolServerUnavailable, unknown: true}
+		return &failure{reason: ReasonToolServerUnavailable, cause: cause(callErr), unknown: true}
 	}
 	return nil
 }
