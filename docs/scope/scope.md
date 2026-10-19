@@ -170,9 +170,9 @@ The thinnest real thread: a user says they are locked out in Slack, the agent co
   - [x] The other doors: channel redirect, empty message, closed thread, hourly cap, the Slack email setting (AC-1 to AC-4, AC-19)
   - [x] Failure path, per thread workers, shutdown drain, and the restart sweep (AC-5, AC-10, AC-11, AC-13, AC-14, AC-16)
   - [x] Hygiene, trace propagation, boundary tests, docs (AC-17, AC-18)
-- [ ] Verify it: `/check verify locked out user flow`
+- [x] Verify it: `/check verify locked out user flow`
 - [ ] Test it: `/test locked out user flow`
-- [ ] Review it (fresh model): `/check review locked out user flow`
+- [x] Review it (fresh model): `/check review locked out user flow`
 - [ ] Document it: `/document locked out user flow`
 spec [0008](../specs/0008-locked-out-user-flow/index.md) · code in `internal/agent`, `internal/llm`, `eval`, `internal/slack`
 
