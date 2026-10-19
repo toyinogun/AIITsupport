@@ -246,7 +246,10 @@ func statusChangeFor(tool string, r mcpclient.Result, current int64) *StatusChan
 // (spec 0009, AC-8 and AC-9).
 func (t *turn) modelEscalated(input map[string]any, res mcpclient.Result) {
 	t.conv.Status, t.escalated = StatusEscalated, true
-	reason, _ := res.Data["reason"].(string)
+	reason, ok := resultReason(res.Data)
+	if !ok {
+		t.a.deps.Logger.Warn("agent_escalate_reason_unknown", "event_id", t.in.EventID)
+	}
 	t.reason = Reason(reason)
 	t.a.logEscalated(t.ctx, t.in.EventID, t.reason, true, cause(nil))
 	calls := t.a.callsOrNone(t.ctx, t.conv.ID) // a failed read leaves Ran: empty; the post still goes

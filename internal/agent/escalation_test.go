@@ -293,6 +293,37 @@ func TestITPostFailureIsLogged(t *testing.T) {
 	}
 }
 
+// covers: AC-9. An ok escalate result with a missing or unknown reason still
+// gets a fixed headline (security_concern) and a fixed agent_escalated
+// reason, and the fallback is logged.
+func TestUnknownEscalateReasonFallsBack(t *testing.T) {
+	for name, reason := range map[string]any{"missing": nil, "unknown": "made_up", "not a string": 7.0} {
+		t.Run(name, func(t *testing.T) {
+			tools := agenttest.NewTools(janUser, true)
+			tools.Handlers["escalate"] = agenttest.Respond(agenttest.OK("Escalated to IT.", map[string]any{
+				"ticket_id": 43.0, "ticket_number": "10043", "reason": reason, "privileged": false,
+			}))
+			h := newHarness(t, agenttest.NewModel(
+				escalateCall("t1", "other_person", "Asked to unlock a colleague."),
+				agenttest.Answer("IT has this."),
+			), withTools(tools))
+			h.send(dm("Ev1", "Unlock Eva"))
+
+			it := h.itPosts()
+			if len(it) != 1 || !strings.HasPrefix(it[0], ":warning: *Security concern*\n") {
+				t.Errorf("IT posts = %q, want one with the security_concern headline", it)
+			}
+			logs := h.logs.String()
+			if !strings.Contains(logs, `"msg":"agent_escalate_reason_unknown","event_id":"Ev1"`) {
+				t.Errorf("logs lack agent_escalate_reason_unknown:\n%s", logs)
+			}
+			if !strings.Contains(logs, `"msg":"agent_escalated","event_id":"Ev1","reason":"security_concern"`) {
+				t.Errorf("agent_escalated lacks the fallback reason:\n%s", logs)
+			}
+		})
+	}
+}
+
 // covers: AC-9. When the stored calls cannot be read after the model's ok
 // escalate, the IT post still goes out and agent_history_read_failed is
 // logged with its cause.

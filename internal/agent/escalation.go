@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -108,10 +109,26 @@ type itPost struct {
 	summary string         // already safe: modelSummary or a fixed text
 }
 
+// escalateReasons are the reasons escalate accepts (spec 0009, AC-2).
+var escalateReasons = []string{escalatePrivileged, escalateOther, escalateSecurity, escalateFailure, escalateRestart}
+
+// resultReason is an ok escalate result's reason, or security_concern when
+// the result holds none escalate accepts, so the headline and the
+// agent_escalated reason are always a fixed token; ok is false on the
+// fallback. The tool server echoes a validated reason, so a fallback means
+// the result changed shape.
+func resultReason(result map[string]any) (reason string, ok bool) {
+	reason, _ = result["reason"].(string)
+	if slices.Contains(escalateReasons, reason) {
+		return reason, true
+	}
+	return escalateSecurity, false
+}
+
 // text builds the post in its fixed order (AC-9). Only the summary can hold
 // model text, and it comes last, on one line, escaped.
 func (p itPost) text() string {
-	reason, _ := p.result["reason"].(string)
+	reason, _ := resultReason(p.result)
 	privileged, _ := p.result["privileged"].(bool)
 	if privileged {
 		reason = escalatePrivileged
