@@ -215,3 +215,7 @@ This is a portfolio engagement, so outside pull requests are not expected, but i
 - Run `make hooks` once per clone, and `make check` before you push.
 - Read [AGENTS.md](AGENTS.md) first; the rules there (credential boundary, audit, config) are enforced by lint and tests.
 - Use fictional Noord data only. Never commit real names, real company data, or secrets; `gitleaks` runs on every commit and in CI.
+
+## License
+
+[MIT](LICENSE)
