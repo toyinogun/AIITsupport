@@ -212,3 +212,35 @@ func TestCause(t *testing.T) {
 		}
 	}
 }
+
+// covers: AC-6. Only a whole, positive ticket id JSON can carry exactly is
+// stored; anything else stores nothing, so no later call writes to the
+// wrong ticket.
+func TestTicketID(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want int64
+		ok   bool
+	}{
+		{"float from the MCP client", float64(42), 42, true},
+		{"largest exact float", float64(maxTicketID), maxTicketID, true},
+		{"beyond exact floats", float64(maxTicketID + 1), 0, false},
+		{"fraction", 42.5, 0, false},
+		{"zero", float64(0), 0, false},
+		{"negative", float64(-3), 0, false},
+		{"int from a fake", 7, 7, true},
+		{"int64", int64(9), 9, true},
+		{"negative int", -1, 0, false},
+		{"string", "42", 0, false},
+		{"missing", nil, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := ticketID(c.in)
+			if ok != c.ok || (ok && got != c.want) {
+				t.Errorf("ticketID(%v) = %d, %v; want %d, %v", c.in, got, ok, c.want, c.ok)
+			}
+		})
+	}
+}
