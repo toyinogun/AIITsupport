@@ -23,7 +23,7 @@ func (t *turn) failurePath(f *failure) string {
 	t.reason = f.reason
 	var o escalationOutcome
 	if t.requester != nil {
-		calls, _ := t.a.listCalls(t.ctx, t.conv.ID) // a failed read escalates as assistant_failure
+		calls := t.a.callsOrNone(t.ctx, t.conv.ID) // a failed read escalates as assistant_failure
 		reason := escalateFailure
 		if blocked, _ := blockedUnescalated(calls); blocked {
 			reason = escalatePrivileged

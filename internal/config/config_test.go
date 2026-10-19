@@ -723,8 +723,8 @@ func TestLoadAgentITChannel(t *testing.T) {
 }
 
 // covers: AC-13 (spec 0009). ZAMMAD_PUBLIC_URL is optional and, when set,
-// a plain http or https base; PRIVILEGED_ATTEMPT_WINDOW defaults to 24h
-// and is at least 1h.
+// a plain http or https base with no credentials and its trailing "/"
+// trimmed; PRIVILEGED_ATTEMPT_WINDOW defaults to 24h and is at least 1h.
 func TestLoadToolServerEscalationSettings(t *testing.T) {
 	cfg, err := LoadToolServer(envFrom(minimalToolServerEnv()))
 	if err != nil {
@@ -745,6 +745,8 @@ func TestLoadToolServerEscalationSettings(t *testing.T) {
 		"no host":         {"ZAMMAD_PUBLIC_URL", "https:///zammad", false},
 		"relative":        {"ZAMMAD_PUBLIC_URL", "help.noord.example", false},
 		"ftp":             {"ZAMMAD_PUBLIC_URL", "ftp://help.noord.example", false},
+		"user and pass":   {"ZAMMAD_PUBLIC_URL", "https://it:secret@help.noord.example", false},
+		"user only":       {"ZAMMAD_PUBLIC_URL", "https://it@help.noord.example", false},
 		"one hour":        {"PRIVILEGED_ATTEMPT_WINDOW", "1h", true},
 		"thirty minutes":  {"PRIVILEGED_ATTEMPT_WINDOW", "30m", false},
 	}
@@ -757,6 +759,27 @@ func TestLoadToolServerEscalationSettings(t *testing.T) {
 		}
 		if !tc.ok && (err == nil || !strings.Contains(err.Error(), tc.key+" must")) {
 			t.Errorf("%s: LoadToolServer = %v, want an error naming %s", name, err, tc.key)
+		}
+	}
+}
+
+// covers: AC-13 (spec 0009). LoadToolServer trims every trailing "/" from
+// ZAMMAD_PUBLIC_URL, so ticket links never hold "//#ticket".
+func TestZammadPublicURLTrimmed(t *testing.T) {
+	cases := map[string]string{
+		"http://127.0.0.1:58080":              "http://127.0.0.1:58080",
+		"https://help.noord.example/":         "https://help.noord.example",
+		"https://help.noord.example/zammad//": "https://help.noord.example/zammad",
+	}
+	for raw, want := range cases {
+		env := minimalToolServerEnv()
+		env["ZAMMAD_PUBLIC_URL"] = raw
+		cfg, err := LoadToolServer(envFrom(env))
+		if err != nil {
+			t.Fatalf("%s: LoadToolServer: %v", raw, err)
+		}
+		if cfg.ZammadPublicURL != want {
+			t.Errorf("%s: ZammadPublicURL = %q, want %q", raw, cfg.ZammadPublicURL, want)
 		}
 	}
 }

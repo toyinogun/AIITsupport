@@ -249,7 +249,7 @@ func (t *turn) modelEscalated(input map[string]any, res mcpclient.Result) {
 	reason, _ := res.Data["reason"].(string)
 	t.reason = Reason(reason)
 	t.a.logEscalated(t.ctx, t.in.EventID, t.reason, true, cause(nil))
-	calls, _ := t.a.listCalls(t.ctx, t.conv.ID) // a failed read leaves Ran: empty; the post still goes
+	calls := t.a.callsOrNone(t.ctx, t.conv.ID) // a failed read leaves Ran: empty; the post still goes
 	summary, _ := input["summary"].(string)
 	displayName, _ := t.lookup["display_name"].(string)
 	department, _ := t.lookup["department"].(string)

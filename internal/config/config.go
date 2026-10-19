@@ -320,6 +320,7 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
+	cfg.ZammadPublicURL = strings.TrimRight(cfg.ZammadPublicURL, "/")
 	return cfg, nil
 }
 
@@ -374,7 +375,7 @@ func checkToolLayer(cfg ToolServer) error {
 		errs = append(errs, errors.New("PRIVILEGED_ATTEMPT_WINDOW must be at least 1h"))
 	}
 	if cfg.ZammadPublicURL != "" && !isPublicURL(cfg.ZammadPublicURL) {
-		errs = append(errs, errors.New("ZAMMAD_PUBLIC_URL must be an absolute http or https URL with a host and no query or fragment"))
+		errs = append(errs, errors.New("ZAMMAD_PUBLIC_URL must be an absolute http or https URL with a host and no credentials, query, or fragment"))
 	}
 	if len(cfg.ToolGroupOUs) == 0 {
 		errs = append(errs, errors.New("TOOL_GROUP_OUS must name at least one OU"))
@@ -383,10 +384,11 @@ func checkToolLayer(cfg ToolServer) error {
 }
 
 // isPublicURL reports whether raw is an absolute http or https URL with a
-// host and no query or fragment, the base of a ticket link (spec 0009).
+// host and no credentials, query, or fragment, the base of a ticket link
+// (spec 0009). Ticket links are posted to Slack, so userinfo is refused.
 func isPublicURL(raw string) bool {
 	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" &&
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil &&
 		u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && !strings.Contains(raw, "#")
 }
 

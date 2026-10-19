@@ -189,7 +189,7 @@ The video hook. "I need Domain Admin to fix a printer" is refused, explained, of
   - [x] Proof and docs: the live adversarial set (7 phrasings, 3 runs each), hygiene and boundary tests, the IT channel runbook (AC-15 to AC-17)
 - [x] Verify it: `/check verify refusal & escalation`
 - [x] Test it: `/test refusal & escalation`
-- [ ] Review it (fresh model): `/check review refusal & escalation`
+- [x] Review it (fresh model): `/check review refusal & escalation`
 - [ ] Document it: `/document refusal & escalation`
 spec [0009](../specs/0009-refusal-escalation/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/zammad`, `internal/agent`, `internal/audit`, `internal/config`, `internal/slack`, `db/queries/audit.sql`
 

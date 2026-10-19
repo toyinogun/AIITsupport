@@ -261,6 +261,18 @@ const (
 	kindITNotMatched = "it_not_matched"
 )
 
+// callsOrNone reads the conversation's stored tool calls for an escalation
+// that goes ahead either way. A failed read logs agent_history_read_failed
+// and is an empty list: the Ran: line is empty and a blocked call is missed,
+// though the tool server still tags the ticket from its audit log.
+func (a *Agent) callsOrNone(parent context.Context, id int64) []storedCall {
+	calls, err := a.listCalls(parent, id)
+	if err != nil {
+		a.deps.Logger.Warn("agent_history_read_failed", "conversation_id", id, "cause", cause(err))
+	}
+	return calls
+}
+
 // listCalls reads the conversation's stored tool calls on a detached
 // context; a failed read is an empty list.
 func (a *Agent) listCalls(parent context.Context, id int64) ([]storedCall, error) {

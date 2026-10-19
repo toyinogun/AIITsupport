@@ -293,6 +293,26 @@ func TestITPostFailureIsLogged(t *testing.T) {
 	}
 }
 
+// covers: AC-9. When the stored calls cannot be read after the model's ok
+// escalate, the IT post still goes out and agent_history_read_failed is
+// logged with its cause.
+func TestHistoryReadFailureIsLogged(t *testing.T) {
+	var h *harness
+	escalate := escalateCall("t1", "other_person", "Asked to unlock a colleague.")
+	step := func(ctx context.Context, p anthropic.MessageNewParams) (*anthropic.Message, error) {
+		h.store.FailOn("ListMessages") // the loop already read the history; the post's read fails
+		return escalate(ctx, p)
+	}
+	h = newHarness(t, agenttest.NewModel(step, agenttest.Answer("IT has this.")))
+	h.send(dm("Ev1", "Unlock Eva"))
+	if want := `"msg":"agent_history_read_failed","conversation_id":1,"cause":"other"`; !strings.Contains(h.logs.String(), want) {
+		t.Errorf("logs lack %s:\n%s", want, h.logs)
+	}
+	if n := len(h.itPosts()); n != 1 {
+		t.Errorf("IT posts = %d, want 1", n)
+	}
+}
+
 // covers: spec 0009 AC-9, AC-16. The model's summary names the requester and
 // the department; the IT post carries placeholders instead.
 func TestITPostRemovesTheRequesterName(t *testing.T) {

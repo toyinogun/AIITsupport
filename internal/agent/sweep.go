@@ -70,7 +70,7 @@ func (a *Agent) recoverInterrupted(ctx context.Context, c Conversation) {
 // restart (spec 0009, AC-11). It stores the ticket the call used when the
 // conversation has none, and posts to IT.
 func (a *Agent) escalateInterrupted(ctx context.Context, c Conversation, r mcpclient.Requester, account string) escalationOutcome {
-	calls, _ := a.listCalls(ctx, c.ID) // a failed read escalates as restart
+	calls := a.callsOrNone(ctx, c.ID) // a failed read escalates as restart
 	reason := escalateRestart
 	if blocked, _ := blockedUnescalated(calls); blocked {
 		reason = escalatePrivileged

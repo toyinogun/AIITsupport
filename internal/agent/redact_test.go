@@ -35,6 +35,22 @@ func TestRedactRequester(t *testing.T) {
 			"[name] from [department] asked.",
 		},
 		{"empty values", "Jan asked.", "", "", "Jan asked."},
+		{
+			"two letter department kept", "Add me to SG-IT-Admins; only IT can grant it.", "Ravi D'Souza", "IT",
+			"Add me to SG-IT-Admins; only IT can grant it.",
+		},
+		{
+			"department inside a group name kept", "Add me to SG-Transport, Transport needs it.", "Jan de Vries", "Transport",
+			"Add me to SG-Transport, [department] needs it.",
+		},
+		{
+			"department inside other identifiers kept", "it_transport, transport.local, Transport_Drivers, Transport.",
+			"Jan de Vries", "Transport", "it_transport, transport.local, Transport_Drivers, [department].",
+		},
+		{
+			"department beside a lone joiner", "Team - Transport - asked; also -Transport-.", "Jan de Vries", "Transport",
+			"Team - [department] - asked; also -[department]-.",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
