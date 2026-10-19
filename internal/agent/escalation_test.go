@@ -315,3 +315,84 @@ func TestITPostRemovesTheRequesterName(t *testing.T) {
 		t.Errorf("the tool call's summary changed: %q", e.Args["summary"])
 	}
 }
+
+// covers: AC-10. The backstop is refused already_escalated (an earlier code
+// escalation's status write failed): IT already has the thread, so the turn
+// ends escalated with no ticket id, the short IT post, and footer_escalated.
+func TestBackstopAlreadyEscalated(t *testing.T) {
+	h := newHarness(t, agenttest.NewModel(privilegedCall("t1"), agenttest.Answer("I can't do that.")))
+	h.tools.Set("escalate", agenttest.Respond(agenttest.Refused("already_escalated", "This conversation is already with IT.")))
+	h.send(dm("Ev1", "Make me Domain Admin"))
+
+	h.wantPosts(agent.TextAck, "I can't do that.\n\n"+agent.FooterEscalated)
+	if c := h.conv(); c.Status != agent.StatusEscalated || c.TicketID != 0 {
+		t.Errorf("conversation = %+v, want escalated with no ticket id", c)
+	}
+	want := ":rotating_light: *Privileged request refused*\n" +
+		"Requester: <@U0JAN> (jan.devries)\n" +
+		"Ticket: already escalated; see the audit log for this thread."
+	if it := h.itPosts(); len(it) != 1 || it[0] != want {
+		t.Errorf("IT posts = %q\nwant %q", it, want)
+	}
+	logs := h.logs.String()
+	if !strings.Contains(logs, `"msg":"agent_escalated","event_id":"Ev1","reason":"backstop"`) {
+		t.Errorf("logs lack agent_escalated backstop:\n%s", logs)
+	}
+	if strings.Contains(logs, "agent_backstop_failed") {
+		t.Errorf("an already escalated backstop logged a failure:\n%s", logs)
+	}
+}
+
+// covers: AC-10. When the stored tool results cannot be read, the backstop
+// logs agent_backstop_failed with code unknown, makes no call, adds no
+// sentence, and the reply keeps footer_open.
+func TestBackstopCannotReadTheHistory(t *testing.T) {
+	var h *harness
+	answer := func(ctx context.Context, p anthropic.MessageNewParams) (*anthropic.Message, error) {
+		h.store.FailOn("ListMessages") // the loop already read the history; the backstop's read fails
+		return agenttest.Answer("I can't do that.")(ctx, p)
+	}
+	h = newHarness(t, agenttest.NewModel(privilegedCall("t1"), answer))
+	h.send(dm("Ev1", "Make me Domain Admin"))
+
+	h.wantTools("user_lookup", "privileged_access_change")
+	h.wantPosts(agent.TextAck, "I can't do that.\n\n"+agent.FooterOpen)
+	h.wantStatus(agent.StatusOpen)
+	if !strings.Contains(h.logs.String(), `"msg":"agent_backstop_failed","event_id":"Ev1","code":"unknown"`) {
+		t.Errorf("logs lack agent_backstop_failed unknown:\n%s", h.logs)
+	}
+	if it := h.itPosts(); len(it) != 0 {
+		t.Errorf("IT posts = %q, want none", it)
+	}
+}
+
+// covers: AC-10. A model that ends with text and was never blocked gets no
+// backstop call, even after other refusals.
+func TestNoBackstopWithoutABlockedCall(t *testing.T) {
+	h := newHarness(t, agenttest.NewModel(
+		agenttest.CallTool("t1", "account_unlock", map[string]any{}),
+		agenttest.Answer("Done."),
+	))
+	h.tools.Set("account_unlock", agenttest.Respond(agenttest.Refused("rate_limited", "Too many changes.")))
+	h.send(dm("Ev1", "unlock me"))
+	h.wantTools("user_lookup", "account_unlock")
+	h.wantStatus(agent.StatusOpen)
+	if it := h.itPosts(); len(it) != 0 {
+		t.Errorf("IT posts = %q, want none", it)
+	}
+}
+
+// covers: AC-9. Without ZAMMAD_PUBLIC_URL the result has no ticket_url and
+// the Ticket line is the number alone, not a link.
+func TestITPostWithoutATicketLink(t *testing.T) {
+	h := newHarness(t, agenttest.NewModel(escalateCall("t1", "other_person", "Asked to unlock a colleague."), agenttest.Answer("IT has this.")))
+	h.tools.Set("escalate", agenttest.Respond(agenttest.OK("Escalated to IT.", map[string]any{
+		"ticket_id": 44.0, "ticket_number": "10044", "reason": "other_person", "initiator": "model",
+		"privileged": false, "created": true, "privileged_attempts": 0.0, "privileged_window_hours": 24.0,
+	})))
+	h.send(dm("Ev1", "Unlock Eva"))
+	it := h.itPosts()
+	if len(it) != 1 || !strings.Contains(it[0], "\nTicket: #10044\nSummary: ") {
+		t.Errorf("IT posts = %q, want the bare ticket number", it)
+	}
+}

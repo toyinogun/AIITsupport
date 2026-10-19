@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/toyinogun/AIITsupport/internal/zammad"
 	"github.com/toyinogun/AIITsupport/internal/zammad/zammadtest"
 )
 
@@ -356,4 +357,118 @@ func TestEscalateIsNotAnAccountChange(t *testing.T) {
 	if resp := h.call(ToolTicketCreate, `{"title":"t","body":"b"}`, inThread("1760000000.002000")); resp.IsError {
 		t.Errorf("escalations counted toward TICKET_CREATE_LIMIT: %+v", resp)
 	}
+}
+
+// covers: AC-4, AC-5. The reason privileged_request alone adds the privileged
+// tag, even with no blocked attempt in the thread; privileged stays false and
+// the attempt count is zero.
+func TestEscalatePrivilegedReasonWithoutABlockedAttempt(t *testing.T) {
+	h := newHarness(t)
+	resp := h.call(ToolEscalate, escalateArgs(ReasonPrivilegedRequest), eva())
+	if resp.IsError || resp.Data["privileged"] != false || resp.Data["privileged_attempts"] != int64(0) {
+		t.Fatalf("response = %+v", resp)
+	}
+	id := resp.Data["ticket_id"].(int)
+	if got := h.zammad.Tags(id); !slices.Equal(got, []string{"noord-assistant", "escalated", "privileged-request"}) {
+		t.Errorf("tags = %v", got)
+	}
+}
+
+// covers: AC-4, AC-13. Without ZAMMAD_PUBLIC_URL the result has no ticket_url.
+func TestEscalateWithoutAPublicURL(t *testing.T) {
+	h := newHarness(t)
+	h.d.sys.Helpdesk.publicURL = ""
+	resp := h.call(ToolEscalate, escalateArgs(ReasonOtherPerson), eva())
+	if resp.IsError {
+		t.Fatalf("response = %+v", resp)
+	}
+	if _, ok := resp.Data["ticket_url"]; ok {
+		t.Errorf("ticket_url = %v, want none", resp.Data["ticket_url"])
+	}
+	if resp.Data["ticket_number"] == nil {
+		t.Errorf("ticket_number missing: %+v", resp.Data)
+	}
+}
+
+// covers: AC-5. privileged_window_hours is the window in whole hours, truncated.
+func TestEscalateWindowHoursAreTruncated(t *testing.T) {
+	h := newHarness(t)
+	h.d.cfg.PrivilegedWindow = 90 * time.Minute
+	resp := h.call(ToolEscalate, escalateArgs(ReasonOtherPerson), eva())
+	if resp.IsError || resp.Data["privileged_window_hours"] != int64(1) {
+		t.Errorf("response = %+v, want privileged_window_hours 1", resp)
+	}
+}
+
+// covers: AC-4. A merged ticket counts as closed: refused for a plain
+// escalation, replaced by a new ticket for a privileged one.
+func TestEscalateMergedTicket(t *testing.T) {
+	h := newHarness(t)
+	merged := h.createTicket(eva())
+	if _, err := h.d.sys.Helpdesk.api.UpdateTicket(t.Context(), merged, zammad.TicketUpdate{State: "merged"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, h.call(ToolEscalate, escalateArgs(ReasonOtherPerson), withTicket(eva(), merged)), CodeTicketClosed)
+
+	r := inThread("1760000000.000401")
+	h.blocked(r)
+	resp := h.call(ToolEscalate, escalateArgs(ReasonPrivilegedRequest), withTicket(r, merged))
+	if resp.IsError || resp.Data["created"] != true || resp.Data["ticket_id"] == merged {
+		t.Errorf("privileged escalation on a merged ticket = %+v, want a new ticket", resp)
+	}
+	if got := h.zammad.Tags(merged); slices.Contains(got, "escalated") {
+		t.Errorf("the merged ticket was tagged: %v", got)
+	}
+}
+
+// covers: AC-4. A requester with no Zammad user is denied_identity and no
+// ticket is opened.
+func TestEscalateWithoutHelpdeskAccount(t *testing.T) {
+	h := newHarness(t)
+	h.dir.Users = append(h.dir.Users, ldapUser("new.starter", "Sales"))
+	r := eva()
+	r.Email = "new.starter@noord.example"
+	before := len(h.zammad.Tickets())
+	wantCode(t, h.call(ToolEscalate, escalateArgs(ReasonPrivilegedRequest), r), CodeNoHelpdeskAccount)
+	if o := h.lastOutcome(); o.Outcome.String != "denied_identity" || o.Error.String != "no helpdesk account" {
+		t.Errorf("outcome = %s %q", o.Outcome.String, o.Error.String)
+	}
+	if n := len(h.zammad.Tickets()) - before; n != 0 {
+		t.Errorf("%d tickets opened", n)
+	}
+}
+
+// covers: AC-2. The upper bounds are inclusive and counted in runes.
+func TestEscalateArgumentBounds(t *testing.T) {
+	h := newHarness(t)
+	title, summary := strings.Repeat("é", 200), strings.Repeat("é", 10000)
+	args := `{"reason":"other_person","title":"` + title + `","summary":"` + summary + `"}`
+	if resp := h.call(ToolEscalate, args, eva()); resp.IsError {
+		t.Errorf("a 200 rune title and a 10000 rune summary = %+v", resp)
+	}
+	tooLong := `{"reason":"other_person","title":"t","summary":"` + summary + `é"}`
+	wantCode(t, h.call(ToolEscalate, tooLong, inThread("1760000000.000501")), CodeInvalidArguments)
+}
+
+// covers: AC-6. The guard is per thread, and only an ok escalate lifts it.
+func TestCloseGuardEdges(t *testing.T) {
+	h := newHarness(t)
+	other := inThread("1760000000.000601")
+	otherTicket := h.createTicket(other)
+	id := h.createTicket(eva())
+	h.blocked(eva())
+
+	if resp := h.call(ToolTicketUpdate, `{"state":"closed"}`, withTicket(other, otherTicket)); resp.IsError {
+		t.Errorf("a close in a thread with no blocked attempt = %+v", resp)
+	}
+	if resp := h.call(ToolTicketUpdate, `{"state":"pending","pending_until":"2026-10-20T12:00:00Z"}`, withTicket(eva(), id)); resp.IsError {
+		t.Errorf("pending while unescalated = %+v", resp)
+	}
+
+	h.zammad.Intercept = func(r *http.Request) (zammadtest.Fault, bool) {
+		return zammadtest.Fault{Status: http.StatusServiceUnavailable, Message: "down"}, r.URL.Path == "/api/v1/tags/add"
+	}
+	wantCode(t, h.call(ToolEscalate, escalateArgs(ReasonPrivilegedRequest), withTicket(eva(), id)), CodeUnavailable)
+	h.zammad.Intercept = nil
+	wantCode(t, h.call(ToolTicketUpdate, `{"state":"closed"}`, withTicket(eva(), id)), CodeEscalateFirst)
 }
