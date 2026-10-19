@@ -286,8 +286,8 @@ Tracer Bullet inside the feature: first one privileged DM goes Slack â†’ model â
 
 ## Follow-up
 
-- [ ] Spec 0007: AC-1's tool list now has six names (amended here); tick its #11 follow up.
-- [ ] Spec 0008: AC-10 and AC-14 now ensure a ticket through `escalate` (amended here); tick its #11 follow up.
+- [x] Spec 0007: AC-1's tool list now has six names (amended here); tick its #11 follow up.
+- [x] Spec 0008: AC-10 and AC-14 now ensure a ticket through `escalate` (amended here); tick its #11 follow up.
 - [ ] #12: Slack retention for the IT channel, and whether escalation summaries in Zammad follow the ticket body retention.
 - [ ] #14: medium tier timeouts escalate through the same `escalate` tool (a new reason) and the IT post format; consider Block Kit there for the approval cards.
 - [ ] #15: an access request for a protected group calls `privileged_access_change` (or `Fence.CheckGroup` refuses) and then escalates with `privileged_request`.
