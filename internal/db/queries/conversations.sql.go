@@ -49,6 +49,23 @@ func (q *Queries) AppendMessage(ctx context.Context, arg AppendMessageParams) (C
 	return i, err
 }
 
+const closeIdleConversationsBefore = `-- name: CloseIdleConversationsBefore :execrows
+UPDATE conversations
+SET status = 'resolved', closed_at = updated_at
+WHERE status = 'open' AND updated_at < $1::timestamptz
+`
+
+// CloseIdleConversationsBefore ends open conversations with no activity
+// since the cutoff (spec 0010, AC-8): they become resolved, closed at their
+// last activity, so the content purge counts from then. updated_at stays.
+func (q *Queries) CloseIdleConversationsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, closeIdleConversationsBefore, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countRecentConversations = `-- name: CountRecentConversations :one
 SELECT count(*)::bigint AS conversations
 FROM conversations

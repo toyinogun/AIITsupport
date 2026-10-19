@@ -10,6 +10,7 @@ import (
 	slackapi "github.com/slack-go/slack"
 
 	"github.com/toyinogun/AIITsupport/internal/agent"
+	"github.com/toyinogun/AIITsupport/internal/cause"
 )
 
 // covers: the review's major finding (2026-10-19). A Slack Web API error
@@ -60,9 +61,9 @@ func fakeSlackAPI(t *testing.T, status int, body string) *slackapi.Client {
 	return slackapi.New("xoxb-test", slackapi.OptionAPIURL(srv.URL+"/"))
 }
 
-// causeOf is the agent.Causer token an adapter error carries, or "".
+// causeOf is the cause.Causer token an adapter error carries, or "".
 func causeOf(err error) string {
-	var c agent.Causer
+	var c cause.Causer
 	if errors.As(err, &c) {
 		return c.Cause()
 	}

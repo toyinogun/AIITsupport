@@ -18,17 +18,18 @@ var ErrStoreDown = errors.New("agenttest: the store is down")
 // Store is an in memory agent.Store that answers like the SQL. Like
 // Postgres, it fails a call whose context has ended.
 type Store struct {
-	mu     sync.Mutex
-	Now    func() time.Time
-	convs  []*row
-	msgs   map[int64][]agent.StoredMessage
-	usage  []agent.Usage
-	failOn map[string]bool
+	mu      sync.Mutex
+	Now     func() time.Time
+	convs   []*row
+	msgs    map[int64][]agent.StoredMessage
+	usage   []agent.Usage
+	failOn  map[string]bool
+	failErr map[string]error
 }
 
 type row struct {
 	agent.Conversation
-	createdAt, updatedAt time.Time
+	createdAt, updatedAt, closedAt time.Time
 }
 
 // NewStore returns an empty store on the given clock.
@@ -45,6 +46,9 @@ func (s *Store) FailOn(method string) {
 
 func (s *Store) check(ctx context.Context, method string) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.failErr[method]; err != nil {
 		return err
 	}
 	if s.failOn[method] {
@@ -97,6 +101,9 @@ func (s *Store) setStatus(id int64, ch agent.StatusChange) (agent.Conversation, 
 		r.TicketID = ch.TicketID
 	}
 	r.updatedAt = s.Now()
+	if r.Status != agent.StatusOpen {
+		r.closedAt = r.updatedAt
+	}
 	return r.Conversation, nil
 }
 
@@ -227,6 +234,63 @@ func (s *Store) ListInterrupted(ctx context.Context, staleBefore time.Time) ([]a
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// CloseIdleConversations matches the CloseIdleConversationsBefore query.
+func (s *Store) CloseIdleConversations(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "CloseIdleConversations"); err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, r := range s.convs {
+		if r.Status == agent.StatusOpen && r.updatedAt.Before(cutoff) {
+			r.Status, r.closedAt = agent.StatusResolved, r.updatedAt
+			n++
+		}
+	}
+	return n, nil
+}
+
+// PurgeMessageContent matches the PurgeMessageContentBefore query.
+func (s *Store) PurgeMessageContent(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "PurgeMessageContent"); err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, r := range s.convs {
+		if r.Status == agent.StatusOpen || !r.closedAt.Before(cutoff) {
+			continue
+		}
+		for i := range s.msgs[r.ID] {
+			if m := &s.msgs[r.ID][i]; m.Content != nil {
+				m.Content = nil
+				n++
+			}
+		}
+	}
+	return n, nil
+}
+
+// FailWith makes the named method return err instead of ErrStoreDown.
+func (s *Store) FailWith(method string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failErr == nil {
+		s.failErr = map[string]error{}
+	}
+	s.failErr[method] = err
+}
+
+// Heal undoes FailOn and FailWith for the named method.
+func (s *Store) Heal(method string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.failOn, method)
+	delete(s.failErr, method)
 }
 
 func (s *Store) find(id int64) *row {

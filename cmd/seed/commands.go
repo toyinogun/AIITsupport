@@ -14,7 +14,6 @@ import (
 
 	"github.com/toyinogun/AIITsupport/internal/config"
 	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
-	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/entra"
@@ -82,7 +81,7 @@ func runDirectory(ctx context.Context, args []string, out io.Writer) error {
 		return errUsage
 	}
 	start := time.Now()
-	logger := logging.New(out, "info", service)
+	logger := newLogger(out)
 
 	s, err := loadSession()
 	if err != nil {

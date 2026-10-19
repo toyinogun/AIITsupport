@@ -20,7 +20,7 @@ The forces: deny by default beats remembering, because the next feature's author
 | `conversations` | Slack user id, account name, channel and thread ids | kept | kept (spec 0003) |
 | `audit_log`, `approvals` | Slack ids, account names, allow listed arguments | kept, append only | kept (spec 0003) |
 | `approvals.arguments` | the full call | cleared when the approval ends | unchanged |
-| Zammad tickets | title, first article, notes, escalation summary | kept | assistant tickets deleted 30 days after close |
+| Zammad tickets | title, first article, notes, escalation summary | kept | assistant tickets deleted 30 days after their last close, or after the merge for a merged one |
 | IT Slack channel, user DMs | escalation summaries (names masked), bot replies | workspace plan | documented |
 | Model provider | the whole conversation per call | provider's terms | documented |
 | MCP `_meta` | requester email, agent to tool server | not logged | unchanged |
@@ -60,7 +60,7 @@ Same nets as Option 2, but the tool server deletes old assistant tickets over RE
 
 Option 2 is the only one that makes privacy hold without depending on the next author remembering it, which is the force that matters most in a codebase mostly written from specs. An allow list over keys works because every earlier spec already narrowed log and span values to ids, counts, and fixed tokens; the list just makes that the enforced default. Patterns (Option 3) chase values and miss the data that matters most here, names and free text. The exporter wrapper protects spans from day one and in dev, and the Collector in #18 then adds a second layer rather than being the only one.
 
-For retention, each copy is purged by the system that holds it. The agent already owns and can update the content column, so an hourly loop beside the Slack event purge needs no new grant. Zammad's own scheduler can delete tickets, so the tool server keeps its narrow token (Option 4 would widen the most sensitive credential in the system to save an audit row that adds little: the audit log already records the ticket id and what ran). Starting the clock at close keeps live work safe, and one setting drives both purges, so they can't drift.
+For retention, each copy is purged by the system that holds it. The agent already owns and can update the content column, so an hourly loop beside the Slack event purge needs no new grant. Zammad's own scheduler can delete tickets, so the tool server keeps its narrow token (Option 4 would widen the most sensitive credential in the system to save an audit row that adds little: the audit log already records the ticket id and what ran). Starting the clock at close keeps live work safe, and one setting drives both purges, so they can't drift. The build probes (2026-10-19) found that Zammad gives merged tickets no close time and that `close_at` keeps the first close, so the condition counts closed tickets from `last_close_at` and merged ones from the merge (`updated_at`); the engineer chose this over leaving merged tickets out (they would then be kept forever) during `/develop`.
 
 Choices made during the build of this spec (each with its runner up):
 - `[redacted]` replaces the value and keeps the key, so a missing list entry is visible and tests can assert none appear. Runner up: drop the attribute silently.
@@ -73,7 +73,7 @@ Choices made during the build of this spec (each with its runner up):
 Added after the cross check (a read only review by another model, 2026-10-19):
 - Allowed keys also pass only plain short values (no whitespace, no `@`, at most 128 bytes, no errors or structs), and anything in a group is redacted. A key list alone would let `"cause", err` or a name under `reason` through. Runner up: keys only, trusting review.
 - The source scan uses type information, so `http.Error` and similar calls don't trip it, and it also rejects non literal keys, the built in keys, and non literal span names. Runner up: a plain syntax match, which false fails on the real tree.
-- `http.Server.ErrorLog` writes a fixed line: the standard library's text (TLS errors, panic values) would otherwise land in `msg`, which `ReplaceAttr` never touches.
+- `http.Server.ErrorLog` writes a fixed line: the standard library's text (TLS errors, panic values) would otherwise land in `msg`, which the log handler passes as is.
 - Idle open conversations close as `resolved` after N days without activity, with `closed_at` set to the last activity, so the same pass purges them. Otherwise an abandoned thread keeps its text forever, a hole in the storage limitation claim. Runner up: document the gap.
 - `rails/retention.rb` is left out of the seed marker, so adding it doesn't force every existing Zammad into a reset, and the day count can change without one. Runner up: accept a one time reset.
 - The seed step prints how many tickets the condition matches now, since deletion is the only irreversible step here. Runner up: ship the scheduler disabled until someone turns it on.

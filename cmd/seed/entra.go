@@ -11,7 +11,6 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/graph"
 	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
-	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/entra"
 )
@@ -44,7 +43,7 @@ func runEntraSync(ctx context.Context, args []string, out io.Writer) error {
 		return errUsage
 	}
 	start := time.Now()
-	logger := logging.New(out, "info", service)
+	logger := newLogger(out)
 
 	cfg, err := config.LoadSeed(os.LookupEnv)
 	if err != nil {

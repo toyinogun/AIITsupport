@@ -13,7 +13,6 @@ import (
 
 	"github.com/toyinogun/AIITsupport/internal/config"
 	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
-	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/helpdesk"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
@@ -27,7 +26,7 @@ func runHelpdesk(ctx context.Context, args []string, out io.Writer) error {
 		return errUsage
 	}
 	start := time.Now()
-	logger := logging.New(out, "info", service)
+	logger := newLogger(out)
 
 	cfg, err := config.LoadSeedHelpdesk(os.LookupEnv)
 	if err != nil {
@@ -50,11 +49,14 @@ func runHelpdesk(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if res.AlreadySeeded {
 		logger.Info("already seeded", "duration_ms", time.Since(start).Milliseconds())
-		return nil
+	} else {
+		logger.Info("helpdesk seeded",
+			"users", res.Users, "tickets", res.Tickets, "articles", res.Articles,
+			"categories", res.Categories, "answers", res.Answers, "duration_ms", time.Since(start).Milliseconds())
 	}
-	logger.Info("helpdesk seeded",
-		"users", res.Users, "tickets", res.Tickets, "articles", res.Articles,
-		"categories", res.Categories, "answers", res.Answers, "duration_ms", time.Since(start).Milliseconds())
+	// Ticket deletion is the one irreversible step, so say how many tickets
+	// the scheduler would delete before its first run (spec 0010).
+	logger.Info("retention scheduler", "days", res.RetentionDays, "tickets_matching_now", res.RetentionMatches)
 	return nil
 }
 
@@ -89,7 +91,7 @@ func newSeeder(cfg config.SeedHelpdesk) (helpdesk.Seeder, error) {
 	return helpdesk.Seeder{
 		Runner: helpdesk.ComposeRunner{Dir: wd, Limit: cfg.ZammadWaitTimeout},
 		Admin:  admin, Assistant: assistant, Content: content, Model: m, Marker: marker,
-		Group: cfg.ZammadDefaultGroup,
+		Group: cfg.ZammadDefaultGroup, RetentionDays: cfg.TicketRetentionDays,
 		Secrets: helpdesk.Secrets{
 			AdminEmail: cfg.ZammadAdminEmail, AdminPassword: cfg.ZammadAdminPassword,
 			BindPassword: cfg.ZammadBindPassword, AssistantToken: cfg.ZammadToken,

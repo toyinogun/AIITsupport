@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +60,8 @@ type Seeder struct {
 	Secrets   Secrets
 	// Now is the run time (for the pending reminder); defaults to time.Now.
 	Now func() time.Time
+	// RetentionDays is TICKET_RETENTION_DAYS, the noord-retention window.
+	RetentionDays int
 }
 
 // Result says what the run did.
@@ -69,6 +72,10 @@ type Result struct {
 	Articles      int
 	Categories    int
 	Answers       int
+	// RetentionDays and RetentionMatches are the noord-retention
+	// scheduler's window and how many tickets it would delete now.
+	RetentionDays    int
+	RetentionMatches int
 }
 
 // bootstrapResult is bootstrap.rb's NOORD_RESULT.
@@ -101,7 +108,11 @@ func (s Seeder) Run(ctx context.Context) (Result, error) {
 	}
 	switch boot.State {
 	case stateAlreadySeeded:
-		return Result{AlreadySeeded: true}, s.checkToken(ctx)
+		if err := s.checkToken(ctx); err != nil {
+			return Result{}, err
+		}
+		res := Result{AlreadySeeded: true}
+		return res, s.retention(ctx, &res)
 	case stateNeedsReset:
 		return Result{}, ErrNeedsReset
 	case stateFresh:
@@ -122,10 +133,36 @@ func (s Seeder) Run(ctx context.Context) (Result, error) {
 	if err := s.backdate(ctx, f.payload); err != nil {
 		return Result{}, err
 	}
-	return Result{
+	res := Result{
 		Users: len(boot.Users), Tickets: len(f.payload.Tickets), Articles: f.articles,
 		Categories: f.categories, Answers: len(f.payload.Answers),
-	}, nil
+	}
+	return res, s.retention(ctx, &res)
+}
+
+// retentionResult is retention.rb's NOORD_RESULT.
+type retentionResult struct {
+	Days    int `json:"days"`
+	Matches int `json:"matches"`
+}
+
+// retention upserts the noord-retention scheduler with RetentionDays and
+// records its window and current match count in res (spec 0010, AC-9).
+func (s Seeder) retention(ctx context.Context, res *Result) error {
+	env := map[string]string{"NOORD_RETENTION_DAYS": strconv.Itoa(s.RetentionDays)}
+	raw, err := runStep(ctx, s.Runner, StepRetention, env, nil)
+	if err != nil {
+		return fmt.Errorf("retention scheduler: %w", err)
+	}
+	var r retentionResult
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return fmt.Errorf("retention result: %w", err)
+	}
+	if r.Days != s.RetentionDays {
+		return fmt.Errorf("retention scheduler: set %d days, want %d", r.Days, s.RetentionDays)
+	}
+	res.RetentionDays, res.RetentionMatches = r.Days, r.Matches
+	return nil
 }
 
 func (s Seeder) now() time.Time {

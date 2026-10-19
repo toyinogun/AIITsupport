@@ -23,6 +23,7 @@ The single source of every setting the agent and the tool server read. Each bina
 - `cmd/seed`'s settings (`SEED_*`, including the domain Administrator password) live in `Seed`, read only by `cmd/seed`; `SeedFiles` is the no secret subset `seed validate` loads. Never add them to `Agent` or `ToolServer`.
 - Entra has two app registrations, never mixed (spec 0005): the tool server's `Graph` (`GRAPH_*`, embedded in `ToolServer`, empty at boot for the AD only fallback, required by `LoadGraph`) and the seed app (`SEED_GRAPH_*`, in `Seed`). `SeedEntraMFA` gives `seed entra mfa` the tool server's app, never the seed app. `LoadSeed` treats all `SEED_GRAPH_*` unset as "not configured" and a partial set as an error naming each missing setting.
 - `LoadToolServer` refuses tool layer values out of range (`checkToolLayer`: positive timeouts, limits of at least 1, at least one `TOOL_USER_OUS` and `TOOL_GROUP_OUS` entry) and an `LDAP_URL` that is not an `ldaps://` URL with a host (spec 0007, AC-16).
+- `TICKET_RETENTION_DAYS` (default `30`) is the `Retention` struct, embedded in `Common` and in `SeedHelpdesk`, so the agent's purge and the Zammad scheduler read one value. `checkRetention` refuses anything outside 1 to 365 in `LoadAgent`, `LoadToolServer`, and `LoadSeedHelpdesk` (spec 0010).
 - A setting starts optional with a `// feature #N` comment and flips to `required:"true"` when that feature's code starts using it.
 - Tests pass a map backed `LookupFunc`, never the real environment.
 
@@ -41,5 +42,6 @@ The single source of every setting the agent and the tool server read. Each bina
 - [0005 Entra tenant and sync](../../docs/specs/0005-entra-tenant-sync/index.md) (the `GRAPH_*`, `SEED_GRAPH_*`, and `SEED_ENTRA_*` settings)
 - [0006 helpdesk, KB, and Slack](../../docs/specs/0006-helpdesk-kb-slack/index.md) (the `Zammad` struct, `SeedHelpdesk`, `SEED_ZAMMAD_*`, and the Slack token pair)
 - [0008 locked out user flow](../../docs/specs/0008-locked-out-user-flow/index.md) (the `LLM_*`, `ANTHROPIC_API_KEY`, and `AGENT_*` loop settings)
+- [0010 PII redaction and retention](../../docs/specs/0010-pii-redaction-retention/index.md) (`TICKET_RETENTION_DAYS`)
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

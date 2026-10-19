@@ -14,15 +14,28 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/toyinogun/AIITsupport/internal/agent/agenttest"
+	"github.com/toyinogun/AIITsupport/internal/telemetry"
 )
 
-// recorder is installed once per process: the global tracer the agent took
+// sinks are installed once per process: the global tracer the agent took
 // at init binds to the first provider set, so a second one would see nothing.
-var recorder = sync.OnceValue(func() *tracetest.SpanRecorder {
-	rec := tracetest.NewSpanRecorder()
-	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
-	return rec
+// rec sees every span as recorded; exported sees it after the redacting
+// exporter (spec 0010, AC-4), as a collector would.
+type sinks struct {
+	rec      *tracetest.SpanRecorder
+	exported *tracetest.InMemoryExporter
+}
+
+var traceSinks = sync.OnceValue(func() sinks {
+	s := sinks{rec: tracetest.NewSpanRecorder(), exported: tracetest.NewInMemoryExporter()}
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(s.rec),
+		sdktrace.WithSyncer(telemetry.NewRedactingExporter(s.exported)),
+	))
+	return s
 })
+
+func recorder() *tracetest.SpanRecorder { return traceSinks().rec }
 
 // covers: AC-17. Over a resolved turn and an escalated one, no log line or
 // span attribute holds the message text, an email, a Slack user id, a

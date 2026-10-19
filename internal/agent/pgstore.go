@@ -164,6 +164,22 @@ func (s *pgStore) ListInterrupted(ctx context.Context, staleBefore time.Time) ([
 	return out, nil
 }
 
+func (s *pgStore) CloseIdleConversations(ctx context.Context, cutoff time.Time) (int64, error) {
+	n, err := s.q.CloseIdleConversationsBefore(ctx, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("close idle conversations: %w", err)
+	}
+	return n, nil
+}
+
+func (s *pgStore) PurgeMessageContent(ctx context.Context, cutoff time.Time) (int64, error) {
+	n, err := s.q.PurgeMessageContentBefore(ctx, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("purge message content: %w", err)
+	}
+	return n, nil
+}
+
 func fromRow(c queries.Conversation) Conversation {
 	return Conversation{
 		ID:               c.ID,

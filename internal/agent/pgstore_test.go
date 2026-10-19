@@ -3,10 +3,13 @@ package agent_test
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/toyinogun/AIITsupport/eval"
 	"github.com/toyinogun/AIITsupport/internal/agent"
@@ -171,5 +174,101 @@ func TestPgSetTicket(t *testing.T) {
 	c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
 	if c.TicketID != 26 || c.Status != agent.StatusEscalated {
 		t.Errorf("after set ticket = %+v, want ticket 26 and still escalated", c)
+	}
+}
+
+// covers: AC-8 (spec 0010). With a 30 day window: a conversation closed 31
+// days ago is purged, one closed 29 days ago is kept, an open one idle for 31
+// days is closed (closed_at = updated_at) and purged in the same pass, and an
+// open one active yesterday is untouched. A second pass changes nothing, and
+// noord_agent still may not DELETE. Runs only when TEST_DATABASE_URL is set.
+func TestPgRetention(t *testing.T) {
+	tdb := dbtest.New(t)
+	s := agent.NewStore(tdb.Agent)
+	ctx := t.Context()
+	text := mustBlocks(t, anthropic.NewTextBlock("hello"))
+	conv := func(thread string, n int) int64 {
+		c, err := s.UpsertConversation(ctx, "D0JAN", thread, "U0JAN")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range n {
+			if err := s.AppendMessage(ctx, c.ID, agent.RoleUser, text); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return c.ID
+	}
+	closed31, closed29, idle31, active := conv("1.0", 2), conv("2.0", 1), conv("3.0", 3), conv("4.0", 1)
+	setup := []struct {
+		sql string
+		id  int64
+	}{
+		{"UPDATE conversations SET status = 'resolved', updated_at = now() - interval '31 days', closed_at = now() - interval '31 days' WHERE id = $1", closed31},
+		{"UPDATE conversations SET status = 'escalated', updated_at = now() - interval '29 days', closed_at = now() - interval '29 days' WHERE id = $1", closed29},
+		{"UPDATE conversations SET updated_at = now() - interval '31 days' WHERE id = $1", idle31},
+		{"UPDATE conversations SET updated_at = now() - interval '1 day' WHERE id = $1", active},
+	}
+	for _, q := range setup {
+		if _, err := tdb.Owner.Exec(ctx, q.sql, q.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	logs := &syncBuffer{}
+	r := agent.NewRetention(s, 30, time.Hour, time.Now, slog.New(slog.NewJSONHandler(logs, nil)))
+	r.Pass(ctx)
+	for _, want := range []string{
+		`"msg":"retention_purged","kind":"idle_conversations","rows":1`,
+		`"msg":"retention_purged","kind":"messages","rows":5`,
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("first pass logs lack %s:\n%s", want, logs)
+		}
+	}
+
+	type state struct {
+		status         string
+		closedIsUpdate bool
+		withText       int
+		purged         int
+	}
+	read := func(id int64) state {
+		var st state
+		err := tdb.Owner.QueryRow(ctx, `
+			SELECT c.status, coalesce(c.closed_at = c.updated_at, false),
+			       count(m.*) FILTER (WHERE m.content IS NOT NULL AND m.content_purged_at IS NULL),
+			       count(m.*) FILTER (WHERE m.content IS NULL AND m.content_purged_at IS NOT NULL)
+			FROM conversations c LEFT JOIN conversation_messages m ON m.conversation_id = c.id
+			WHERE c.id = $1 GROUP BY c.id`, id).Scan(&st.status, &st.closedIsUpdate, &st.withText, &st.purged)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	want := map[int64]state{
+		closed31: {"resolved", true, 0, 2},
+		closed29: {"escalated", true, 1, 0},
+		idle31:   {"resolved", true, 0, 3},
+		active:   {"open", false, 1, 0},
+	}
+	for id, w := range want {
+		if got := read(id); got != w {
+			t.Errorf("conversation %d = %+v, want %+v", id, got, w)
+		}
+	}
+
+	logs2 := &syncBuffer{}
+	agent.NewRetention(s, 30, time.Hour, time.Now, slog.New(slog.NewJSONHandler(logs2, nil))).Pass(ctx)
+	if n := strings.Count(logs2.String(), `"rows":0`); n != 2 {
+		t.Errorf("second pass changed rows:\n%s", logs2)
+	}
+
+	for _, table := range []string{"conversation_messages", "conversations"} {
+		_, err := tdb.Agent.Exec(ctx, "DELETE FROM "+table+" WHERE false")
+		var pg *pgconn.PgError
+		if !errors.As(err, &pg) || pg.Code != "42501" {
+			t.Errorf("noord_agent DELETE on %s = %v, want 42501", table, err)
+		}
 	}
 }

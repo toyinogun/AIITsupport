@@ -197,17 +197,17 @@ spec [0009](../specs/0009-refusal-escalation/index.md) · code in `internal/tool
 Keep personal data out of logs and traces, and keep ticket bodies only as long as the retention setting says. Lands before more data flows through the system.
 **Done when:** logs and traces from the unlock and refusal flows show no names, emails, or ticket bodies in clear; old ticket bodies are purged per the retention setting.
 - [x] Design it (spec): `/architect pii redaction & retention`
-- [ ] Build it: `/develop pii redaction & retention`
-  - [ ] No error text: shared `internal/cause`, the Slack listener's cause tokens, the fixed HTTP server error line (AC-3)
-  - [ ] The nets: the allow listed slog handler, the typed source scan, the redacting span exporter (AC-1, AC-2, AC-4)
-  - [ ] Proof: the canary tests over unlock and refusal, and one live grep on `make dev` (AC-5, AC-6)
-  - [ ] Retention: `TICKET_RETENTION_DAYS`, the agent's hourly idle close and content purge, the Zammad `noord-retention` scheduler with its live test (AC-7 to AC-10)
-  - [ ] Runbook and docs: `docs/runbooks/data-retention.md`, nested `AGENTS.md` facts, the #12 follow ups in specs 0003, 0007, 0009 (AC-11)
-- [ ] Verify it: `/check verify pii redaction & retention`
-- [ ] Test it: `/test pii redaction & retention`
-- [ ] Review it (fresh model): `/check review pii redaction & retention`
+- [x] Build it: `/develop pii redaction & retention`
+  - [x] No error text: shared `internal/cause`, the Slack listener's cause tokens, the fixed HTTP server error line (AC-3)
+  - [x] The nets: the allow listed slog handler, the typed source scan, the redacting span exporter (AC-1, AC-2, AC-4)
+  - [x] Proof: the canary tests over unlock and refusal, and one live grep on `make dev` (AC-5, AC-6)
+  - [x] Retention: `TICKET_RETENTION_DAYS`, the agent's hourly idle close and content purge, the Zammad `noord-retention` scheduler with its live test (AC-7 to AC-10)
+  - [x] Runbook and docs: `docs/runbooks/data-retention.md`, nested `AGENTS.md` facts, the #12 follow ups in specs 0003, 0007, 0009 (AC-11)
+- [x] Verify it: `/check verify pii redaction & retention`
+- [x] Test it: `/test pii redaction & retention`
+- [x] Review it (fresh model): `/check review pii redaction & retention`
 - [ ] Document it: `/document pii redaction & retention`
-spec [0010](../specs/0010-pii-redaction-retention/index.md)
+spec [0010](../specs/0010-pii-redaction-retention/index.md) · code in `internal/logging`, `internal/telemetry`, `internal/cause`, `internal/canary`, `internal/server`, `internal/slack`, `internal/agent` (`retention.go`), `internal/config`, `internal/seed/helpdesk`, `seed/helpdesk/rails/retention.rb`, `db/queries/conversations.sql`, `docs/runbooks/data-retention.md`
 
 ## Slice 3: Password reset links
 

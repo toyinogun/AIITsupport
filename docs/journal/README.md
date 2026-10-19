@@ -56,5 +56,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0032](0032-agent-image-misses-eval.md) | 2026-10-19 | The agent image failed in CI: the Dockerfile never copied eval | #10 Locked out user, end to end | ~5 min | post |
 | [0033](0033-sqlc-guesses-a-nullable-column-wrong.md) | 2026-10-19 | sqlc guessed the type of a nullable ticket id wrong three times | #11 Privileged request refusal & escalation | ~10 min | no |
 | [0034](0034-test-fake-refusals-missed-the-code-prefix.md) | 2026-10-19 | The agent's test fake sent refusals without the code the real tool server sends | #11 Privileged request refusal & escalation | ~5 min | post |
+| [0035](0035-zammad-merged-tickets-have-no-close-time.md) | 2026-10-19 | Zammad gives merged tickets no close time, and a reclosed ticket keeps its first one | #12 PII redaction & retention | ~20 min | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

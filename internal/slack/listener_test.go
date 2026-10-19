@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	slackapi "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -443,5 +444,37 @@ func TestToSlackUser(t *testing.T) {
 	}
 	if got := toSlackUser(u); got != want {
 		t.Errorf("toSlackUser = %+v, want %+v", got, want)
+	}
+}
+
+// covers: AC-3 (spec 0010). Listener failures log a fixed cause token, never
+// the error's text: a Postgres error gives postgres_<sqlstate>, a Slack Web
+// API error from auth.test or a socket connect gives its slack_ token.
+func TestListenerLogsCauseNotErrorText(t *testing.T) {
+	l, s, p, d, logs := newListener(t)
+	d.err = &pgconn.PgError{Code: "57P01", Message: "ZEBRA terminating connection"}
+	d.purgeErr = &pgconn.PgError{Code: "08006", Message: "ZEBRA connection failure"}
+	p.checkErrs = []error{wrapErr(slackapi.SlackErrorResponse{Err: "ratelimited"})}
+	connErr := &slackapi.ConnectionErrorEvent{Attempt: 2, Backoff: time.Second, ErrorObj: slackapi.StatusCodeError{Code: 503, Status: "ZEBRA unavailable"}}
+	events := []socketmode.Event{
+		{Type: socketmode.EventTypeConnectionError, Data: connErr},
+		dm("Ev10", "ZEBRA help"),
+	}
+	if err := runWith(t, l, s, events...); err != nil {
+		t.Fatal(err)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		`"msg":"slack_connect_failed","api":"auth.test","attempt":1,"backoff_ms":1000,"cause":"slack_ratelimited"`,
+		`"msg":"slack_connect_failed","api":"apps.connections.open","attempt":2,"backoff_ms":1000,"cause":"slack_503"`,
+		`"msg":"slack_event_dedup_failed","event_id":"Ev10","cause":"postgres_57P01"`,
+		`"msg":"slack_event_purge_failed","cause":"postgres_08006"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("logs lack %s:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "ZEBRA") || strings.Contains(out, `"error"`) {
+		t.Errorf("logs carry error text:\n%s", out)
 	}
 }

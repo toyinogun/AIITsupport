@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
@@ -56,7 +57,7 @@ func run() (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	shutdownTracing, err := telemetry.Setup(ctx, service, cfg.OTelEndpoint)
+	shutdownTracing, err := telemetry.Setup(ctx, service, cfg.OTelEndpoint, logger)
 	if err != nil {
 		return err
 	}
@@ -77,6 +78,9 @@ func run() (err error) {
 	// the health server too, so run() exits 1 naming the setting.
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return server.Run(ctx, ln, server.NewMux(), logger) })
+	// Chat text expires with or without Slack (spec 0010, AC-8).
+	retention := agent.NewRetention(agent.NewStore(pool), cfg.TicketRetentionDays, agent.RetentionEvery, time.Now, logger)
+	g.Go(func() error { return retention.Run(ctx) })
 	if cfg.SlackConfigured() {
 		g.Go(func() error { return runSlack(ctx, cfg, model, pool, logger) })
 	} else {

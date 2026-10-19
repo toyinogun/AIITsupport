@@ -57,7 +57,7 @@ func run() (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	shutdownTracing, err := telemetry.Setup(ctx, service, cfg.OTelEndpoint)
+	shutdownTracing, err := telemetry.Setup(ctx, service, cfg.OTelEndpoint, logger)
 	if err != nil {
 		return err
 	}
