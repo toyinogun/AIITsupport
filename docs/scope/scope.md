@@ -187,7 +187,7 @@ The video hook. "I need Domain Admin to fix a printer" is refused, explained, of
   - [x] The two guards: the close guard and the backstop (AC-6, AC-10)
   - [x] One escalation path: the failure path and sweep through `escalate`, the not matched post (AC-9, AC-11, AC-12)
   - [x] Proof and docs: the live adversarial set (7 phrasings, 3 runs each), hygiene and boundary tests, the IT channel runbook (AC-15 to AC-17)
-- [ ] Verify it: `/check verify refusal & escalation`
+- [x] Verify it: `/check verify refusal & escalation`
 - [ ] Test it: `/test refusal & escalation`
 - [ ] Review it (fresh model): `/check review refusal & escalation`
 - [ ] Document it: `/document refusal & escalation`
