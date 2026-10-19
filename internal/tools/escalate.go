@@ -75,43 +75,47 @@ func escalate(ctx context.Context, d Deps, in Input) (Result, error) {
 	if !ok {
 		return refused(refuseNoHelpdeskAccount), nil
 	}
+	ticket, created, r, err := escalationTarget(ctx, d, in, esc, customer.ID)
+	if err != nil {
+		return Result{}, helpdeskFailure(err)
+	}
+	if r != nil {
+		return refused(*r), nil
+	}
+	return Result{Result: resultData(escalationData(d, in, esc, ticket, created)), Text: "Escalated to IT."}, nil
+}
+
+// escalationTarget tags and notes the thread's ticket when it is usable,
+// else opens one with the tags (AC-4); created reports which. A ticket that
+// is gone, not the requester's, or closed for a model escalation refuses.
+func escalationTarget(ctx context.Context, d Deps, in Input, esc escalation, customerID int) (zammad.Ticket, bool, *refusal, error) {
 	reason, code := in.Args["reason"], in.Requester.Initiator == InitiatorCode
 	tags := []string{tagEscalated}
 	if esc.privileged || reason == ReasonPrivilegedRequest {
 		tags = append(tags, tagPrivileged)
 	}
-
-	var ticket zammad.Ticket
-	created := false
 	if esc.ticketID != 0 {
-		found, usable, r, err := d.Helpdesk.escalationTicket(ctx, int(esc.ticketID), customer.ID, esc.privileged || code)
-		if err != nil {
-			return Result{}, helpdeskFailure(err)
-		}
-		if r != nil {
-			return refused(*r), nil
+		found, usable, r, err := d.Helpdesk.escalationTicket(ctx, int(esc.ticketID), customerID, esc.privileged || code)
+		if err != nil || r != nil {
+			return zammad.Ticket{}, false, r, err
 		}
 		if usable {
-			ticket = found
+			return found, false, nil, d.Helpdesk.tagAndNote(ctx, found.ID, tags, reason, in.Args["summary"])
 		}
 	}
-	if ticket.ID != 0 {
-		err = d.Helpdesk.tagAndNote(ctx, ticket.ID, tags, reason, in.Args["summary"])
-	} else {
-		ticket, err = d.Helpdesk.createEscalation(ctx, customer.ID, tags, in.Args["title"], in.Args["summary"])
-		created = true
-	}
-	if err != nil {
-		return Result{}, helpdeskFailure(err)
-	}
+	ticket, err := d.Helpdesk.createEscalation(ctx, customerID, tags, in.Args["title"], in.Args["summary"])
+	return ticket, true, nil, err
+}
 
+// escalationData is the ok result's data (AC-4, AC-5).
+func escalationData(d Deps, in Input, esc escalation, ticket zammad.Ticket, created bool) map[string]any {
 	initiator := initiatorModel
-	if code {
+	if in.Requester.Initiator == InitiatorCode {
 		initiator = initiatorCode
 	}
 	data := map[string]any{
 		"ticket_id": ticket.ID, "ticket_number": ticket.Number,
-		"reason": reason, "initiator": initiator,
+		"reason": in.Args["reason"], "initiator": initiator,
 		"privileged": esc.privileged, "created": created,
 		"privileged_attempts":     esc.attempts,
 		"privileged_window_hours": int64(d.Limits.PrivilegedWindow.Hours()),
@@ -119,7 +123,7 @@ func escalate(ctx context.Context, d Deps, in Input) (Result, error) {
 	if url := d.Helpdesk.ticketURL(ticket.ID); url != "" {
 		data["ticket_url"] = url
 	}
-	return Result{Result: resultData(data), Text: "Escalated to IT."}, nil
+	return data
 }
 
 // readEscalation makes every audit read escalate needs (AC-3, AC-4, AC-5).
