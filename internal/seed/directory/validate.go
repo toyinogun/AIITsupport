@@ -14,7 +14,7 @@ var usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9.]*[a-z0-9]$`)
 // reservedNames already exist in every provisioned domain or come from the
 // entrypoint's skeleton, so the seed file may not reuse them.
 var reservedNames = []string{
-	"administrator", "guest", "krbtgt", "svc-itsupport", "svc-zammad",
+	"administrator", "guest", "krbtgt", "svc-itsupport", "svc-zammad", "svc-pwreset",
 	"domain admins", "domain users", "domain guests", "domain computers",
 	"domain controllers", "enterprise admins", "schema admins", "administrators",
 	"account operators", "server operators", "backup operators", "print operators",

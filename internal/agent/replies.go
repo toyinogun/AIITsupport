@@ -1,5 +1,7 @@
 package agent
 
+import "strconv"
+
 // Fixed texts the agent posts (spec 0008, Fixed texts). The eval asserts on
 // them, so change them only with the spec.
 const (
@@ -21,6 +23,17 @@ const (
 	FooterOpen              = "_Reply in this thread to continue._"
 	FooterResolved          = "_If you still need help, send me a new message (not in this thread)._"
 )
+
+// Password reset texts (spec 0011, Fixed texts).
+const (
+	TextResetLinkFailed       = "I made you a password reset link but couldn't post it here. Please send me a new message (not in this thread) to get a fresh one."
+	TextResolvedLinkNoSummary = "I've sent your password reset link above, but I couldn't finish my reply. The ticket closes when you set your new password."
+)
+
+// ResetLinkText is the reset_link post: the link, which works once.
+func ResetLinkText(minutes int64, url string) string {
+	return "Here is your password reset link. It works once and expires in " + strconv.FormatInt(minutes, 10) + " minutes:\n" + url
+}
 
 // Escalation texts (spec 0009, Fixed texts).
 const (

@@ -142,10 +142,83 @@ type ToolServer struct {
 	ZammadPublicURL  string        `env:"ZAMMAD_PUBLIC_URL"`
 	PrivilegedWindow time.Duration `env:"PRIVILEGED_ATTEMPT_WINDOW" default:"24h"`
 
+	Reset
+
 	// Audit log writes (spec 0003). internal/audit validates the ranges.
 	AuditOutcomeRetries  int           `env:"AUDIT_OUTCOME_RETRIES" default:"3"`
 	AuditWriteTimeout    time.Duration `env:"AUDIT_WRITE_TIMEOUT" default:"5s"`
 	AuditMaxPayloadBytes int           `env:"AUDIT_MAX_PAYLOAD_BYTES" default:"4096"`
+}
+
+// Reset is the password reset link feature (spec 0011). The first four are
+// one set: all unset turns the feature off (no tool, no listener), and a
+// partial set is an error naming each missing setting.
+type Reset struct {
+	ResetPublicURL        string        `env:"RESET_PUBLIC_URL"` // browser base URL in links
+	ResetHTTPAddr         string        `env:"RESET_HTTP_ADDR"`  // the reset page's own listener
+	ResetLDAPBindDN       string        `env:"RESET_LDAP_BIND_DN"`
+	ResetLDAPBindPassword string        `env:"RESET_LDAP_BIND_PASSWORD"` // svc-pwreset
+	ResetLinkTTL          time.Duration `env:"RESET_LINK_TTL" default:"15m"`
+	ResetLinkLimit        int           `env:"RESET_LINK_LIMIT" default:"3"`
+	ResetLinkWindow       time.Duration `env:"RESET_LINK_WINDOW" default:"24h"`
+	ResetMaxInflight      int           `env:"RESET_MAX_INFLIGHT" default:"4"`
+	// ResetDeniedGroups protect their members, at any depth, from a reset on
+	// top of the code floor. Not TOOL_DENIED_GROUPS, which also fences
+	// SYNC-Entra-Users, a group nearly every employee is in.
+	ResetDeniedGroups []string `env:"RESET_DENIED_GROUPS" default:"SG-IT-Admins,APP-Helpdesk-Agents"`
+}
+
+// ResetEnabled reports whether the reset link feature is configured.
+func (r Reset) ResetEnabled() bool { return r.ResetPublicURL != "" }
+
+// Range bounds for the reset settings (spec 0011, AC-17).
+const (
+	minResetLinkTTL    = 5 * time.Minute
+	maxResetLinkTTL    = time.Hour
+	minResetLinkWindow = time.Hour
+)
+
+// checkReset applies the all or none rule, the https rule, and the ranges.
+func checkReset(r Reset, retention Retention) error {
+	set := map[string]string{
+		"RESET_PUBLIC_URL":         r.ResetPublicURL,
+		"RESET_HTTP_ADDR":          r.ResetHTTPAddr,
+		"RESET_LDAP_BIND_DN":       r.ResetLDAPBindDN,
+		"RESET_LDAP_BIND_PASSWORD": r.ResetLDAPBindPassword,
+	}
+	if !slices.ContainsFunc(slices.Collect(maps.Values(set)), func(v string) bool { return v != "" }) {
+		return nil
+	}
+	errs := missing(set)
+	if r.ResetPublicURL != "" && !isResetURL(r.ResetPublicURL) {
+		errs = append(errs, errors.New("RESET_PUBLIC_URL must be an https URL with a host and no credentials, query, or fragment (http only for localhost, 127.0.0.1, or [::1])"))
+	}
+	if r.ResetLinkTTL < minResetLinkTTL || r.ResetLinkTTL > maxResetLinkTTL {
+		errs = append(errs, errors.New("RESET_LINK_TTL must be between 5m and 60m"))
+	}
+	maxWindow := time.Duration(retention.TicketRetentionDays) * 24 * time.Hour
+	if r.ResetLinkWindow < minResetLinkWindow || r.ResetLinkWindow > maxWindow {
+		errs = append(errs, errors.New("RESET_LINK_WINDOW must be at least 1h and no longer than TICKET_RETENTION_DAYS"))
+	}
+	for name, v := range map[string]int{"RESET_LINK_LIMIT": r.ResetLinkLimit, "RESET_MAX_INFLIGHT": r.ResetMaxInflight} {
+		if v < 1 {
+			errs = append(errs, fmt.Errorf("%s must be at least 1", name))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// isResetURL is isPublicURL, https unless the host is a loopback name.
+func isResetURL(raw string) bool {
+	if !isPublicURL(raw) {
+		return false
+	}
+	u, _ := url.Parse(raw) // isPublicURL parsed it
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return u.Scheme == "https"
 }
 
 // Graph is the tool server's Entra app registration (spec 0005). It may read
@@ -339,11 +412,13 @@ var slackChannelID = regexp.MustCompile(`^[CG][A-Z0-9]{2,20}$`)
 func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg), checkRetention(cfg.Retention))
+	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg), checkRetention(cfg.Retention),
+		checkReset(cfg.Reset, cfg.Retention))
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
 	cfg.ZammadPublicURL = strings.TrimRight(cfg.ZammadPublicURL, "/")
+	cfg.ResetPublicURL = strings.TrimRight(cfg.ResetPublicURL, "/")
 	return cfg, nil
 }
 

@@ -1000,3 +1000,74 @@ func TestTicketRetentionDays(t *testing.T) {
 		})
 	}
 }
+
+func withReset(env map[string]string) map[string]string {
+	env["RESET_PUBLIC_URL"] = "https://reset.noord.example/"
+	env["RESET_HTTP_ADDR"] = ":18082"
+	env["RESET_LDAP_BIND_DN"] = "CN=svc-pwreset,OU=Service Accounts,OU=Noord,DC=ad,DC=noord,DC=example"
+	env["RESET_LDAP_BIND_PASSWORD"] = "Reset-Dev-7xQ2"
+	return env
+}
+
+// covers: spec 0011 AC-17. All unset is off; all set is on with defaults and
+// the trailing slash trimmed; a partial set names each missing setting.
+func TestLoadToolServerResetSettings(t *testing.T) {
+	off, err := LoadToolServer(envFrom(minimalToolServerEnv()))
+	if err != nil || off.ResetEnabled() {
+		t.Fatalf("no RESET_* = %+v, %v; want the feature off", off.Reset, err)
+	}
+	on, err := LoadToolServer(envFrom(withReset(minimalToolServerEnv())))
+	if err != nil || !on.ResetEnabled() {
+		t.Fatalf("all RESET_* = %v; want the feature on", err)
+	}
+	if on.ResetPublicURL != "https://reset.noord.example" || on.ResetLinkTTL != 15*time.Minute ||
+		on.ResetLinkLimit != 3 || on.ResetLinkWindow != 24*time.Hour || on.ResetMaxInflight != 4 ||
+		strings.Join(on.ResetDeniedGroups, ",") != "SG-IT-Admins,APP-Helpdesk-Agents" ||
+		strings.Join(on.ToolDeniedGroups, ",") != "SG-IT-Admins,APP-Helpdesk-Agents,SYNC-Entra-Users" {
+		t.Errorf("reset = %+v", on.Reset)
+	}
+
+	partial := minimalToolServerEnv()
+	partial["RESET_PUBLIC_URL"] = "https://reset.noord.example"
+	_, err = LoadToolServer(envFrom(partial))
+	for _, name := range []string{"RESET_HTTP_ADDR", "RESET_LDAP_BIND_DN", "RESET_LDAP_BIND_PASSWORD"} {
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("partial set: error %v does not name %s", err, name)
+		}
+	}
+	if err != nil && strings.Contains(err.Error(), "Reset-Dev") {
+		t.Error("the error holds a password")
+	}
+}
+
+// covers: spec 0011 AC-17. The https rule and the ranges.
+func TestLoadToolServerResetRules(t *testing.T) {
+	cases := map[string]struct {
+		key, value string
+		ok         bool
+	}{
+		"http on localhost":   {"RESET_PUBLIC_URL", "http://localhost:18082", true},
+		"http on loopback":    {"RESET_PUBLIC_URL", "http://127.0.0.1:18082", true},
+		"http on ipv6 loop":   {"RESET_PUBLIC_URL", "http://[::1]:18082", true},
+		"http on a real host": {"RESET_PUBLIC_URL", "http://reset.noord.example", false},
+		"credentials":         {"RESET_PUBLIC_URL", "https://u:p@reset.noord.example", false},
+		"query":               {"RESET_PUBLIC_URL", "https://reset.noord.example/?a=1", false},
+		"ttl too short":       {"RESET_LINK_TTL", "4m", false},
+		"ttl too long":        {"RESET_LINK_TTL", "61m", false},
+		"ttl at the top":      {"RESET_LINK_TTL", "60m", true},
+		"limit zero":          {"RESET_LINK_LIMIT", "0", false},
+		"window too short":    {"RESET_LINK_WINDOW", "30m", false},
+		"window past":         {"RESET_LINK_WINDOW", "721h", false},
+		"inflight zero":       {"RESET_MAX_INFLIGHT", "0", false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			env := withReset(minimalToolServerEnv())
+			env[c.key] = c.value
+			_, err := LoadToolServer(envFrom(env))
+			if (err == nil) != c.ok {
+				t.Errorf("%s=%s: err = %v, want ok %v", c.key, c.value, err, c.ok)
+			}
+		})
+	}
+}

@@ -82,3 +82,15 @@ Calls made while writing, each with its runner up:
 - **The issue note failing**: non fatal (`ticket_noted` false), because the link works and the audit row records it. Runner up: fail the call and void the link, which turns a Zammad blip into no link at all.
 - **Account changed since issue**: an audited refusal with the `blocked` page; the link stays `live` and simply expires, so no extra void reason is needed.
 - **Token hygiene beyond the database**: https outside loopback, form values read only from the body, no HTTP tracing middleware on the reset listener, and spans named by route pattern, so the token stays out of query logs and span names.
+
+## Update 2026-10-19: which groups protect an account
+
+The first draft refused a link to any member of a code floor or `TOOL_DENIED_GROUPS` group. Building it showed the default `TOOL_DENIED_GROUPS` holds `SYNC-Entra-Users`, and the seed puts nearly every employee in it (`synced` defaults to true), so almost nobody could get a link and AC-20 could never pass (journal 0037). The two lists answer different questions: `TOOL_DENIED_GROUPS` is the groups no tool may change (spec 0007), while a reset needs the people the assistant may not act for alone.
+
+Options weighed:
+- **A separate `RESET_DENIED_GROUPS` on top of the code floor, default `SG-IT-Admins,APP-Helpdesk-Agents` (chosen).** Keeps both meanings clean: the Entra sync group stays fenced for #15's group changes, and IT and helpdesk agents (who hold admin power in Zammad) still need IT for a reset.
+- **Code floor only.** Simplest, but a helpdesk agent such as `ruben.mulder` could reset their password with a Slack session alone.
+- **Drop `SYNC-Entra-Users` from the shared default.** One list, but #15's fence would then let the assistant add people to the Entra sync group.
+
+An unresolvable configured name refuses every account, the same fail closed rule as the group fence (spec 0007, AC-13).
+

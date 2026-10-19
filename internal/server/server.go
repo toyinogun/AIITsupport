@@ -28,13 +28,36 @@ func NewMux() *http.ServeMux {
 	return mux
 }
 
+// Limits are per listener server settings beyond ReadHeaderTimeout. Zero
+// keeps the standard library's default (none) for that field.
+type Limits struct {
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
+	IdleTimeout    time.Duration
+	MaxHeaderBytes int
+}
+
+// Option changes one listener's server.
+type Option func(*http.Server)
+
+// WithLimits sets the listener's timeouts and header cap (the reset
+// listener, spec 0011 AC-16).
+func WithLimits(l Limits) Option {
+	return func(s *http.Server) {
+		s.ReadTimeout, s.WriteTimeout, s.IdleTimeout, s.MaxHeaderBytes = l.ReadTimeout, l.WriteTimeout, l.IdleTimeout, l.MaxHeaderBytes
+	}
+}
+
 // Run serves h on ln until ctx is cancelled, then shuts down gracefully.
 // It returns nil after a clean shutdown.
-func Run(ctx context.Context, ln net.Listener, h http.Handler, logger *slog.Logger) error {
+func Run(ctx context.Context, ln net.Listener, h http.Handler, logger *slog.Logger, opts ...Option) error {
 	srv := &http.Server{
 		Handler:           h,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ErrorLog:          slog.NewLogLogger(fixedMessage{logger.Handler()}, slog.LevelError),
+	}
+	for _, opt := range opts {
+		opt(srv)
 	}
 
 	serveErr := make(chan error, 1)

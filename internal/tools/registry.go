@@ -42,10 +42,13 @@ type Tool struct {
 }
 
 // accountChange reports whether the tool changes a directory account: exactly
-// when its handler takes AccountDeps.
+// when its handler takes AccountDeps, or issues a reset link (ResetDeps).
 func (t *Tool) accountChange() bool {
-	_, ok := t.Handler.(AccountHandler)
-	return ok
+	switch t.Handler.(type) {
+	case AccountHandler, ResetHandler:
+		return true
+	}
+	return false
 }
 
 // Registry is the fixed set of tools the tool server serves.
@@ -53,9 +56,22 @@ type Registry struct {
 	tools []Tool
 }
 
+// RegistryOption adds an optional tool to the production registry.
+type RegistryOption func(*[]Tool)
+
+// WithPasswordReset registers password_reset_link (spec 0011), only when the
+// RESET_* settings are set.
+func WithPasswordReset() RegistryOption {
+	return func(tools *[]Tool) { *tools = append(*tools, passwordResetLinkTool()) }
+}
+
 // NewRegistry builds the production registry.
-func NewRegistry() (*Registry, error) {
-	return newRegistry(productionTools())
+func NewRegistry(opts ...RegistryOption) (*Registry, error) {
+	tools := productionTools()
+	for _, opt := range opts {
+		opt(&tools)
+	}
+	return newRegistry(tools)
 }
 
 func newRegistry(tools []Tool) (*Registry, error) {
@@ -131,6 +147,7 @@ const (
 	ToolTicketUpdate           = "ticket_update"
 	ToolPrivilegedAccessChange = "privileged_access_change"
 	ToolEscalate               = "escalate"
+	ToolPasswordResetLink      = "password_reset_link"
 )
 
 // Argument bounds and values, part of the schema the model sees.

@@ -11,11 +11,12 @@ import (
 
 // Tool names the agent code calls itself or reads results from (spec 0007).
 const (
-	toolUserLookup       = "user_lookup"
-	toolTicketCreate     = "ticket_create"
-	toolTicketUpdate     = "ticket_update"
-	toolPrivilegedAccess = "privileged_access_change"
-	toolEscalate         = "escalate"
+	toolUserLookup        = "user_lookup"
+	toolTicketCreate      = "ticket_create"
+	toolTicketUpdate      = "ticket_update"
+	toolPrivilegedAccess  = "privileged_access_change"
+	toolEscalate          = "escalate"
+	toolPasswordResetLink = "password_reset_link"
 )
 
 // escalate's reasons (spec 0009, AC-2). The last two are code only.

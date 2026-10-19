@@ -281,3 +281,13 @@ func (w *syncWriter) String() string {
 	defer w.mu.Unlock()
 	return w.buf.String()
 }
+
+// covers: spec 0011 AC-16. WithLimits sets the reset listener's timeouts
+// and header cap; without it the server keeps only ReadHeaderTimeout.
+func TestWithLimits(t *testing.T) {
+	var srv http.Server
+	WithLimits(Limits{ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 8 << 10})(&srv)
+	if srv.ReadTimeout != 10*time.Second || srv.WriteTimeout != 20*time.Second || srv.IdleTimeout != time.Minute || srv.MaxHeaderBytes != 8<<10 {
+		t.Errorf("limits = %s %s %s %d", srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout, srv.MaxHeaderBytes)
+	}
+}

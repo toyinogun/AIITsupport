@@ -33,6 +33,55 @@ type Fence struct {
 	logger   *slog.Logger
 }
 
+// AccountFence guards accounts a reset link may target (spec 0011, AC-3 and
+// AC-10): an account that is a member, at any depth, of a code floor group
+// or a RESET_DENIED_GROUPS group is protected.
+type AccountFence struct {
+	dir    Directory
+	denied []string // RESET_DENIED_GROUPS
+	logger *slog.Logger
+}
+
+// NewAccountFence guards with the code floor plus denied.
+func NewAccountFence(dir Directory, denied []string, logger *slog.Logger) *AccountFence {
+	return &AccountFence{dir: dir, denied: slices.Clone(denied), logger: logger}
+}
+
+// CheckAccount returns nil when the user at dn is in no protected group, and
+// ErrGroupProtected when it is. A configured name that does not resolve
+// fails every check closed and logs denied_group_unresolved. Directory
+// errors come back classified.
+func (a *AccountFence) CheckAccount(ctx context.Context, dn string) error {
+	denied := append(slices.Clone(FloorDeniedGroups), a.denied...)
+	found, err := a.dir.GroupsByName(ctx, denied)
+	if err != nil {
+		return directoryFailure(err)
+	}
+	groups := make(map[string]ldap.Group, len(found))
+	for _, g := range found {
+		groups[strings.ToLower(g.Name)] = g
+	}
+	for _, d := range a.denied {
+		if _, ok := groups[strings.ToLower(d)]; !ok {
+			a.logger.ErrorContext(ctx, "denied_group_unresolved")
+			return ErrGroupProtected
+		}
+	}
+	parents := make([]string, 0, len(groups))
+	for _, g := range groups {
+		parents = append(parents, g.DN)
+	}
+	slices.Sort(parents)
+	in, err := a.dir.UserInChainMemberOf(ctx, dn, parents)
+	if err != nil {
+		return directoryFailure(err)
+	}
+	if in {
+		return ErrGroupProtected
+	}
+	return nil
+}
+
 // CheckGroup returns nil when a tool may change the group named name (a
 // sAMAccountName). It returns ErrGroupProtected when the group does not
 // exist, sits outside the allowed group OUs, is denied (the floor or

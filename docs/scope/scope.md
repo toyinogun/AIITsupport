@@ -37,7 +37,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 10 | Locked out user, end to end | Slice 1 | done |
 | 11 | Privileged request refusal & escalation | Slice 2 | done |
 | 12 | PII redaction & retention | Slice 2 | done |
-| 13 | Password reset links | Slice 3 | in-progress |
+| 13 | Password reset links | Slice 3 | done |
 | 14 | MFA re-registration with approval | Slice 4 | planned |
 | 15 | Access requests via group owner | Slice 5 | planned |
 | 16 | Knowledge base answers | Slice 6 | planned |
@@ -211,18 +211,18 @@ spec [0010](../specs/0010-pii-redaction-retention/index.md) · code in `internal
 
 ## Slice 3: Password reset links
 
-### 13. Password reset links · in-progress
+### 13. Password reset links · done
 Send a self service reset link after the identity check, the other half of the Monday morning lockout pile.
 **Done when:** a verified user gets a working reset link from Slack, the ticket closes with a summary, and an unverified user gets none.
 - [x] Design it (spec): `/architect password reset links`
-- [ ] Build it: `/develop password reset links`
-  - [ ] Tracer thread: `svc-pwreset` probed live on Samba, `reset_links`, the tool, the reset page's happy path on its own listener, the agent's strip and unfurl free post, the prompt, one live reset from Slack (AC-1, AC-2, AC-4, AC-5, AC-7, AC-11, AC-15, AC-20)
-  - [ ] The other doors: the issue refusals, the page's field, paused, account, claim race, and revert paths (AC-3, AC-6, AC-8 to AC-10, AC-12, AC-13)
-  - [ ] Failure and operations: Zammad down, post failure texts, config, the hourly cleanup, listener timeouts and headers (AC-4, AC-5, AC-14, AC-16 to AC-18)
-  - [ ] Proof and docs: the canary, boundary and least privilege tests, the password reset runbook, amendment notes (AC-15, AC-19)
-- [ ] Verify it: `/check verify password reset links`
-- [ ] Test it: `/test password reset links`
-spec [0011](../specs/0011-password-reset-links/index.md)
+- [x] Build it: `/develop password reset links`
+  - [x] Tracer thread: `svc-pwreset` probed live on Samba, `reset_links`, the tool, the reset page's happy path on its own listener, the agent's strip and unfurl free post, the prompt, one live reset from Slack (AC-1, AC-2, AC-4, AC-5, AC-7, AC-11, AC-15, AC-20)
+  - [x] The other doors: the issue refusals, the page's field, paused, account, claim race, and revert paths (AC-3, AC-6, AC-8 to AC-10, AC-12, AC-13)
+  - [x] Failure and operations: Zammad down, post failure texts, config, the hourly cleanup, listener timeouts and headers (AC-4, AC-5, AC-14, AC-16 to AC-18)
+  - [x] Proof and docs: the canary, boundary and least privilege tests, the password reset runbook, amendment notes (AC-15, AC-19)
+- [x] Verify it: `/check verify password reset links`
+- [x] Test it: `/test password reset links`
+spec [0011](../specs/0011-password-reset-links/index.md) · code in `internal/resetlink`, `internal/resetpage`, `internal/tools` (`password_reset_link.go`), `internal/ldap` (`password.go`), `internal/agent` (`reset.go`, `prompt/system.md`), `internal/config`, `internal/server`, `cmd/toolserver`, `db/migrations/00003_reset_links.sql`, `seed/directory/samba/entrypoint.sh`, `docs/runbooks/password-reset.md`
 
 ## Slice 4: MFA re-registration with approval
 

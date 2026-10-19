@@ -18,10 +18,11 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/db/dbtest"
 )
 
-// appTables are the eight tables migration 00002 creates (spec 0003).
+// appTables are the eight tables migration 00002 creates (spec 0003) plus
+// 00003's reset_links (spec 0011).
 var appTables = []string{
 	"approvals", "audit_log", "conversation_messages", "conversations",
-	"eval_results", "eval_runs", "llm_usage", "slack_events",
+	"eval_results", "eval_runs", "llm_usage", "reset_links", "slack_events",
 }
 
 // emptyDatabase makes an unmigrated database owned by noord_owner and returns
@@ -149,8 +150,8 @@ func TestMigrationGoesDownAndUpCleanly(t *testing.T) {
 	if _, err := p.Up(t.Context()); err != nil {
 		t.Fatalf("up again: %v", err)
 	}
-	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 2 {
-		t.Errorf("version after up again = %d, %v; want 2", v, err)
+	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 3 {
+		t.Errorf("version after up again = %d, %v; want 3", v, err)
 	}
 }
 

@@ -19,6 +19,7 @@ The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`m
 - **Logs** (`slack_event_received` and friends) carry the event id, channel id, and event type only, never the message text or a user id.
 - **Refused tokens end `run()`.** `invalid_auth`, `not_authed`, `token_revoked`, or `account_inactive` from auth.test or `apps.connections.open` returns an error naming the setting, never the value. Other connect errors retry with backoff; slack-go reconnects a dropped socket itself and emits an event per attempt (`slack_connect_failed`).
 - Web API errors leave the adapters through `wrapErr`, which gives them a fixed `slack_<code>` cause token (`cause.Causer`) for the agent's logs; the error text never reaches a log.
+- `Poster.ReplyNoUnfurl` posts with link and media unfurling off, so Slack never fetches the link; the password reset link goes out only through it (spec 0011, AC-5).
 - `Poster.Reply` with an empty `threadTS` posts to the channel itself, not a thread: that is how the agent posts to `SLACK_IT_CHANNEL` (spec 0009).
 - Tests drive the listener through the `Socket`, `Poster`, and `Dedup` interfaces with fakes; no network.
 

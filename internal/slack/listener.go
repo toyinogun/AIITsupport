@@ -56,6 +56,9 @@ type Poster interface {
 	Check(ctx context.Context) (string, error)
 	// Reply posts text in a thread.
 	Reply(ctx context.Context, channel, threadTS, text string) error
+	// ReplyNoUnfurl posts text in a thread with link and media unfurling
+	// off, so Slack never fetches a link in it (spec 0011, AC-5).
+	ReplyNoUnfurl(ctx context.Context, channel, threadTS, text string) error
 }
 
 // Socket is the Socket Mode connection with the app token.

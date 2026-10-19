@@ -51,6 +51,8 @@ type SlackUsers interface {
 // Poster is chat.postMessage in a thread with the bot token.
 type Poster interface {
 	Reply(ctx context.Context, channel, threadTS, text string) error
+	// ReplyNoUnfurl posts with link and media unfurling off (spec 0011, AC-5).
+	ReplyNoUnfurl(ctx context.Context, channel, threadTS, text string) error
 }
 
 // Tools is the tool server, through internal/mcpclient (spec 0007).

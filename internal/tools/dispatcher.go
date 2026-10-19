@@ -64,18 +64,31 @@ type Systems struct {
 	Helpdesk   *Helpdesk
 	Recorder   *audit.Recorder
 	KillSwitch KillSwitch
+	// Reset is the reset link store and settings; required exactly when the
+	// registry holds password_reset_link (spec 0011).
+	Reset *ResetSystem
+}
+
+// ResetSystem is what the reset link handler needs beyond Systems.
+type ResetSystem struct {
+	Links    ResetLinks
+	Settings ResetSettings
+	// DeniedGroups is RESET_DENIED_GROUPS: members never get a link.
+	DeniedGroups []string
 }
 
 // Dispatcher runs every tool call through the same ordered checks, then the
 // handler inside the audit recorder (spec 0007, the dispatcher pipeline).
 type Dispatcher struct {
-	reg    *Registry
-	cfg    Config
-	sys    Systems
-	fence  *Fence
-	logger *slog.Logger
-	tracer trace.Tracer
-	now    func() time.Time
+	reg   *Registry
+	cfg   Config
+	sys   Systems
+	fence *Fence
+	// accounts guards reset link targets; nil without the reset system.
+	accounts *AccountFence
+	logger   *slog.Logger
+	tracer   trace.Tracer
+	now      func() time.Time
 	// beforeHandler runs after every check and before the handler. Tests
 	// use it to flip the kill switch between its two reads.
 	beforeHandler func()
@@ -88,11 +101,20 @@ func NewDispatcher(reg *Registry, cfg Config, sys Systems, logger *slog.Logger) 
 	if reg == nil || sys.Directory == nil || sys.Writer == nil || sys.Helpdesk == nil || sys.Recorder == nil || sys.KillSwitch == nil {
 		err = errors.Join(err, errors.New("the dispatcher needs a registry, a directory, a writer, a helpdesk, a recorder, and a kill switch"))
 	}
+	if reg != nil {
+		if _, ok := reg.Lookup(ToolPasswordResetLink); ok && (sys.Reset == nil || sys.Reset.Links == nil) {
+			err = errors.Join(err, errors.New("password_reset_link needs the reset link store"))
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("tool layer: %w", err)
 	}
+	var accounts *AccountFence
+	if sys.Reset != nil {
+		accounts = NewAccountFence(sys.Directory, sys.Reset.DeniedGroups, logger)
+	}
 	return &Dispatcher{
-		reg: reg, cfg: cfg, sys: sys, logger: logger,
+		reg: reg, cfg: cfg, sys: sys, logger: logger, accounts: accounts,
 		fence: &Fence{
 			dir: sys.Directory, groupOUs: cfg.GroupOUs, base: cfg.BaseDN,
 			denied: cfg.DeniedGroups, logger: logger,
@@ -287,6 +309,8 @@ func (d *Dispatcher) run(ctx context.Context, t *Tool, call audit.Call, in Input
 			res, handlerErr = h(ctx, AccountDeps{Deps: deps, Writer: d.sys.Writer, Switch: d.sys.KillSwitch}, in)
 		case ReadHandler:
 			res, handlerErr = h(ctx, deps, in)
+		case ResetHandler:
+			res, handlerErr = h(ctx, ResetDeps{Deps: deps, Links: d.sys.Reset.Links, Settings: d.sys.Reset.Settings, Accounts: d.accounts}, in)
 		default:
 			handlerErr = failed(errors.New("unknown handler type"))
 		}

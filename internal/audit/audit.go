@@ -181,9 +181,18 @@ func (r *Recorder) Run(ctx context.Context, c Call, action func(context.Context)
 		_ = r.recordOutcome(ctx, callID, c, Result{}, WithReason(reasonActionPanicked, nil))
 		panic(p)
 	}()
-	res, actionErr := action(ctx)
+	res, actionErr := action(context.WithValue(ctx, callIDKey{}, callID))
 	returned = true
 	return res, r.recordOutcome(ctx, callID, c, res, actionErr)
+}
+
+type callIDKey struct{}
+
+// CallIDFrom returns the call id of the intent Run wrote, from the context
+// Run hands its action; ok is false anywhere else.
+func CallIDFrom(ctx context.Context) (id uuid.UUID, ok bool) {
+	id, ok = ctx.Value(callIDKey{}).(uuid.UUID)
+	return id, ok
 }
 
 // Refuse records a call that was never run, as an intent and outcome pair in

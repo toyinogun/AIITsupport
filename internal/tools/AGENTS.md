@@ -8,23 +8,26 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 
 | File | Owns |
 |---|---|
-| `tools.go` | `Requester`, `Request`, `Args`, `Input`, `Result`, the handler types (`ReadHandler`, `AccountHandler`), `Deps`, `AccountDeps`, and the narrow interfaces (`Directory`, `DirectoryWriter`, `HelpdeskAPI`, `History`, `KillSwitch`) |
-| `registry.go` | `Tool`, `Registry`, `NewRegistry`, the construction checks, the tool names, the schema bounds, and the five production tools |
+| `tools.go` | `Requester`, `Request`, `Args`, `Input`, `Result`, the handler types (`ReadHandler`, `AccountHandler`, `ResetHandler`), `Deps`, `AccountDeps`, `ResetDeps`, and the narrow interfaces (`Directory`, `DirectoryWriter`, `HelpdeskAPI`, `History`, `KillSwitch`) |
+| `registry.go` | `Tool`, `Registry`, `NewRegistry`, the construction checks, the tool names, the schema bounds, the five production tools, and `WithPasswordReset` (adds `password_reset_link` only when the `RESET_*` settings are set) |
 | `dispatcher.go` | `Config` (and `Config.Check`, the startup OU checks), `Systems`, `Dispatcher`, `Call` (timeout, span, `tool_call` log line), the ordered pipeline, identity |
 | `schema.go` | `Field`, the argument validator (`parseArgs`), `InputSchema` for `tools/list` |
 | `refusal.go` | `Code`, the refusal table (code, outcome, stored reason, sentence), `failure`, and the LDAP and Zammad error classification |
 | `killswitch.go` | `NewKillSwitch`, `FileSwitch` (read every call, only `read_write` allows) |
-| `fence.go` | `Fence.CheckGroup`, `FloorDeniedGroups`, `ErrGroupProtected` |
+| `fence.go` | `Fence.CheckGroup`, `FloorDeniedGroups`, `ErrGroupProtected`; `AccountFence.CheckAccount` (spec 0011: the account itself is protected by group membership) |
 | `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group and the cached ticket states |
 | `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry); `ticket_update` holds the close guard (spec 0009, AC-6) |
 | `escalate.go` | `escalate` (spec 0009): the escalation reasons, `checkEscalate` (code only reasons need the `_meta` initiator `code`), the audit reads first, then tag and note or create |
+| `password_reset_link.go` | `password_reset_link` (spec 0011): the AC-3 refusal order, the link issue, the "link sent" note, `ResetURLKey`, `ResetLinkSentText`, and `Helpdesk.CloseWithNote` (used by the reset page) |
 | `toolstest/` | in memory fakes for tests: `MemStore` (an `audit.Store` that answers the history reads like the SQL and, like Postgres, fails a query whose context has ended) and `Directory` (a fake directory that is also the writer; `Stall` and `Slow` model a hung or slow directory) |
 | `../mcpserver/` | `Handler`: stateless streamable HTTP, the bearer check (SHA-256 digests, constant time), the body cap, the W3C trace context extract, and the `_meta` middleware that answers −32602 |
 | `../mcpclient/` | `Client.Call` / `ListTools`, `Requester`, the `_meta` key names, `ErrIncompleteRequester`; every request carries the bearer token and the W3C trace context, so `tool.call` spans join the agent's trace |
 
 ## Conventions
 
-- **Add a tool** with one registry entry plus a typed handler. A handler that changes a directory account takes `AccountDeps`; that alone puts it behind the kill switch and `TOOL_WRITE_LIMIT`. Every other handler takes `Deps`, which holds no writer.
+- **Add a tool** with one registry entry plus a typed handler. A handler that changes a directory account takes `AccountDeps`; that alone puts it behind the kill switch and `TOOL_WRITE_LIMIT`. Every other handler takes `Deps`, which holds no writer. A `ResetHandler` (`ResetDeps`) writes no directory account but is treated as an account change too: kill switch and `TOOL_WRITE_LIMIT` apply.
+- `RESET_DENIED_GROUPS` (`AccountFence`, which accounts a reset link may target) is not `TOOL_DENIED_GROUPS` (`Fence`, which groups no tool may change). They differ on purpose: `SYNC-Entra-Users` is fenced from changes but must not block resets for its members (journal 0037). A denied name that does not resolve refuses every account and logs `denied_group_unresolved`.
+- `reset_url` leaves the handler only in the MCP result: the audit row drops it (`_omitted`), and agent code strips it before anything is stored or sent to the model.
 - Identity comes only from MCP `_meta`, checked for exact format in `internal/mcpserver`. No tool argument names the requester, a target account, or a ticket id; account tools act only on the matched requester.
 - Handlers refuse with `refused(refuse...)` and fail with `directoryFailure(err)`, `helpdeskFailure(err)`, or `failed(err)`. The model and the audit `error` column only ever see the fixed text of the refusal table; never echo an argument, an account name, or a directory or Zammad message.
 - `Store` lists only argument keys that are not free text (`Field.FreeText`); registry construction fails otherwise. A tier `medium` tool needs an `Approval` hook; a `blocked` tool has no handler.
@@ -56,5 +59,6 @@ set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run LiveTickets -v 
 - [0007 tool server and risk tiers](../../docs/specs/0007-tool-server-risk-tiers/index.md) (the contract, with [verify.md](../../docs/specs/0007-tool-server-risk-tiers/verify.md))
 - [0003 data model](../../docs/specs/0003-data-model/index.md) (the audit recorder the dispatcher runs every call through)
 - [0009 refusal and escalation](../../docs/specs/0009-refusal-escalation/index.md) (`escalate`, the close guard, the `_meta` initiator)
+- [0011 password reset links](../../docs/specs/0011-password-reset-links/index.md) (`password_reset_link`, `AccountFence`, `RESET_DENIED_GROUPS`)
 
 _Drafted by /develop from the introducing change, worth a quick human pass._

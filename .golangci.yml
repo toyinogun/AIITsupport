@@ -42,6 +42,10 @@ linters:
               desc: the tool layer runs only in the tool server; the agent calls it through internal/mcpclient (spec 0007)
             - pkg: github.com/toyinogun/AIITsupport/internal/mcpserver
               desc: the MCP server runs only in the tool server; the agent calls it through internal/mcpclient (spec 0007)
+            - pkg: github.com/toyinogun/AIITsupport/internal/resetlink
+              desc: reset links and their tokens live only in the tool server (spec 0011)
+            - pkg: github.com/toyinogun/AIITsupport/internal/resetpage
+              desc: the reset page writes AD passwords; it runs only in the tool server (spec 0011)
             - pkg: github.com/go-ldap/ldap
               desc: only the tool server may talk to AD (AGENTS.md, Rules)
             - pkg: github.com/Azure/azure-sdk-for-go/sdk/azidentity
