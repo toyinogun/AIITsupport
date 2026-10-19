@@ -34,7 +34,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 7 | Entra tenant & sync (timeboxed) | Client environment | done |
 | 8 | Ticketing, knowledge base & Slack workspace | Client environment | done |
 | 9 | Tool server & risk tiers | Slice 1 | done |
-| 10 | Locked out user, end to end | Slice 1 | in-progress |
+| 10 | Locked out user, end to end | Slice 1 | done |
 | 11 | Privileged request refusal & escalation | Slice 2 | planned |
 | 12 | PII redaction & retention | Slice 2 | planned |
 | 13 | Password reset links | Slice 3 | planned |
@@ -160,7 +160,7 @@ The only path into client systems. Every tool has a risk tier enforced in code: 
 - [x] Document it: `/document tool server & risk tiers`
 spec [0007](../specs/0007-tool-server-risk-tiers/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/ldap`
 
-### 10. Locked out user, end to end · in-progress · GA
+### 10. Locked out user, end to end · done · GA
 The thinnest real thread: a user says they are locked out in Slack, the agent confirms the Slack user matches the directory user, unlocks, opens and closes a ticket with a summary, and the audit log shows it all. This is the walking skeleton.
 **Done when:** a real locked Noord user gets unlocked from Slack in under 60 seconds with a closed ticket and audit row; a Slack user who does not match the directory gets no write action.
 - [x] Design it (spec): `/architect locked out user flow`
@@ -173,7 +173,7 @@ The thinnest real thread: a user says they are locked out in Slack, the agent co
 - [x] Verify it: `/check verify locked out user flow`
 - [x] Test it: `/test locked out user flow`
 - [x] Review it (fresh model): `/check review locked out user flow`
-- [ ] Document it: `/document locked out user flow`
+- [x] Document it: `/document locked out user flow`
 spec [0008](../specs/0008-locked-out-user-flow/index.md) · code in `internal/agent`, `internal/llm`, `eval`, `internal/slack`
 
 ## Slice 2: Refusal & escalation
