@@ -38,7 +38,7 @@ In `#it-help` and in `#it-escalations`, type `/invite @Noord IT Assistant`. The 
 
 ## 4. Demo accounts (optional, at most two)
 
-The agent will match a Slack user to a Noord user by email (#10), so each demo account needs an email that `seed/directory/overlay.local.yaml` gives a Noord user.
+The agent matches a Slack user to a Noord user by email (#10), so each demo account needs an email that `seed/directory/overlay.local.yaml` gives a Noord user.
 
 1. Pick at most two Noord users, for example `eva.peters`, and give each a real inbox you control (a plus address such as `you+eva@...` works).
 2. Put the pairs in `seed/directory/overlay.local.yaml` (copy `overlay.example.yaml`), then run `make noord-reset` so AD, Entra, and Zammad pick them up.
@@ -46,18 +46,28 @@ The agent will match a Slack user to a Noord user by email (#10), so each demo a
 
 Zammad never mails these addresses: its email channels are off.
 
+### Who can change their Slack email (a known gap)
+
+The agent trusts the confirmed email on a Slack profile to find the Noord account (spec 0008). A member who could change their profile email to a colleague's could act as that colleague. A real deployment should stop members changing their own email.
+
+Slack ties that setting to SSO: **Allow users to change their email address** (or **Email address changes**) sits under the workspace's SSO settings, which need the Business+ or Enterprise plan. The free plan this demo uses has no such switch, so on this workspace the gap stays open. What still holds here: the agent requires `is_email_confirmed`, refuses guests, bots, and Slack Connect users, and the directory match must be exactly one enabled Noord account. Sources: Slack's help articles "Change a member's email address" and "Manage single sign-on settings".
+
+For a client on Business+ or Enterprise: as a Workspace Owner, open the SSO settings and clear **Allow users to change their email address** before the assistant goes live.
+
 ## 5. Check it works
+
+With both Slack tokens set, the agent also needs `ANTHROPIC_API_KEY` in `.env` and refuses to start without it (feature #10). Start the tool server stack too, since every DM begins with a directory lookup.
 
 ```bash
 make dev
 ```
 
 1. The agent log shows `slack_connected`. With no tokens set it shows `slack_disabled` instead, and that is fine too.
-2. DM the bot "hello". Within 5 seconds it answers in a thread with the holding reply, and the log shows one `slack_event_received` line (event id, channel id, event type; never your text).
-3. Mention the bot in `#it-help`. It answers in that message's thread.
+2. DM the bot "hello" from a demo account. It answers "Looking into it now." in a thread, then the assistant's answer, and the log shows one `slack_event_received` line and one `agent_turn_done` line (ids and counts only; never your text).
+3. Mention the bot in `#it-help`. It answers in that message's thread, asking you to send a direct message instead.
 4. Edit or delete your message: no new reply.
 
-Record the timing in the spec's `verify.md` (AC-12).
+Record timings in the spec's `verify.md` (spec 0006 AC-12, spec 0008 AC-7).
 
 ## Rotating or revoking a token
 

@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/toyinogun/AIITsupport/internal/audit"
 	"github.com/toyinogun/AIITsupport/internal/mcpclient"
 	"github.com/toyinogun/AIITsupport/internal/mcpserver"
@@ -327,5 +329,20 @@ func TestClientWithAWrongToken(t *testing.T) {
 	}
 	if len(e.store.All()) != 0 {
 		t.Error("a wrong token left audit rows")
+	}
+}
+
+// covers: spec 0008, Observability. The client sends the caller's trace
+// context and the tool server's tool.call joins it.
+func TestTraceContextCrossesToTheToolServer(t *testing.T) {
+	e := start(t)
+	tid, _ := trace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
+	sid, _ := trace.SpanIDFromHex("00f067aa0ba902b7")
+	ctx := trace.ContextWithSpanContext(t.Context(), trace.NewSpanContext(trace.SpanContextConfig{TraceID: tid, SpanID: sid, TraceFlags: trace.FlagsSampled}))
+	if _, err := e.client(t).Call(ctx, requester(), tools.ToolUserLookup, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(e.logs.String(), `"msg":"tool_call","tool":"user_lookup"`) || !strings.Contains(e.logs.String(), `"trace_id":"4bf92f3577b34da6a3ce929d0e0e4736"`) {
+		t.Errorf("the tool_call line does not carry the caller's trace id:\n%s", e.logs.String())
 	}
 }

@@ -1,8 +1,9 @@
-// Package slack is the agent's Slack strand (spec 0006): a Socket Mode
-// listener that hears a DM or an @mention, acknowledges it at once, drops
-// duplicates through the slack_events table, and answers in the message's
-// thread. Until the agent loop exists (#10) the answer is a fixed holding
-// reply. Nothing listens on the internet: Socket Mode dials out.
+// Package slack is the agent's Slack strand (spec 0006, spec 0008): a Socket
+// Mode listener that hears a DM or an @mention, acknowledges it at once,
+// drops duplicates through the slack_events table, and hands each accepted
+// message to the agent with a non blocking Submit. It also adapts the Web
+// API calls the agent makes (chat.postMessage, users.info). Nothing listens
+// on the internet: Socket Mode dials out.
 package slack
 
 import (
@@ -17,16 +18,16 @@ import (
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/toyinogun/AIITsupport/internal/agent"
 )
 
-// HoldingReply is the fixed answer until #10 plugs the agent loop in.
-const HoldingReply = "Hi, I'm Noord's IT assistant. I can't handle requests yet, so please raise a ticket in the helpdesk or ask Ruben."
+// ReplyTimeout bounds one chat.postMessage call; the agent posts with it.
+const ReplyTimeout = 10 * time.Second
 
 const (
 	// purgeEvery is how often old event ids are removed (and once at start).
 	purgeEvery = time.Hour
-	// replyTimeout bounds one chat.postMessage call.
-	replyTimeout = 10 * time.Second
 	// dedupTimeout bounds one MarkEventSeen call.
 	dedupTimeout = 5 * time.Second
 
@@ -49,8 +50,9 @@ type Dedup interface {
 
 // Poster talks to the Web API with the bot token.
 type Poster interface {
-	// Check confirms the bot token works (auth.test).
-	Check(ctx context.Context) error
+	// Check confirms the bot token works (auth.test) and returns the
+	// workspace's team id.
+	Check(ctx context.Context) (string, error)
 	// Reply posts text in a thread.
 	Reply(ctx context.Context, channel, threadTS, text string) error
 }
@@ -64,35 +66,55 @@ type Socket interface {
 	Run(ctx context.Context) error
 }
 
-// Listener answers Slack messages once each.
+// Handler takes each accepted message. It must not block: it is called on
+// the event loop. *agent.Agent implements it.
+type Handler interface {
+	Submit(in agent.Inbound)
+}
+
+// Listener hands each Slack message to the Handler once.
 type Listener struct {
-	Socket Socket
-	Poster Poster
-	Dedup  Dedup
-	Logger *slog.Logger
+	Socket  Socket
+	Poster  Poster
+	Users   agent.SlackUsers
+	Dedup   Dedup
+	Handler Handler
+	Logger  *slog.Logger
 	// TTL is how long event ids are kept (SLACK_EVENT_DEDUP_TTL).
 	TTL time.Duration
 	// Now defaults to time.Now.
 	Now func() time.Time
 	// sleep defaults to a context aware sleep; tests replace it.
 	sleep func(context.Context, time.Duration) error
+	// teamID is set by CheckBotToken.
+	teamID string
 }
 
-// New builds a listener on the real Slack APIs.
+// New builds a listener on the real Slack APIs. Set Handler before Run.
 func New(botToken, appToken string, dedup Dedup, logger *slog.Logger, ttl time.Duration) *Listener {
 	api := slackapi.New(botToken, slackapi.OptionAppLevelToken(appToken))
 	return &Listener{
 		Socket: socket{client: socketmode.New(api)},
 		Poster: poster{api: api},
+		Users:  users{api: api},
 		Dedup:  dedup, Logger: logger, TTL: ttl,
 	}
 }
 
-// Run checks the bot token, then listens until ctx ends. It returns an
-// error only when Slack refuses a token or dedup cannot start.
+// ErrNoHandler means Run was called before Handler was set.
+var ErrNoHandler = errors.New("slack: the listener has no handler")
+
+// Run checks the bot token (unless CheckBotToken already did), then listens
+// until ctx ends. It returns an error only when Slack refuses a token or
+// there is no handler.
 func (l *Listener) Run(ctx context.Context) error {
-	if err := l.checkBotToken(ctx); err != nil {
-		return err
+	if l.Handler == nil {
+		return ErrNoHandler
+	}
+	if l.teamID == "" {
+		if _, err := l.CheckBotToken(ctx); err != nil {
+			return err
+		}
 	}
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return l.purgeLoop(ctx) })
@@ -105,21 +127,23 @@ func (l *Listener) Run(ctx context.Context) error {
 	return err
 }
 
-// checkBotToken retries auth.test with backoff until Slack answers; a
-// refused token is fatal.
-func (l *Listener) checkBotToken(ctx context.Context) error {
+// CheckBotToken retries auth.test with backoff until Slack answers and
+// returns the workspace's team id; a refused token is fatal. It returns ""
+// and no error when ctx ends first (shutting down is not a failure).
+func (l *Listener) CheckBotToken(ctx context.Context) (string, error) {
 	for attempt := 1; ; attempt++ {
-		err := l.Poster.Check(ctx)
+		team, err := l.Poster.Check(ctx)
 		if err == nil {
-			return nil
+			l.teamID = team
+			return team, nil
 		}
 		if isAuthError(err) {
-			return ErrBotTokenRejected
+			return "", ErrBotTokenRejected
 		}
 		wait := backoff(attempt)
 		l.Logger.Warn("slack_connect_failed", "api", "auth.test", "attempt", attempt, "backoff_ms", wait.Milliseconds(), "error", err.Error())
 		if err := l.sleepFor(ctx, wait); err != nil {
-			return nil //nolint:nilerr // shutting down during the retry is not a failure
+			return "", nil //nolint:nilerr // shutting down during the retry is not a failure
 		}
 	}
 }
@@ -178,66 +202,55 @@ func (l *Listener) handle(ctx context.Context, evt socketmode.Event) {
 	}
 }
 
-// message is the part of an event the listener needs.
-type message struct {
-	eventID   string
-	eventType string
-	channel   string
-	threadTS  string
-}
-
-// onEvent decides, dedups, logs, and replies.
+// onEvent decides, dedups, logs, and hands the message to the agent.
 func (l *Listener) onEvent(ctx context.Context, api slackevents.EventsAPIEvent) {
 	msg, ok := toMessage(api)
 	if !ok {
 		return
 	}
 	dctx, cancel := context.WithTimeout(ctx, dedupTimeout)
-	n, err := l.Dedup.MarkEventSeen(dctx, msg.eventID)
+	n, err := l.Dedup.MarkEventSeen(dctx, msg.EventID)
 	cancel()
 	if err != nil {
 		// At most once (spec 0003): no record, no reply.
-		l.Logger.Error("slack_event_dedup_failed", "event_id", msg.eventID, "error", err.Error())
+		l.Logger.Error("slack_event_dedup_failed", "event_id", msg.EventID, "error", err.Error())
 		return
 	}
 	if n == 0 {
-		l.Logger.Info("slack_event_duplicate", "event_id", msg.eventID)
+		l.Logger.Info("slack_event_duplicate", "event_id", msg.EventID)
 		return
 	}
-	l.Logger.Info("slack_event_received", "event_id", msg.eventID, "channel_id", msg.channel, "event_type", msg.eventType)
-
-	rctx, cancel := context.WithTimeout(ctx, replyTimeout)
-	defer cancel()
-	if err := l.Poster.Reply(rctx, msg.channel, msg.threadTS, HoldingReply); err != nil {
-		l.Logger.Warn("slack_reply_failed", "event_id", msg.eventID, "channel_id", msg.channel, "error", err.Error())
-	}
+	l.Logger.Info("slack_event_received", "event_id", msg.EventID, "channel_id", msg.ChannelID, "event_type", msg.EventType)
+	l.Handler.Submit(msg)
 }
 
 // toMessage keeps a DM (message.im) or an @mention outside a DM, from a
 // person, with no subtype. Everything else is ignored.
-func toMessage(api slackevents.EventsAPIEvent) (message, bool) {
+func toMessage(api slackevents.EventsAPIEvent) (agent.Inbound, bool) {
 	outer, ok := api.Data.(*slackevents.EventsAPICallbackEvent)
 	if !ok || outer.EventID == "" {
-		return message{}, false
+		return agent.Inbound{}, false
 	}
-	m := message{eventID: outer.EventID}
+	m := agent.Inbound{EventID: outer.EventID}
 	switch e := api.InnerEvent.Data.(type) {
 	case *slackevents.AppMentionEvent:
 		// A DM that mentions the bot also arrives as message.im; answer that one.
 		if e.BotID != "" || isDM(e.Channel) {
-			return message{}, false
+			return agent.Inbound{}, false
 		}
-		m.eventType, m.channel, m.threadTS = string(slackevents.AppMention), e.Channel, threadOf(e.ThreadTimeStamp, e.TimeStamp)
+		m.EventType, m.ChannelID, m.ThreadTS = agent.EventAppMention, e.Channel, threadOf(e.ThreadTimeStamp, e.TimeStamp)
+		m.TS, m.UserID, m.Text = e.TimeStamp, e.User, e.Text
 	case *slackevents.MessageEvent:
 		if e.ChannelType != "im" || e.BotID != "" || e.SubType != "" {
-			return message{}, false
+			return agent.Inbound{}, false
 		}
-		m.eventType, m.channel, m.threadTS = "message.im", e.Channel, threadOf(e.ThreadTimeStamp, e.TimeStamp)
+		m.EventType, m.ChannelID, m.ThreadTS = "message.im", e.Channel, threadOf(e.ThreadTimeStamp, e.TimeStamp)
+		m.TS, m.UserID, m.Text = e.TimeStamp, e.User, e.Text
 	default:
-		return message{}, false
+		return agent.Inbound{}, false
 	}
-	if m.channel == "" || m.threadTS == "" {
-		return message{}, false
+	if m.ChannelID == "" || m.ThreadTS == "" || m.UserID == "" {
+		return agent.Inbound{}, false
 	}
 	return m, true
 }

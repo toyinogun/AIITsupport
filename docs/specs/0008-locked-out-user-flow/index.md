@@ -1,7 +1,7 @@
 # 0008. Locked out user flow: a code checked requester, a bounded agent loop, and a ticket around the unlock
 
 **Date**: 2026-10-18
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

@@ -1,0 +1,17 @@
+# USD per million tokens, at most 4 decimals. Copied from Anthropic's published
+# pricing (spec 0008). cache_write is the 5 minute cache write price (1.25 times
+# input); cache_read is 0.1 times input unless Anthropic lists it separately.
+# The agent refuses to start when LLM_MODEL has no entry here.
+models:
+  claude-sonnet-5-5:
+    pricing_date: 2026-10-06
+    input: "2.0000"
+    output: "10.0000"
+    cache_read: "0.2000"
+    cache_write: "2.5000"
+  claude-haiku-5-5:
+    pricing_date: 2026-10-06
+    input: "0.1000"
+    output: "0.5000"
+    cache_read: "0.0100"
+    cache_write: "0.1250"

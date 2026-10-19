@@ -16,7 +16,10 @@ import (
 // A blank value counts as unset in internal/config.
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"AGENT_DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "OTEL_EXPORTER_OTLP_ENDPOINT", "LOG_LEVEL", "READ_ONLY", "AGENT_HTTP_ADDR"} {
+	for _, name := range []string{
+		"AGENT_DATABASE_URL", "TOOLSERVER_TOKEN", "TOOLSERVER_URL", "OTEL_EXPORTER_OTLP_ENDPOINT", "LOG_LEVEL", "READ_ONLY", "AGENT_HTTP_ADDR",
+		"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "LLM_PROVIDER", "LLM_MODEL", "ANTHROPIC_API_KEY", "AGENT_MAX_CONCURRENT",
+	} {
 		t.Setenv(name, "")
 	}
 }
@@ -126,5 +129,39 @@ func TestRunRefusesOneSlackToken(t *testing.T) {
 	err := run()
 	if err == nil || !strings.Contains(err.Error(), "SLACK_APP_TOKEN") || strings.Contains(err.Error(), "only-the-bot-token") {
 		t.Fatalf("run = %v, want an error naming SLACK_APP_TOKEN without the value", err)
+	}
+}
+
+// covers: AC-15, AC-16 (spec 0008). With Slack set, a model with no price,
+// the unbuilt bedrock provider, a missing key, and a zero concurrency each
+// stop startup with a clear message, before any connection is made.
+func TestRunRefusesABadModelSetup(t *testing.T) {
+	cases := map[string]struct {
+		env  map[string]string
+		want string
+	}{
+		"no price": {map[string]string{"LLM_MODEL": "claude-unpriced-1"}, "has no price in eval/pricing.yaml"},
+		"bedrock":  {map[string]string{"LLM_PROVIDER": "bedrock"}, "LLM_PROVIDER bedrock is not built yet"},
+		"no key":   {map[string]string{"ANTHROPIC_API_KEY": ""}, "ANTHROPIC_API_KEY is required"},
+		"no slot":  {map[string]string{"AGENT_MAX_CONCURRENT": "0"}, "AGENT_MAX_CONCURRENT must be at least 1"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t)
+			requiredEnv(t, "postgres://unused")
+			t.Setenv("SLACK_BOT_TOKEN", "xoxb-test")
+			t.Setenv("SLACK_APP_TOKEN", "xapp-test")
+			t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			err := run()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("run = %v, want an error containing %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "sk-ant-test") {
+				t.Errorf("the error leaks the key: %v", err)
+			}
+		})
 	}
 }

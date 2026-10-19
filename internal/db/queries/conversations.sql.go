@@ -49,6 +49,26 @@ func (q *Queries) AppendMessage(ctx context.Context, arg AppendMessageParams) (C
 	return i, err
 }
 
+const countRecentConversations = `-- name: CountRecentConversations :one
+SELECT count(*)::bigint AS conversations
+FROM conversations
+WHERE requester_slack_id = $1 AND created_at > $2::timestamptz
+`
+
+type CountRecentConversationsParams struct {
+	RequesterSlackID string
+	Since            time.Time
+}
+
+// CountRecentConversations is what AGENT_CONVERSATIONS_PER_HOUR is checked
+// against (spec 0008, AC-19).
+func (q *Queries) CountRecentConversations(ctx context.Context, arg CountRecentConversationsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentConversations, arg.RequesterSlackID, arg.Since)
+	var conversations int64
+	err := row.Scan(&conversations)
+	return conversations, err
+}
+
 const getConversationByThread = `-- name: GetConversationByThread :one
 SELECT id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at FROM conversations
 WHERE slack_channel_id = $1 AND slack_thread_ts = $2
@@ -76,6 +96,52 @@ func (q *Queries) GetConversationByThread(ctx context.Context, arg GetConversati
 		&i.ClosedAt,
 	)
 	return i, err
+}
+
+const listInterruptedConversations = `-- name: ListInterruptedConversations :many
+SELECT c.id, c.slack_channel_id, c.slack_thread_ts, c.requester_slack_id, c.directory_account, c.zammad_ticket_id, c.status, c.last_seq, c.created_at, c.updated_at, c.closed_at
+FROM conversations AS c
+JOIN conversation_messages AS m ON m.conversation_id = c.id AND m.seq = c.last_seq
+WHERE c.status = 'open'
+  AND c.updated_at < $1::timestamptz
+  AND (m.role = 'user' OR m.content @> '[{"type": "tool_use"}]'::jsonb)
+ORDER BY c.id
+`
+
+// ListInterruptedConversations finds open conversations a turn stopped in the
+// middle of (spec 0008, AC-14): the last stored message is the user's, or an
+// assistant message holding a tool_use block. Open conversations are never
+// purged, so content is present.
+func (q *Queries) ListInterruptedConversations(ctx context.Context, staleBefore time.Time) ([]Conversation, error) {
+	rows, err := q.db.Query(ctx, listInterruptedConversations, staleBefore)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Conversation
+	for rows.Next() {
+		var i Conversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SlackChannelID,
+			&i.SlackThreadTs,
+			&i.RequesterSlackID,
+			&i.DirectoryAccount,
+			&i.ZammadTicketID,
+			&i.Status,
+			&i.LastSeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ClosedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listMessages = `-- name: ListMessages :many

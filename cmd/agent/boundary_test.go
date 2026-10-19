@@ -30,6 +30,16 @@ func TestAgentDoesNotImportClientSystems(t *testing.T) {
 	}
 }
 
+// covers: AC-18 (spec 0008). The agent loop and the model client import no
+// client system package, directly or through a shared one.
+func TestAgentLoopPackagesDoNotImportClientSystems(t *testing.T) {
+	for _, dir := range []string{"../../internal/agent", "../../internal/agent/agenttest", "../../internal/llm"} {
+		if bad := deniedDeps(listDeps(t, dir)); len(bad) > 0 {
+			t.Errorf("%s pulls in client system packages: %v", dir, bad)
+		}
+	}
+}
+
 // The real packages don't exist yet, so this proves the check can fail: a
 // stub binary imports a shared package that imports a denied one.
 func TestBoundaryCheckCatchesTransitiveImport(t *testing.T) {
