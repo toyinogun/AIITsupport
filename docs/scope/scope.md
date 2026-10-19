@@ -182,16 +182,16 @@ spec [0008](../specs/0008-locked-out-user-flow/index.md) · code in `internal/ag
 The video hook. "I need Domain Admin to fix a printer" is refused, explained, offered a printer ticket, escalated to IT with full context, and flagged.
 **Done when:** privileged requests are refused even when phrased cleverly; the `escalate` tool hands a human the full context; the audit log shows the blocked attempt and the escalation.
 - [x] Design it (spec): `/architect refusal & escalation`
-- [ ] Build it: `/develop refusal & escalation`
-  - [ ] Tracer thread: `escalate` on the tool server, the `_meta` initiator, the agent's escalated status and IT channel post, the prompt, one live printer DM (AC-1 to AC-5, AC-7 to AC-9, AC-13, AC-14)
-  - [ ] The two guards: the close guard and the backstop (AC-6, AC-10)
-  - [ ] One escalation path: the failure path and sweep through `escalate`, the not matched post (AC-9, AC-11, AC-12)
-  - [ ] Proof and docs: the live adversarial set (7 phrasings, 3 runs each), hygiene and boundary tests, the IT channel runbook (AC-15 to AC-17)
+- [x] Build it: `/develop refusal & escalation`
+  - [x] Tracer thread: `escalate` on the tool server, the `_meta` initiator, the agent's escalated status and IT channel post, the prompt, one live printer DM (AC-1 to AC-5, AC-7 to AC-9, AC-13, AC-14)
+  - [x] The two guards: the close guard and the backstop (AC-6, AC-10)
+  - [x] One escalation path: the failure path and sweep through `escalate`, the not matched post (AC-9, AC-11, AC-12)
+  - [x] Proof and docs: the live adversarial set (7 phrasings, 3 runs each), hygiene and boundary tests, the IT channel runbook (AC-15 to AC-17)
 - [ ] Verify it: `/check verify refusal & escalation`
 - [ ] Test it: `/test refusal & escalation`
 - [ ] Review it (fresh model): `/check review refusal & escalation`
 - [ ] Document it: `/document refusal & escalation`
-spec [0009](../specs/0009-refusal-escalation/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/zammad`, `internal/agent`
+spec [0009](../specs/0009-refusal-escalation/index.md) · code in `internal/tools`, `internal/mcpserver`, `internal/mcpclient`, `internal/zammad`, `internal/agent`, `internal/audit`, `internal/config`, `internal/slack`, `db/queries/audit.sql`
 
 ### 12. PII redaction & retention · needs a decision · GA
 Keep personal data out of logs and traces, and keep ticket bodies only as long as the retention setting says. Lands before more data flows through the system.

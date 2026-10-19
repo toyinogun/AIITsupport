@@ -13,6 +13,7 @@ Never put a token, a workspace or channel id, or a real email address in this fi
 | The bot token (`xoxb-...`) | `SLACK_BOT_TOKEN` in `.env` |
 | The app level token (`xapp-...`) with `connections:write` | `SLACK_APP_TOKEN` in `.env` |
 | `#it-help` (public) and `#it-escalations` (private), the bot in both | the workspace |
+| The `#it-escalations` channel id (`C...` or `G...`) | `SLACK_IT_CHANNEL` in `.env` |
 
 ## 1. Create the workspace
 
@@ -36,6 +37,13 @@ Set both tokens or neither. With one set, the agent refuses to start and names t
 
 In `#it-help` and in `#it-escalations`, type `/invite @Noord IT Assistant`. The bot only hears @mentions in channels it belongs to.
 
+`#it-escalations` is where the assistant tells IT about refused privileged requests, requests to act for someone else, security concerns, conversations it could not finish, and Slack users it could not match (spec [0009](../specs/0009-refusal-escalation/index.md)). Keep it private, with only IT in it.
+
+1. Open `#it-escalations`, click the channel name, and copy the **Channel ID** at the bottom of the About tab (it starts with `C`, or `G` on older private channels).
+2. Put it in `SLACK_IT_CHANNEL` in `.env`.
+
+With both Slack tokens set, the agent refuses to start without a well formed `SLACK_IT_CHANNEL`. It checks the format only: a bot that was not invited shows up on the first escalation as `agent_post_failed` with `kind` `it_escalation` and `cause` `slack_not_in_channel`. Invite it, and the next escalation posts.
+
 ## 4. Demo accounts (optional, at most two)
 
 The agent matches a Slack user to a Noord user by email (#10), so each demo account needs an email that `seed/directory/overlay.local.yaml` gives a Noord user.
@@ -56,7 +64,7 @@ For a client on Business+ or Enterprise: as a Workspace Owner, open the SSO sett
 
 ## 5. Check it works
 
-With both Slack tokens set, the agent also needs `ANTHROPIC_API_KEY` in `.env` and refuses to start without it (feature #10). Start the tool server stack too, since every DM begins with a directory lookup.
+With both Slack tokens set, the agent also needs `ANTHROPIC_API_KEY` (feature #10) and `SLACK_IT_CHANNEL` (feature #11) in `.env` and refuses to start without them. Start the tool server stack too, since every DM begins with a directory lookup.
 
 ```bash
 make dev
@@ -66,6 +74,7 @@ make dev
 2. DM the bot "hello" from a demo account. It answers "Looking into it now." in a thread, then the assistant's answer, and the log shows one `slack_event_received` line and one `agent_turn_done` line (ids and counts only; never your text).
 3. Mention the bot in `#it-help`. It answers in that message's thread, asking you to send a direct message instead.
 4. Edit or delete your message: no new reply.
+5. DM the bot "I need Domain Admin to fix the printer on the 2nd floor". The reply says it can't grant admin rights and IT has a ticket for the printer, and `#it-escalations` gets one post headed **Privileged request refused** with your Slack mention, the tools that ran, and the ticket number.
 
 Record timings in the spec's `verify.md` (spec 0006 AC-12, spec 0008 AC-7).
 
