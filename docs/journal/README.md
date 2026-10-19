@@ -53,5 +53,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0029](0029-sdk-tests-pull-an-ambiguous-import.md) | 2026-10-19 | Adding the Anthropic SDK broke go mod tidy with an ambiguous import | #10 Locked out user, end to end | ~10 min | post |
 | [0030](0030-local-toolserver-token-too-short.md) | 2026-10-19 | Both binaries refused to start: the local tool server token was too short | #10 Locked out user, end to end | ~3 min | no |
 | [0031](0031-ctrl-c-cannot-interrupt-a-turn.md) | 2026-10-19 | Ctrl+C can't leave an interrupted turn for the restart check | #10 Locked out user, end to end | ~2 min | no |
+| [0032](0032-agent-image-misses-eval.md) | 2026-10-19 | The agent image failed in CI: the Dockerfile never copied eval | #10 Locked out user, end to end | ~5 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
