@@ -15,7 +15,7 @@ Mock FDE engagement. The plan lives in `docs/scope/scope.md`; start there.
 ## Stack
 
 - **Language / Runtime**: Go 1.27 (toolchain 1.27.2), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver`, plus the dev and ops tool `cmd/seed` (`cmd/eval` arrives with feature #20)
-- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests, `slack-go` (Socket Mode) for the agent's Slack strand, `goldmark` for KB article Markdown, MCP `go-sdk` (the tool server and the agent's client, streamable HTTP, stateless); later `anthropic-sdk-go`
+- **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests, `slack-go` (Socket Mode) for the agent's Slack strand, `goldmark` for KB article Markdown, MCP `go-sdk` (the tool server and the agent's client, streamable HTTP, stateless), `anthropic-sdk-go` (the agent's model client, `internal/llm`)
 - **Dev tools**: `sqlc` and `goose` are `tool` entries in `go.mod` (`go tool sqlc`, `go tool goose`), nothing to install
 - **Lint, hook, and scan tools**: `golangci-lint` v2 (also runs gofumpt and goimports), `lefthook`, `gitleaks`, and `govulncheck` are `tool` entries in a separate `tools.mod` (`go tool -modfile=tools.mod <tool>`). Its `go` and `toolchain` lines must match `go.mod`. Dependabot can't see it, so bump these by hand. Decision: [docs/specs/0002-coding-standards-tooling/index.md](docs/specs/0002-coding-standards-tooling/index.md)
 - **Platform**: Docker Compose locally; k3s + ArgoCD + CloudNativePG in production
@@ -116,7 +116,8 @@ Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, 
 - [internal/seed/AGENTS.md](internal/seed/AGENTS.md): the Noord directory and helpdesk seeders (`cmd/seed`, `seed/directory/`, `seed/helpdesk/`), their markers, locks, and live tests
 - [internal/graph/AGENTS.md](internal/graph/AGENTS.md): the thin Microsoft Graph client, its managed marker fence, retries, and the fake Graph
 - [internal/zammad/AGENTS.md](internal/zammad/AGENTS.md): the thin Zammad REST client, its user write guard, and the fake Zammad
-- [internal/slack/AGENTS.md](internal/slack/AGENTS.md): the agent's Socket Mode listener, event dedup, and the holding reply
+- [internal/slack/AGENTS.md](internal/slack/AGENTS.md): the agent's Socket Mode listener, event dedup, and the hand off to the agent
+- [internal/agent/AGENTS.md](internal/agent/AGENTS.md): the agent loop (spec 0008): the code checked requester, the bounded model loop, the failure path, workers, and the restart sweep
 - [internal/tools/AGENTS.md](internal/tools/AGENTS.md): the tool layer (registry, risk tiers, the dispatcher pipeline, kill switch, fence), plus `internal/mcpserver` and `internal/mcpclient`
 - [internal/ldap/AGENTS.md](internal/ldap/AGENTS.md): the one LDAPS layer (dialer, DN helpers, lock state, the tool server's directory reads and its one write)
 

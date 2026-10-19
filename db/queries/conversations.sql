@@ -22,6 +22,14 @@ SET status = @status::text,
 WHERE id = @id AND status = 'open'
 RETURNING *;
 
+-- name: SetConversationTicket :exec
+-- SetConversationTicket fills in the ticket id the restart sweep created
+-- after it had already claimed the conversation (spec 0008, AC-14). It never
+-- replaces an id that is already stored.
+UPDATE conversations
+SET zammad_ticket_id = @zammad_ticket_id, updated_at = now()
+WHERE id = @id AND zammad_ticket_id IS NULL;
+
 -- name: AppendMessage :one
 -- AppendMessage takes the next seq from the conversation's counter; the row
 -- lock serialises concurrent appends, so seq stays gapless. No rows back
@@ -50,3 +58,23 @@ FROM conversations AS c
 WHERE m.conversation_id = c.id
   AND c.status <> 'open' AND c.closed_at < @cutoff::timestamptz
   AND m.content IS NOT NULL;
+
+-- name: CountRecentConversations :one
+-- CountRecentConversations is what AGENT_CONVERSATIONS_PER_HOUR is checked
+-- against (spec 0008, AC-19).
+SELECT count(*)::bigint AS conversations
+FROM conversations
+WHERE requester_slack_id = @requester_slack_id AND created_at > @since::timestamptz;
+
+-- name: ListInterruptedConversations :many
+-- ListInterruptedConversations finds open conversations a turn stopped in the
+-- middle of (spec 0008, AC-14): the last stored message is the user's, or an
+-- assistant message holding a tool_use block. Open conversations are never
+-- purged, so content is present.
+SELECT c.*
+FROM conversations AS c
+JOIN conversation_messages AS m ON m.conversation_id = c.id AND m.seq = c.last_seq
+WHERE c.status = 'open'
+  AND c.updated_at < @stale_before::timestamptz
+  AND (m.role = 'user' OR m.content @> '[{"type": "tool_use"}]'::jsonb)
+ORDER BY c.id;

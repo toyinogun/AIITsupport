@@ -2,14 +2,14 @@
 
 ## Overview
 
-The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`message.im`) or an @mention outside a DM (`app_mention`), acknowledges it at once, drops duplicates through the `slack_events` table, and answers in the message's thread. Until the agent loop arrives (#10) the answer is the fixed `HoldingReply`. Socket Mode dials out, so nothing listens on the internet. `cmd/agent` starts it only when both `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are set.
+The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`message.im`) or an @mention outside a DM (`app_mention`), acknowledges it at once, drops duplicates through the `slack_events` table, and answers in the message's thread. Every accepted event goes to the agent (`internal/agent`, spec 0008) through a non blocking `Submit`; the agent writes the answer. Socket Mode dials out, so nothing listens on the internet. `cmd/agent` starts it only when both `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are set.
 
 ## Key files
 
 | File | Owns |
 |---|---|
-| `listener.go` | `Listener`, `New`, `Run` (auth.test with backoff, then the socket, event loop, and purge loop in one errgroup), `HoldingReply`, the event filter `toMessage`, `ErrBotTokenRejected`, `ErrAppTokenRejected` |
-| `adapters.go` | the thin adapters over slack-go's `socketmode.Client` (`Socket`) and Web API client (`Poster`) |
+| `listener.go` | `Listener`, `New`, `CheckBotToken` (auth.test with backoff; returns the workspace team id), `Run` (the socket, event loop, and purge loop in one errgroup), the `Handler.Submit` hand off, the event filter `toMessage`, `ErrBotTokenRejected`, `ErrAppTokenRejected` |
+| `adapters.go` | the thin adapters over slack-go's `socketmode.Client` (`Socket`) and Web API client (`Poster`, and `users` for `users.info` as `agent.SlackUser`), plus `wrapErr` |
 | `../../deploy/slack/manifest.yaml` | the Slack app (scopes, events, Socket Mode); setup in [the Slack runbook](../../docs/runbooks/slack-workspace.md) |
 
 ## Conventions
@@ -18,6 +18,7 @@ The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`m
 - **What gets answered:** `message` with channel type `im`, or `app_mention` in a channel whose id does not start with `D`; never a `bot_id`, never a subtype (edits, deletes, joins). A DM that mentions the bot arrives as both events and gets one reply.
 - **Logs** (`slack_event_received` and friends) carry the event id, channel id, and event type only, never the message text or a user id.
 - **Refused tokens end `run()`.** `invalid_auth`, `not_authed`, `token_revoked`, or `account_inactive` from auth.test or `apps.connections.open` returns an error naming the setting, never the value. Other connect errors retry with backoff; slack-go reconnects a dropped socket itself and emits an event per attempt (`slack_connect_failed`).
+- Web API errors leave the adapters through `wrapErr`, which gives them a fixed `slack_<code>` cause token (`agent.Causer`) for the agent's logs; the error text never reaches a log.
 - Tests drive the listener through the `Socket`, `Poster`, and `Dedup` interfaces with fakes; no network.
 
 ## Gotchas

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // The _meta keys the tool server reads identity from (spec 0007, AC-2).
@@ -154,7 +155,9 @@ func toResult(res *mcp.CallToolResult) Result {
 	return out
 }
 
-// bearer adds the tool server token to every request.
+// bearer adds the tool server token and the W3C trace context to every
+// request, so the tool server's tool.call span joins the agent's trace
+// (spec 0008, Observability).
 type bearer struct {
 	token string
 	next  http.RoundTripper
@@ -163,5 +166,6 @@ type bearer struct {
 func (b bearer) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+b.token)
+	propagation.TraceContext{}.Inject(req.Context(), propagation.HeaderCarrier(req.Header))
 	return b.next.RoundTrip(req)
 }

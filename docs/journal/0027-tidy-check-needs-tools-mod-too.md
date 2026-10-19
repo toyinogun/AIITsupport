@@ -29,3 +29,6 @@ That `go mod tidy` on `go.mod` was enough.
 - Commit or PR: not committed yet
 - Eval run (if any): none
 - Clip file and timestamp: TODO (you): clip file and timestamp
+
+## Seen again
+- 2026-10-19, #10 Locked out user: adding `anthropic-sdk-go` v1.82.0 to `go.mod` left `tools.mod` wanting the SDK at a different version (`go mod tidy -diff -modfile=tools.mod` proposed v1.66.0). Fixed with `go get -modfile=tools.mod github.com/anthropics/anthropic-sdk-go@v1.82.0`, then `go mod tidy -modfile=tools.mod`. Pin the same version in both files, not just tidy. See also [0029](0029-sdk-tests-pull-an-ambiguous-import.md).

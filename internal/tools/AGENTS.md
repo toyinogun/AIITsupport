@@ -18,8 +18,8 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 | `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group and the cached ticket states |
 | `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry) |
 | `toolstest/` | in memory fakes for tests: `MemStore` (an `audit.Store` that answers the history reads like the SQL and, like Postgres, fails a query whose context has ended) and `Directory` (a fake directory that is also the writer; `Stall` and `Slow` model a hung or slow directory) |
-| `../mcpserver/` | `Handler`: stateless streamable HTTP, the bearer check (SHA-256 digests, constant time), the body cap, and the `_meta` middleware that answers −32602 |
-| `../mcpclient/` | `Client.Call` / `ListTools`, `Requester`, the `_meta` key names, `ErrIncompleteRequester` |
+| `../mcpserver/` | `Handler`: stateless streamable HTTP, the bearer check (SHA-256 digests, constant time), the body cap, the W3C trace context extract, and the `_meta` middleware that answers −32602 |
+| `../mcpclient/` | `Client.Call` / `ListTools`, `Requester`, the `_meta` key names, `ErrIncompleteRequester`; every request carries the bearer token and the W3C trace context, so `tool.call` spans join the agent's trace |
 
 ## Conventions
 

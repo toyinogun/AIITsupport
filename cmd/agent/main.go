@@ -1,25 +1,31 @@
 // Command agent is the Slack facing IT support agent. It talks to Claude and
 // calls the tool server over MCP; it never holds client system credentials.
-// At this stage it loads its config, reaches Postgres, serves health, and,
-// when both Slack tokens are set, answers Slack with a holding reply
-// (spec 0006) until the agent loop arrives (#10).
+// It loads its config, reaches Postgres, and serves health. When both Slack
+// tokens are set it also runs the agent loop (spec 0008): it checks the bot
+// token, sweeps conversations a restart interrupted, then listens.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/toyinogun/AIITsupport/eval"
+	"github.com/toyinogun/AIITsupport/internal/agent"
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/db"
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
+	"github.com/toyinogun/AIITsupport/internal/llm"
 	"github.com/toyinogun/AIITsupport/internal/logging"
+	"github.com/toyinogun/AIITsupport/internal/mcpclient"
 	"github.com/toyinogun/AIITsupport/internal/server"
 	"github.com/toyinogun/AIITsupport/internal/slack"
 	"github.com/toyinogun/AIITsupport/internal/telemetry"
@@ -40,6 +46,12 @@ func run() (err error) {
 		return err
 	}
 	logger := logging.New(os.Stdout, cfg.LogLevel, service)
+	var model agentModel
+	if cfg.SlackConfigured() {
+		if model, err = loadModel(cfg); err != nil {
+			return err
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -66,10 +78,81 @@ func run() (err error) {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return server.Run(ctx, ln, server.NewMux(), logger) })
 	if cfg.SlackConfigured() {
-		listener := slack.New(cfg.SlackBotToken, cfg.SlackAppToken, queries.New(pool), logger, cfg.SlackEventDedupTTL)
-		g.Go(func() error { return listener.Run(ctx) })
+		g.Go(func() error { return runSlack(ctx, cfg, model, pool, logger) })
 	} else {
 		logger.Info("slack_disabled")
 	}
+	return g.Wait()
+}
+
+// agentModel is what the loop needs from the model side, checked before
+// anything connects (AC-15, AC-16).
+type agentModel struct {
+	price  eval.ModelPrice
+	model  agent.Model
+	client *mcpclient.Client
+}
+
+func loadModel(cfg config.Agent) (agentModel, error) {
+	price, err := eval.Price(cfg.LLMModel)
+	if err != nil {
+		return agentModel{}, fmt.Errorf("LLM_MODEL %q has no price in eval/pricing.yaml: %w", cfg.LLMModel, err)
+	}
+	client, err := llm.New(cfg)
+	if err != nil {
+		return agentModel{}, err
+	}
+	tools, err := mcpclient.New(cfg.ToolServerURL, cfg.ToolServerToken)
+	if err != nil {
+		return agentModel{}, err
+	}
+	return agentModel{price: price, model: &client.Messages, client: tools}, nil
+}
+
+// runSlack checks the bot token, builds the agent, sweeps interrupted
+// conversations before the socket starts, then runs the agent and the
+// listener until ctx ends. A refused token ends run() with an error.
+func runSlack(ctx context.Context, cfg config.Agent, m agentModel, pool *pgxpool.Pool, logger *slog.Logger) error {
+	listener := slack.New(cfg.SlackBotToken, cfg.SlackAppToken, queries.New(pool), logger, cfg.SlackEventDedupTTL)
+	team, err := listener.CheckBotToken(ctx)
+	if err != nil {
+		return err
+	}
+	if ctx.Err() != nil { // the signal came during the token check
+		return nil
+	}
+	a, err := agent.New(agent.Config{
+		Model:                cfg.LLMModel,
+		Price:                m.price,
+		TeamID:               team,
+		MaxTurns:             cfg.MaxTurns,
+		MaxResponseTokens:    int64(cfg.MaxResponseTokens),
+		MaxTokensPerTicket:   int64(cfg.MaxTokensPerTicket),
+		MaxConcurrent:        cfg.MaxConcurrent,
+		ConversationsPerHour: int64(cfg.ConversationsPerHour),
+		MessageTimeout:       cfg.MessageTimeout,
+		ToolTimeout:          cfg.ToolTimeout,
+		PostTimeout:          slack.ReplyTimeout,
+		ShutdownGrace:        cfg.ShutdownGrace,
+	}, agent.Deps{
+		Slack: listener.Users, Poster: listener.Poster, Tools: m.client,
+		Model: m.model, Store: agent.NewStore(pool), Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+	listener.Handler = a
+	a.Sweep(ctx)
+
+	// The agent drains only after the listener has stopped, so no accepted
+	// message reaches Submit after the drain (AC-13).
+	agentCtx, stopAgent := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopAgent()
+	g := new(errgroup.Group)
+	g.Go(func() error { return a.Run(agentCtx) })
+	g.Go(func() error {
+		defer stopAgent()
+		return listener.Run(ctx)
+	})
 	return g.Wait()
 }

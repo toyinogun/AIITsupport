@@ -27,6 +27,8 @@ linters:
         agent-credential-boundary:
           files:
             - "**/cmd/agent/**"
+            - "**/internal/agent/**"
+            - "**/internal/llm/**"
           deny:
             - pkg: github.com/toyinogun/AIITsupport/internal/ldap
               desc: only the tool server may talk to AD (AGENTS.md, Rules)

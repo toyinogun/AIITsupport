@@ -63,6 +63,10 @@ func TestLoadAgentDefaults(t *testing.T) {
 		{"MessageTimeout", cfg.MessageTimeout, 45 * time.Second},
 		{"MaxRetries", cfg.MaxRetries, 2},
 		{"MaxTokensPerTicket", cfg.MaxTokensPerTicket, 30000},
+		{"MaxConcurrent", cfg.MaxConcurrent, 4},
+		{"MaxResponseTokens", cfg.MaxResponseTokens, 1024},
+		{"ShutdownGrace", cfg.ShutdownGrace, 25 * time.Second},
+		{"ConversationsPerHour", cfg.ConversationsPerHour, 10},
 		{"HTTPAddr", cfg.HTTPAddr, ":8080"},
 		{"LogLevel", cfg.LogLevel, "info"},
 	}
@@ -628,6 +632,7 @@ func TestLoadAgentSlackTokens(t *testing.T) {
 			env := minimalAgentEnv()
 			env["SLACK_BOT_TOKEN"] = tc.bot
 			env["SLACK_APP_TOKEN"] = tc.app
+			env["ANTHROPIC_API_KEY"] = "sk-ant-test"
 			cfg, err := LoadAgent(envFrom(env))
 			if len(tc.wantErr) == 0 {
 				if err != nil {
@@ -650,6 +655,44 @@ func TestLoadAgentSlackTokens(t *testing.T) {
 				t.Errorf("error %q leaks a token value", err)
 			}
 		})
+	}
+}
+
+// covers: AC-16 (spec 0008). With Slack set, the loop needs a model key and
+// in range bounds; without Slack none of these checks run.
+func TestLoadAgentLoopChecks(t *testing.T) {
+	withSlack := func(extra map[string]string) map[string]string {
+		env := minimalAgentEnv()
+		env["SLACK_BOT_TOKEN"] = "xoxb-1-2-abc"
+		env["SLACK_APP_TOKEN"] = "xapp-1-A1-abc"
+		env["ANTHROPIC_API_KEY"] = "sk-ant-test"
+		maps.Copy(env, extra)
+		return env
+	}
+	cases := map[string]struct {
+		env  map[string]string
+		want string
+	}{
+		"no key":          {withSlack(map[string]string{"ANTHROPIC_API_KEY": ""}), "ANTHROPIC_API_KEY is required"},
+		"zero concurrent": {withSlack(map[string]string{"AGENT_MAX_CONCURRENT": "0"}), "AGENT_MAX_CONCURRENT must be at least 1"},
+		"small response":  {withSlack(map[string]string{"AGENT_MAX_RESPONSE_TOKENS": "255"}), "AGENT_MAX_RESPONSE_TOKENS must be at least 256"},
+		"zero grace":      {withSlack(map[string]string{"AGENT_SHUTDOWN_GRACE": "0s"}), "AGENT_SHUTDOWN_GRACE must be positive"},
+		"zero per hour":   {withSlack(map[string]string{"AGENT_CONVERSATIONS_PER_HOUR": "0"}), "AGENT_CONVERSATIONS_PER_HOUR must be at least 1"},
+		"zero turns":      {withSlack(map[string]string{"AGENT_MAX_TURNS": "0"}), "AGENT_MAX_TURNS must be at least 1"},
+	}
+	for name, tc := range cases {
+		_, err := LoadAgent(envFrom(tc.env))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: LoadAgent = %v, want an error containing %q", name, err, tc.want)
+		}
+	}
+	if _, err := LoadAgent(envFrom(withSlack(nil))); err != nil {
+		t.Errorf("valid loop settings: %v", err)
+	}
+	env := minimalAgentEnv()
+	env["AGENT_MAX_CONCURRENT"] = "0"
+	if _, err := LoadAgent(envFrom(env)); err != nil {
+		t.Errorf("without Slack the loop checks ran: %v", err)
 	}
 }
 

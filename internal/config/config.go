@@ -58,6 +58,12 @@ type Agent struct {
 	MaxRetries         int           `env:"AGENT_MAX_RETRIES" default:"2"`
 	MaxTokensPerTicket int           `env:"AGENT_MAX_TOKENS_PER_TICKET" default:"30000"`
 
+	// feature #10 (spec 0008): the agent loop's own bounds.
+	MaxConcurrent        int           `env:"AGENT_MAX_CONCURRENT" default:"4"`
+	MaxResponseTokens    int           `env:"AGENT_MAX_RESPONSE_TOKENS" default:"1024"`
+	ShutdownGrace        time.Duration `env:"AGENT_SHUTDOWN_GRACE" default:"25s"`
+	ConversationsPerHour int           `env:"AGENT_CONVERSATIONS_PER_HOUR" default:"10"`
+
 	SlackBotToken    string   `env:"SLACK_BOT_TOKEN"`
 	SlackAppToken    string   `env:"SLACK_APP_TOKEN"`
 	SlackITChannel   string   `env:"SLACK_IT_CHANNEL"`   // feature #11
@@ -219,11 +225,55 @@ func (a Agent) SlackConfigured() bool {
 func LoadAgent(lookup LookupFunc) (Agent, error) {
 	var cfg Agent
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkSlack(cfg), checkToolServerToken(cfg.ToolServerToken))
+	err = errors.Join(err, checkSlack(cfg), checkToolServerToken(cfg.ToolServerToken), checkAgentLoop(cfg))
 	if err != nil {
 		return Agent{}, fmt.Errorf("agent config: %w", err)
 	}
 	return cfg, nil
+}
+
+// minResponseTokens is the smallest AGENT_MAX_RESPONSE_TOKENS accepted (spec 0008).
+const minResponseTokens = 256
+
+// checkAgentLoop checks the agent loop's settings, only when Slack is
+// configured: without Slack the agent serves health only (spec 0008, AC-16).
+// The provider and price checks that need other packages run in cmd/agent.
+func checkAgentLoop(cfg Agent) error {
+	if !cfg.SlackConfigured() {
+		return nil
+	}
+	var errs []error
+	if cfg.LLMProvider == "anthropic" && cfg.AnthropicAPIKey == "" {
+		errs = append(errs, errors.New("ANTHROPIC_API_KEY is required when SLACK_BOT_TOKEN and SLACK_APP_TOKEN are set and LLM_PROVIDER is anthropic"))
+	}
+	positive := map[string]time.Duration{
+		"AGENT_TOOL_TIMEOUT":    cfg.ToolTimeout,
+		"AGENT_MESSAGE_TIMEOUT": cfg.MessageTimeout,
+		"AGENT_SHUTDOWN_GRACE":  cfg.ShutdownGrace,
+	}
+	for _, name := range slices.Sorted(maps.Keys(positive)) {
+		if positive[name] <= 0 {
+			errs = append(errs, fmt.Errorf("%s must be positive", name))
+		}
+	}
+	atLeastOne := map[string]int{
+		"AGENT_MAX_CONCURRENT":         cfg.MaxConcurrent,
+		"AGENT_MAX_TURNS":              cfg.MaxTurns,
+		"AGENT_MAX_TOKENS_PER_TICKET":  cfg.MaxTokensPerTicket,
+		"AGENT_CONVERSATIONS_PER_HOUR": cfg.ConversationsPerHour,
+	}
+	for _, name := range slices.Sorted(maps.Keys(atLeastOne)) {
+		if atLeastOne[name] < 1 {
+			errs = append(errs, fmt.Errorf("%s must be at least 1", name))
+		}
+	}
+	if cfg.MaxResponseTokens < minResponseTokens {
+		errs = append(errs, fmt.Errorf("AGENT_MAX_RESPONSE_TOKENS must be at least %d", minResponseTokens))
+	}
+	if cfg.MaxRetries < 0 {
+		errs = append(errs, errors.New("AGENT_MAX_RETRIES must not be negative"))
+	}
+	return errors.Join(errs...)
 }
 
 // checkSlack accepts both Slack tokens or neither (spec 0006, AC-13), and

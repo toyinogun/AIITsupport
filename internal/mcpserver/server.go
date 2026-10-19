@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/toyinogun/AIITsupport/internal/tools"
 )
@@ -44,7 +45,16 @@ func Handler(d *tools.Dispatcher, opts Options) (http.Handler, error) {
 
 	sdk := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
-	return requireToken(opts.Token, capBody(opts.MaxRequestBytes, sdk)), nil
+	return requireToken(opts.Token, capBody(opts.MaxRequestBytes, extractTrace(sdk))), nil
+}
+
+// extractTrace reads the W3C trace context the agent's client sends, so the
+// dispatcher's tool.call span joins the agent's trace (spec 0008).
+func extractTrace(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := propagation.TraceContext{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // toolHandler hands the call to the dispatcher with the requester the
