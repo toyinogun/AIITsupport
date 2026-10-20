@@ -60,5 +60,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0036](0036-samba-ignores-the-password-history-hint.md) | 2026-10-19 | Samba ignores the password history hint on a delegated reset | #13 Password reset links | ~10 min | post |
 | [0037](0037-denied-groups-would-block-every-reset.md) | 2026-10-19 | The denied groups list would have refused a reset link to almost everyone | #13 Password reset links | ~10 min | both |
 | [0038](0038-samba-keeps-the-old-password-for-an-hour.md) | 2026-10-19 | Samba kept accepting the old password for an hour after a reset | #13 Password reset links | ~15 min | both |
+| [0039](0039-pi-runners-share-a-buildx-config.md) | 2026-10-20 | The Pi runners shared state and ran out of time, so CI moved to the cluster | #4 Coding standards & tooling | ~2 hours | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
