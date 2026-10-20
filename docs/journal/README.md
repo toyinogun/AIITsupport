@@ -70,5 +70,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0046](0046-a-1s-audit-timeout-flaked-on-the-pi.md) | 2026-10-20 | A 1s audit write timeout in the tests timed out on the Pi runner | #4 Coding standards & tooling | ~10 min | no |
 | [0047](0047-one-pending-approval-was-checked-not-enforced.md) | 2026-10-20 | "One pending approval per account" was checked in code, not enforced by the database | #14 MFA re-registration with approval | ~30 min | post |
 | [0048](0048-the-ci-fork-check-failed-open.md) | 2026-10-20 | The CI fork check failed open, so a deleted fork's code would run on the Pi | #4 Coding standards & tooling | ~5 min | post |
+| [0049](0049-pi-runners-share-a-buildx-config.md) | 2026-10-20 | The Pi runners shared state and ran out of time, so CI moved to the cluster | #4 Coding standards & tooling | ~2 hours | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

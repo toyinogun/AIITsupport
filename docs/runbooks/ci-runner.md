@@ -1,69 +1,71 @@
-# Runbook: the CI runner on the Raspberry Pi
+# Runbook: the CI runners in the k3sprox cluster
 
-CI (`.github/workflows/ci.yml`) runs on two self-hosted GitHub Actions runners on a Raspberry Pi 5 (8 GB, Ubuntu 24.04, linux/arm64), reached over Tailscale. Both carry the label `rpi01`.
+CI (`.github/workflows/ci.yml`) runs on ephemeral self-hosted runners in the k3sprox homelab cluster (k3s on Proxmox, linux/amd64). They come from GitHub's Actions Runner Controller (ARC): a runner scale set named `k3sprox`, which is also the `runs-on` label. Each job gets a fresh pod, used once, then deleted.
+
+Until 2026-10-20 CI ran on two runners on a Raspberry Pi. They shared one user's Docker and Go state, and jobs timed out under load (journal [0049](../journal/0049-pi-runners-share-a-buildx-config.md)).
 
 ## Which runner a job uses
 
 Every job has the same `runs-on` expression:
 
 ```yaml
-runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'rpi01' || 'ubuntu-latest' }}
+runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
 ```
 
-- A push to `main`, or a pull request from a branch in this repo, runs on the Pi.
-- Anything else runs on `ubuntu-latest`: a pull request from a fork, and one whose fork was deleted (its head repo is null, so a check on `head.repo.fork` alone would pick the Pi). The repo is public, and the Pi sits on the tailnet, so code from outside the repo never runs there.
+- A push to `main`, or a pull request from a branch in this repo, runs in the cluster.
+- Anything else runs on `ubuntu-latest`: a pull request from a fork, and one whose fork was deleted (its head repo is null, so a check on `head.repo.fork` alone would pick the cluster). The repo is public, and a runner pod is privileged inside a home network, so code from outside the repo never runs there.
 - Also keep the repo setting **Settings, Actions, General, Fork pull request workflows** on "Require approval for all outside collaborators", so a fork run waits for you either way.
 
-The Go cache key includes `runner.arch`, so the Pi's arm64 builds and GitHub's x64 builds never share a cache entry. The `test` job maps Postgres to a random host port, so two runs at once on the Pi do not collide.
+## What a runner pod is
 
-## Layout on the Pi
-
-| Path | What |
+| Container | What |
 |---|---|
-| `~/actions-runner-1`, `~/actions-runner-2` | the two runners (`rpi01-1`, `rpi01-2`), each with its own `_work` |
-| `~/.cache/actions-runner/` | the downloaded runner tarball |
+| `runner` | `ghcr.io/actions/actions-runner`, with `DOCKER_HOST` pointing at the sidecar's socket |
+| `dind` | `docker:<n>-dind` as a native sidecar, **privileged**, with its own `/var/lib/docker` emptyDir (capped at 20Gi) |
 
-| `~/.config/systemd/user/actions-runner@.service` | the systemd user unit; `actions-runner@1` and `@2` are the two instances |
+Service containers (Postgres in `test`), testcontainers (the live Samba tests), buildx, and QEMU all use the sidecar's dockerd. Ports they publish are on the pod's localhost. Nothing is shared between jobs: no Docker state, no Go cache on disk. The Go cache comes from `actions/cache`.
 
-Both run as the login user, who is in the `docker` group (service containers, testcontainers, buildx, and QEMU need Docker). They are systemd **user** services, not system ones, so no step needs sudo. Lingering (`loginctl enable-linger`) keeps them running with nobody logged in and starts them at boot.
+The runner image has no `make` or C compiler. The `setup-go` composite action installs `make`, `gcc`, and `libc6-dev` when they are missing; that step is a no-op on `ubuntu-latest`.
 
-## Install or reinstall
+## Where it is defined
 
-0. Install a C compiler: `sudo apt-get install -y gcc libc6-dev`. The `test` job runs `go test -race`, the race detector needs cgo, and Go turns cgo off when it finds no C compiler (`go: -race requires cgo`). This is the only step that needs sudo.
-1. Download the arm64 runner tarball from `github.com/actions/runner/releases`, check it against the SHA-256 in the release notes, and unpack it into each runner directory.
-2. Register each one with a fresh token (it lasts an hour):
+Everything is GitOps, in the `toyinogun/k3sprox-gitops` repo. Argo CD syncs it; never `helm install` by hand.
 
-   ```bash
-   gh api -X POST repos/toyinogun/AIITsupport/actions/runners/registration-token --jq .token
-   ```
+| File | What |
+|---|---|
+| `apps/arc-chart-repo.yaml` | the OCI chart repository entry for Argo CD |
+| `apps/arc-controller.yaml` | the ARC controller and CRDs (namespace `arc-systems`) |
+| `apps/arc-aiitsupport.yaml` | the `k3sprox` scale set: chart version, runner and dind images, 0 to 6 runners, resources |
+| `manifests/arc-runners/arc-github.sealedsecret.yaml` | the GitHub App credentials (app id, installation id, private key), sealed |
 
-   then on the Pi, in each runner directory:
+Auth is a GitHub App owned by the account, with one repository permission (Administration: read and write) and installed on this repo only. It does not expire.
 
-   ```bash
-   ./config.sh --unattended --replace --url https://github.com/toyinogun/AIITsupport --token <token> --name rpi01-<n> --labels rpi01 --work _work
-   ```
+## Change something
 
-3. Turn on lingering, then write the user unit (a template that runs `%h/actions-runner-%i/run.sh` with `Restart=always`, `KillMode=process`, `WantedBy=default.target`) and start both:
+- **More or fewer runners, resources, images:** edit `apps/arc-aiitsupport.yaml`, open a PR in k3sprox-gitops, merge. Argo CD applies it.
+- **Upgrade ARC:** bump `targetRevision` in both `arc-controller.yaml` and `arc-aiitsupport.yaml` together. The controller and the scale set chart must be the same version.
+- **Rotate the GitHub App key:** generate a new private key on the app's settings page, reseal it (below), merge, then delete the old key on GitHub.
 
-   ```bash
-   loginctl enable-linger "$USER"
-   systemctl --user daemon-reload && systemctl --user enable --now actions-runner@1 actions-runner@2
-   ```
+Reseal the credentials (asks for the three values; only the encrypted secret is written):
+
+```bash
+read "APP_ID?App ID: " && read "INST_ID?Installation ID: " && read "PEM?Path to the .pem file: " && PEM="${PEM/#\~/$HOME}" && kubectl create secret generic arc-github -n arc-runners --from-literal=github_app_id="$APP_ID" --from-literal=github_app_installation_id="$INST_ID" --from-file=github_app_private_key="$PEM" --dry-run=client -o yaml | kubeseal --format yaml > manifests/arc-runners/arc-github.sealedsecret.yaml
+```
 
 ## Check on it
 
-- GitHub: Settings, Actions, Runners lists `rpi01-1` and `rpi01-2` as Idle or Active. From a laptop: `gh api repos/toyinogun/AIITsupport/actions/runners --jq '.runners[] | "\(.name) \(.status)"'`.
-- On the Pi: `systemctl --user status 'actions-runner@*'`, or `journalctl --user -u 'actions-runner@*' -f`.
+- GitHub: Settings, Actions, Runners lists the `k3sprox` scale set. From a laptop: `gh api repos/toyinogun/AIITsupport/actions/runners --jq '.runners[] | "\(.name) \(.status)"'` (runners appear only while a job runs).
+- Cluster: `kubectl get applications -n argocd | grep arc`, `kubectl get pods -n arc-systems` (the controller and the `k3sprox` listener), `kubectl get pods -n arc-runners` (one pod per running job).
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Jobs sit in "Waiting for a runner" | both runners offline (Pi off, Tailscale down, or the service stopped) | `systemctl --user restart 'actions-runner@*'`; GitHub drops a runner that is offline for 14 days, then re-register it |
-| Disk fills up | Docker images and build cache from the image jobs | `docker system prune -af --filter until=168h` |
-| `samba-image` is slow | the amd64 half builds under QEMU on ARM | expected on the first run; the `gha` layer cache keeps later runs short |
-| A runner updates itself and stops | the runner auto-updates; `Restart=always` normally brings it back | `systemctl --user restart actions-runner@<n>` |
+| Jobs sit in "Waiting for a runner" | the listener is down or cannot authenticate | `kubectl logs -n arc-systems -l app.kubernetes.io/component=runner-scale-set-listener`; a 401 means the App key or installation is wrong, reseal it |
+| Runner pods stay `Pending` | not enough CPU or memory on the workers | `kubectl describe pod -n arc-runners <pod>`; lower `maxRunners` or the requests |
+| A job dies with no error and the pod shows `Evicted` | the Docker data emptyDir passed its 20Gi limit | raise `sizeLimit` in `arc-aiitsupport.yaml`, or check what the job builds |
+| `go: -race requires cgo` | the setup-go install step was skipped or failed | read that step's log; it needs `sudo apt-get` in the runner image |
 
 ## Remove
 
-`systemctl --user disable --now actions-runner@1 actions-runner@2`, then in each runner directory `./config.sh remove --token <token>` with a removal token from `gh api -X POST repos/toyinogun/AIITsupport/actions/runners/remove-token --jq .token`. Then set every `runs-on` back to `ubuntu-latest`.
+Delete the three `apps/arc-*.yaml` files and `manifests/arc-runners/` from k3sprox-gitops and merge; Argo CD prunes the scale set, then the controller. Then set every `runs-on` back to `ubuntu-latest`, and delete the GitHub App.

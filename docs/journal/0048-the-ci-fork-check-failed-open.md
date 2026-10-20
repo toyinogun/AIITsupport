@@ -13,7 +13,7 @@ TODO (you): what did you first think it was?
 A deny list that defaults to allow. The expression asked "is this a fork?" and treated "don't know" as "no".
 
 ## How I fixed it
-Flipped it to an allow list in all eight jobs and the runbook: `${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'rpi01' || 'ubuntu-latest' }}`. Only a push to `main` or a pull request whose head is this repo reaches the Pi; anything else, a missing head repo included, runs on GitHub's runners. The runbook also now says to keep fork workflows on "Require approval for all outside collaborators". Not committed yet.
+Flipped it to an allow list in all eight jobs and the runbook: `${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'rpi01' || 'ubuntu-latest' }}`. Only a push to `main` or a pull request whose head is this repo reaches the Pi; anything else, a missing head repo included, runs on GitHub's runners. The runbook also now says to keep fork workflows on "Require approval for all outside collaborators". Main then moved CI to ARC runners in the k3sprox cluster (journal 0049) with the same fail open check, so the merge kept the allow list with `'k3sprox'` in place of `'rpi01'`.
 
 ## What I would tell a team doing this for real
 (draft) A gate in front of your own hardware should name who is allowed in, never who is kept out.
