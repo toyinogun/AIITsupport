@@ -31,8 +31,9 @@ runs:
         path: |
           ~/go/pkg/mod
           ~/.cache/go-build
-        key: ${{ inputs.cache-key }}-${{ runner.os }}-${{ hashFiles('go.sum', 'tools.sum') }}
-        restore-keys: ${{ inputs.cache-key }}-${{ runner.os }}-
+        # runner.arch keeps the Pi's arm64 builds apart from ubuntu-latest's x64 ones.
+        key: ${{ inputs.cache-key }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'tools.sum') }}
+        restore-keys: ${{ inputs.cache-key }}-${{ runner.os }}-${{ runner.arch }}-
     - name: Check the Go toolchain
       shell: bash
       run: |

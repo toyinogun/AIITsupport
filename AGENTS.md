@@ -81,7 +81,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - Log with `log/slog` only; the standard `log` package is denied (depguard `no-std-log`). slog messages are static strings with snake_case keys (sloglint).
 - Every log and span key must be on `internal/logging`'s allow list (the source scan fails CI otherwise); any other value prints `[redacted]`. Never log error text: log `cause` from `cause.Of`. See [internal/logging/AGENTS.md](internal/logging/AGENTS.md) (spec 0010).
 - Silence a real false positive with `//nolint:<linter> // <reason>` on the narrowest line. A wider exclusion goes in `.golangci.yml` with a comment saying why.
-- CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match.
+- CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match. Jobs run on the self-hosted Pi runners (label `rpi01`, arm64); fork PRs run on `ubuntu-latest` so outside code never reaches the Pi. A new job copies the same `runs-on` expression. See [docs/runbooks/ci-runner.md](docs/runbooks/ci-runner.md).
 
 ## Agent skills
 

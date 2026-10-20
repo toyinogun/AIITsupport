@@ -1,5 +1,8 @@
 # CI (spec 0002). One workflow; the ci-ok job is the one required check on main.
 # Actions are pinned by full commit SHA; Dependabot keeps the pins current.
+# Jobs run on the self-hosted Raspberry Pi runners (label rpi01, linux/arm64).
+# A pull request from a fork runs on ubuntu-latest instead, so code from
+# outside the repo never runs on the Pi. Setup: docs/runbooks/ci-runner.md.
 name: ci
 
 on:
@@ -20,7 +23,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,7 +34,7 @@ jobs:
       - run: go tool -modfile=tools.mod lefthook validate
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 20
     services:
       postgres:
@@ -41,16 +44,14 @@ jobs:
           POSTGRES_USER: noord
           POSTGRES_PASSWORD: noord-dev
           POSTGRES_DB: noord
-        ports: ["5432:5432"]
+        # A random host port: two runs on the same Pi must not collide.
+        ports: ["5432"]
         options: >-
           --health-cmd "pg_isready -U noord -d noord"
           --health-interval 2s
           --health-timeout 5s
           --health-retries 15
     env:
-      # A superuser URL: internal/db/dbtest creates the roles and a migrated
-      # scratch database per test, so no migration step runs here.
-      TEST_DATABASE_URL: postgres://noord:noord-dev@localhost:5432/noord?sslmode=disable
       # Builds the Samba image and runs the live directory tests (spec 0004, AC-19).
       TEST_SAMBA: "1"
     steps:
@@ -66,6 +67,14 @@ jobs:
         with:
           cache-key: ${{ github.job }}
       - run: go test -race -coverprofile=coverage.out ./...
+        env:
+          # -race needs cgo. Go quietly turns cgo off when it finds no C
+          # compiler; forcing it on makes a missing gcc fail by name.
+          CGO_ENABLED: "1"
+          # A superuser URL: internal/db/dbtest creates the roles and a migrated
+          # scratch database per test, so no migration step runs here. The job
+          # context (for the mapped port) is only available at step level.
+          TEST_DATABASE_URL: postgres://noord:noord-dev@localhost:${{ job.services.postgres.ports['5432'] }}/noord?sslmode=disable
       - name: Report coverage (never fails the job)
         run: |
           total=$(go tool cover -func=coverage.out | awk '/^total:/ { print $3 }')
@@ -76,7 +85,7 @@ jobs:
           path: coverage.out
 
   generated:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,7 +96,7 @@ jobs:
       - run: make tidy-check
 
   vuln:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,7 +106,7 @@ jobs:
       - run: make vuln
 
   secrets:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -109,7 +118,7 @@ jobs:
       - run: make secrets
 
   images:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -128,7 +137,7 @@ jobs:
           push: false
 
   samba-image:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,7 +156,7 @@ jobs:
   ci-ok:
     if: always()
     needs: [lint, test, generated, vuln, secrets, images, samba-image]
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
     timeout-minutes: 5
     steps:
       - name: Require every job to succeed

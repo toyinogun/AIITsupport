@@ -38,7 +38,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 11 | Privileged request refusal & escalation | Slice 2 | done |
 | 12 | PII redaction & retention | Slice 2 | done |
 | 13 | Password reset links | Slice 3 | done |
-| 14 | MFA re-registration with approval | Slice 4 | planned |
+| 14 | MFA re-registration with approval | Slice 4 | in-progress |
 | 15 | Access requests via group owner | Slice 5 | planned |
 | 16 | Knowledge base answers | Slice 6 | planned |
 | 17 | One command GitOps install | Production | planned |
@@ -226,10 +226,20 @@ spec [0011](../specs/0011-password-reset-links/index.md) · code in `internal/re
 
 ## Slice 4: MFA re-registration with approval
 
-### 14. MFA re-registration with approval · needs a decision · GA
+### 14. MFA re-registration with approval · in-progress · GA
 First medium risk action. Clearing MFA methods posts an Approve or Deny card to IT in Slack; no answer in time escalates the ticket.
 **Done when:** MFA is cleared only after an IT approval in Slack; a deny or a timeout leaves MFA untouched and escalates; the audit row names the approver. If Entra was dropped, MFA tickets escalate with context instead.
-- [ ] Design it (spec): `/architect mfa re-registration with approval`
+- [x] Design it (spec): `/architect mfa re-registration with approval`
+- [ ] Build it: `/develop mfa re-registration with approval`
+  - [ ] Tracer thread: the live Graph probe (Authenticator permission, delete order, TAP still 403), `approval_cards`, `mfa_clear` with `Defer`, the decision route and execution, the IT card, the click, the `executed` settle, the prompt, one live approve from Slack (AC-1, AC-2, AC-4, AC-6 to AC-11, AC-13, AC-15 to AC-17, AC-20, AC-21, AC-23)
+  - [ ] The other doors: the full precheck order, reuse and `already_pending`, Deny and its escalation, ephemeral refusals, both kill switch reads, the close guard, one live deny (AC-1, AC-3, AC-5, AC-9, AC-15, AC-18, AC-19, AC-23, AC-24)
+  - [ ] The clock and failure: expire and abandon, the tick with adopt and capped card posts, expired and failed settles, the `reidentify` retry, partial deletes, the detached execution (AC-6, AC-9 to AC-17)
+  - [ ] Proof and docs: `approval_id` on the allow list, the canary, the boundary test, live adversarial clicks, the MFA approvals runbook, the Entra runbook, amendment notes (AC-18, AC-20, AC-22)
+- [ ] Verify it: `/check verify mfa re-registration with approval`
+- [ ] Test it: `/test mfa re-registration with approval`
+- [ ] Review it (fresh model): `/check review mfa re-registration with approval`
+- [ ] Document it: `/document mfa re-registration with approval`
+spec [0012](../specs/0012-mfa-reregistration-approval/index.md)
 
 ## Slice 5: Access requests via group owner
 
@@ -313,6 +323,8 @@ Out of scope for this build pass, kept so the plan stays honest. Pick up only if
 - **Mailbox and SharePoint permissions**: stretch from the PRD · needs a decision · GA
 - **Second factor on the reset page**: a code over a channel Slack does not control, before a real client relies on reset links · needs a decision · from spec 0011
 - **Entra password parity**: writeback or a hybrid sync so a Samba reset also changes the Entra password · needs a decision · from spec 0011
+- **Tool server owned approval cards**: the tool server posts the card and hears the click itself, so a compromised agent cannot forge an approval · needs a decision · GA · from spec 0012
+- **Revoke sessions on an MFA clear**: sign the user out everywhere when a stolen phone is the reason · needs a decision · from spec 0012
 
 Never in scope: hardware, printers, on site fixes, and admin tier changes such as Domain Admins or Global Admin.
 

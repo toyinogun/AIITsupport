@@ -95,7 +95,9 @@ func (f *fakeStore) event(s string) {
 	f.events = append(f.events, s)
 }
 
-var testConfig = Config{OutcomeRetries: 3, WriteTimeout: time.Second, MaxPayloadBytes: 4096}
+// WriteTimeout matches the AUDIT_WRITE_TIMEOUT default: 1s timed out an insert on a
+// busy self-hosted runner (Postgres on an SD card), and no test waits on it.
+var testConfig = Config{OutcomeRetries: 3, WriteTimeout: 5 * time.Second, MaxPayloadBytes: 4096}
 
 func newTestRecorder(t *testing.T, store Store) (*Recorder, *[]time.Duration) {
 	t.Helper()
