@@ -1,7 +1,7 @@
 # 0012. MFA re-registration with approval: a medium tool behind an IT card in Slack, an agent owned settle loop, and a clear that runs only after a human click
 
 **Date**: 2026-10-20
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

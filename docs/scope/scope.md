@@ -38,7 +38,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 11 | Privileged request refusal & escalation | Slice 2 | done |
 | 12 | PII redaction & retention | Slice 2 | done |
 | 13 | Password reset links | Slice 3 | done |
-| 14 | MFA re-registration with approval | Slice 4 | in-progress |
+| 14 | MFA re-registration with approval | Slice 4 | done |
 | 15 | Access requests via group owner | Slice 5 | planned |
 | 16 | Knowledge base answers | Slice 6 | planned |
 | 17 | One command GitOps install | Production | planned |
@@ -226,7 +226,7 @@ spec [0011](../specs/0011-password-reset-links/index.md) · code in `internal/re
 
 ## Slice 4: MFA re-registration with approval
 
-### 14. MFA re-registration with approval · in-progress · GA
+### 14. MFA re-registration with approval · done · GA
 First medium risk action. Clearing MFA methods posts an Approve or Deny card to IT in Slack; no answer in time escalates the ticket.
 **Done when:** MFA is cleared only after an IT approval in Slack; a deny or a timeout leaves MFA untouched and escalates; the audit row names the approver. If Entra was dropped, MFA tickets escalate with context instead.
 - [x] Design it (spec): `/architect mfa re-registration with approval`
