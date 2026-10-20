@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -50,6 +51,14 @@ const (
 )
 
 const startupTimeout = 4 * time.Minute
+
+// The one image every package's live tests share, and the lock file that
+// lets only one test process build it at a time.
+const (
+	imageRepo     = "noord-samba"
+	imageTag      = "test"
+	buildLockFile = "noord-samba-build.lock"
+)
 
 // Samba is a running, provisioned container that has not been seeded.
 type Samba struct {
@@ -93,13 +102,12 @@ func Start(ctx context.Context, buildContext string) (*Samba, error) {
 		return nil, errors.Join(err, os.RemoveAll(certDir))
 	}
 
-	ctr, err := testcontainers.Run(ctx, "",
-		testcontainers.WithDockerfile(testcontainers.FromDockerfile{
-			Context:   buildContext,
-			Repo:      "noord-samba",
-			Tag:       "test",
-			KeepImage: true,
-		}),
+	image, err := buildImage(ctx, buildContext)
+	if err != nil {
+		return nil, errors.Join(err, os.RemoveAll(certDir))
+	}
+
+	ctr, err := testcontainers.Run(ctx, image,
 		testcontainers.WithEnv(map[string]string{
 			"SAMBA_ADMIN_PASSWORD":   AdminPassword,
 			"SAMBA_SVC_PASSWORD":     SvcPassword,
@@ -137,6 +145,40 @@ func Start(ctx context.Context, buildContext string) (*Samba, error) {
 		return nil, errors.Join(err, s.Terminate())
 	}
 	return s, nil
+}
+
+// buildImage builds the image from buildContext (cached layers make a repeat
+// fast) and returns its tag. go test runs packages as parallel processes, and
+// two builds of one tag race in the image store ("already exists"), so the
+// build holds an exclusive lock on a file in the temp dir. Containers then
+// start from the built tag in parallel.
+func buildImage(ctx context.Context, buildContext string) (string, error) {
+	lock, err := os.OpenFile(filepath.Join(os.TempDir(), buildLockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("open the image build lock: %w", err)
+	}
+	defer lock.Close() // closing the file releases the lock
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return "", fmt.Errorf("take the image build lock: %w", err)
+	}
+
+	provider, err := testcontainers.NewDockerProvider()
+	if err != nil {
+		return "", fmt.Errorf("reach Docker: %w", err)
+	}
+	defer provider.Close()
+	image, err := provider.BuildImage(ctx, &testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:   buildContext,
+			Repo:      imageRepo,
+			Tag:       imageTag,
+			KeepImage: true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("build the Samba image: %w", err)
+	}
+	return image, nil
 }
 
 // Terminate removes the container and its certs.
