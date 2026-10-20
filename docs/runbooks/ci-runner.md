@@ -28,6 +28,7 @@ Both run as the login user, who is in the `docker` group (service containers, te
 
 ## Install or reinstall
 
+0. Install a C compiler: `sudo apt-get install -y gcc libc6-dev`. The `test` job runs `go test -race`, the race detector needs cgo, and Go turns cgo off when it finds no C compiler (`go: -race requires cgo`). This is the only step that needs sudo.
 1. Download the arm64 runner tarball from `github.com/actions/runner/releases`, check it against the SHA-256 in the release notes, and unpack it into each runner directory.
 2. Register each one with a fresh token (it lasts an hour):
 

@@ -68,6 +68,9 @@ jobs:
           cache-key: ${{ github.job }}
       - run: go test -race -coverprofile=coverage.out ./...
         env:
+          # -race needs cgo. Go quietly turns cgo off when it finds no C
+          # compiler; forcing it on makes a missing gcc fail by name.
+          CGO_ENABLED: "1"
           # A superuser URL: internal/db/dbtest creates the roles and a migrated
           # scratch database per test, so no migration step runs here. The job
           # context (for the mapped port) is only available at step level.
