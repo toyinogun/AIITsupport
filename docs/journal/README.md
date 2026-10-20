@@ -72,5 +72,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0048](0048-the-ci-fork-check-failed-open.md) | 2026-10-20 | The CI fork check failed open, so a deleted fork's code would run on the Pi | #4 Coding standards & tooling | ~5 min | post |
 | [0049](0049-pi-runners-share-a-buildx-config.md) | 2026-10-20 | The Pi runners shared state and ran out of time, so CI moved to the cluster | #4 Coding standards & tooling | ~2 hours | both |
 | [0050](0050-two-branches-took-the-same-journal-number.md) | 2026-10-20 | Two branches took the same journal number, so the merge from main collided | #14 MFA re-registration with approval | ~10 min | no |
+| [0051](0051-parallel-test-packages-raced-on-one-image-tag.md) | 2026-10-20 | Parallel test packages raced to build one Samba image tag, so a docs only PR failed CI | #6 Noord directory & seeded mess | ~20 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
