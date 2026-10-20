@@ -26,6 +26,7 @@ const maxValueBytes = 128
 var allowed = map[string]bool{
 	// ids
 	"event_id": true, "channel_id": true, "conversation_id": true, "call_id": true, "trace_id": true,
+	"approval_id": true, // a random uuid (spec 0012, AC-22)
 	// fixed tokens
 	"service": true, "outcome": true, "cause": true, "reason": true, "kind": true, "code": true,
 	"tool": true, "tier": true, "event_type": true, "api": true, "escalation_reason": true,

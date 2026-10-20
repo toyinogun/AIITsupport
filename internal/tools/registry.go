@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
 )
@@ -35,8 +36,14 @@ type Tool struct {
 	// AccountHandler tool is under TOOL_WRITE_LIMIT whatever this says.
 	TicketLimited bool
 	// Approval builds the approval request for a medium tool; required for
-	// tier medium.
-	Approval func(ctx context.Context, c audit.Call) (audit.ApprovalRequest, error)
+	// tier medium. now is the dispatcher's clock.
+	Approval func(ctx context.Context, c audit.Call, now time.Time) (audit.ApprovalRequest, error)
+	// Precheck runs before a medium tool is deferred (spec 0012, AC-3): it
+	// refuses, reuses a pending approval, or says what the approval card and
+	// the pending result show. Required for tier medium.
+	Precheck func(ctx context.Context, d MFADeps, in Input) (Prechecked, error)
+	// PendingResult lists the result keys the pending_approval outcome keeps.
+	PendingResult []string
 	// Handler is nil exactly for a blocked tool, which never runs.
 	Handler Handler
 }
@@ -45,7 +52,7 @@ type Tool struct {
 // when its handler takes AccountDeps, or issues a reset link (ResetDeps).
 func (t *Tool) accountChange() bool {
 	switch t.Handler.(type) {
-	case AccountHandler, ResetHandler:
+	case AccountHandler, ResetHandler, MFAHandler:
 		return true
 	}
 	return false
@@ -63,6 +70,13 @@ type RegistryOption func(*[]Tool)
 // RESET_* settings are set.
 func WithPasswordReset() RegistryOption {
 	return func(tools *[]Tool) { *tools = append(*tools, passwordResetLinkTool()) }
+}
+
+// WithMFAClear registers mfa_clear (spec 0012), only when the GRAPH_*
+// settings are complete and SLACK_IT_APPROVERS is set. approvers is the
+// snapshot each approval gets; timeout is APPROVAL_TIMEOUT.
+func WithMFAClear(approvers []string, timeout time.Duration) RegistryOption {
+	return func(tools *[]Tool) { *tools = append(*tools, mfaClearTool(approvers, timeout)) }
 }
 
 // NewRegistry builds the production registry.
@@ -111,8 +125,16 @@ func (t *Tool) validate() []error {
 	default:
 		bad("unknown tier %q", t.Tier)
 	}
-	if t.Tier == audit.TierMedium && t.Approval == nil {
-		bad("a medium tool needs an Approval hook")
+	if t.Tier == audit.TierMedium {
+		if t.Approval == nil || t.Precheck == nil {
+			bad("a medium tool needs an Approval hook and a Precheck")
+		}
+		if _, ok := t.Handler.(MFAHandler); !ok {
+			bad("a medium tool's handler must be an MFAHandler")
+		}
+	}
+	if _, ok := t.Handler.(MFAHandler); ok && t.Tier != audit.TierMedium {
+		bad("an MFAHandler runs only behind an approval (tier medium)")
 	}
 	for _, key := range t.Store {
 		i := slices.IndexFunc(t.Fields, func(f Field) bool { return f.Name == key })
@@ -148,6 +170,7 @@ const (
 	ToolPrivilegedAccessChange = "privileged_access_change"
 	ToolEscalate               = "escalate"
 	ToolPasswordResetLink      = "password_reset_link"
+	ToolMFAClear               = "mfa_clear"
 )
 
 // Argument bounds and values, part of the schema the model sees.
@@ -232,8 +255,8 @@ func productionTools() []Tool {
 			Fields: []Field{
 				{
 					Name: "reason", Required: true, MinRunes: 1, Enum: escalationReasons,
-					Description: "Why IT should look at this. Use privileged_request, other_person, or security_concern; " +
-						"the other values are reserved for the assistant's own code.",
+					Description: "Why IT should look at this. Use privileged_request, other_person, security_concern, or " +
+						"manual_action (a fix the assistant cannot make itself); the other values are reserved for the assistant's own code.",
 				},
 				{
 					Name: "title", Required: true, MinRunes: 1, MaxRunes: maxTitleRunes, NoNewline: true, FreeText: true,

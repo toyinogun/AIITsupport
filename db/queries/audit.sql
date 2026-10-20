@@ -78,3 +78,14 @@ SELECT COALESCE((
     ORDER BY id DESC
     LIMIT 1
 ), 0)::bigint AS ticket_id;
+
+-- name: ExecutionOutcomeForApproval :one
+-- ExecutionOutcomeForApproval is how an approved call ended (spec 0012,
+-- AC-13): the newest outcome row naming the approval whose tool is the
+-- approved tool or approval.abandon, leaving out the pending_approval row.
+SELECT outcome, error, result FROM audit_log
+WHERE approval_id = @approval_id AND kind = 'outcome'
+  AND tool_name IN (@tool_name::text, 'approval.abandon')
+  AND outcome <> 'pending_approval'
+ORDER BY id DESC
+LIMIT 1;

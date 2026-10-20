@@ -39,6 +39,8 @@ make gen-check # fail if the generated code is stale (pre push hook and CI run t
 - `internal/db/queries/` is generated. Edit the `.sql` here and run `make gen` instead.
 - sqlc reads the schema from the migrations folder, so a query against a new table needs its migration first.
 - `audit_log` is append only twice over: app roles lack UPDATE and DELETE (42501), and a trigger raises 55000 for everyone, the owner included.
+- At most one `pending` approval per account and tool: the partial unique index `approvals_one_pending_idx` (migration 00005). `Defer` expires the account's overdue rows first (`ExpireDueApprovalsFor`).
+- `approval_cards` (migration 00004) is the agent's table: one row per approval it owes an IT card and an outcome for. It has no foreign key to `approvals`, because the agent role cannot read that table.
 - `approvals.arguments` holds the unfiltered call only while `pending` or `approved`. Every query that ends an approval must set it to NULL (a CHECK fails otherwise), and a trigger raises 55000 on any other change to it.
 - A Compose volume created before roles existed needs `make db-roles` once (`make migrate` runs it). An old `.env` without `MIGRATE_DATABASE_URL` makes `make migrate` stop with a message.
 - DB tests need `TEST_DATABASE_URL` as a superuser URL; `dbtest` creates roles and scratch databases under an advisory lock, so packages can run in parallel. CI runs no migration step.

@@ -70,8 +70,22 @@ func (p *fakePoster) Check(context.Context) (string, error) {
 
 // fakeHandler records what the listener submits.
 type fakeHandler struct {
-	mu  sync.Mutex
-	got []agent.Inbound
+	mu     sync.Mutex
+	got    []agent.Inbound
+	clicks []agent.Click
+}
+
+func (h *fakeHandler) Click(c agent.Click) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clicks = append(h.clicks, c)
+}
+
+func clicked(l *Listener) []agent.Click {
+	h := l.Handler.(*fakeHandler)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]agent.Click(nil), h.clicks...)
 }
 
 func (h *fakeHandler) Submit(in agent.Inbound) {
@@ -97,6 +111,12 @@ func (p *fakePoster) Reply(_ context.Context, channel, thread, text string) erro
 func (p *fakePoster) ReplyNoUnfurl(ctx context.Context, channel, thread, text string) error {
 	return p.Reply(ctx, channel, thread, text)
 }
+
+func (p *fakePoster) PostCard(context.Context, string, agent.Card) (string, error) { return "", nil }
+
+func (p *fakePoster) UpdateCard(context.Context, string, string, agent.Card) error { return nil }
+
+func (p *fakePoster) Ephemeral(context.Context, string, string, string) error { return nil }
 
 func (p *fakePoster) got() []reply {
 	p.mu.Lock()
@@ -480,5 +500,80 @@ func TestListenerLogsCauseNotErrorText(t *testing.T) {
 	}
 	if strings.Contains(out, "ZEBRA") || strings.Contains(out, `"error"`) {
 		t.Errorf("logs carry error text:\n%s", out)
+	}
+}
+
+// interaction is a Socket Mode interactive event with one block action.
+func interaction(envelope, actionID, value, user string) socketmode.Event {
+	cb := slackapi.InteractionCallback{Type: slackapi.InteractionTypeBlockActions, TriggerID: "TRIGGER-SECRET"}
+	cb.User.ID, cb.Channel.ID = user, "G0ITDESK"
+	cb.ActionCallback.BlockActions = []*slackapi.BlockAction{{ActionID: actionID, Value: value}}
+	return socketmode.Event{
+		Type: socketmode.EventTypeInteractive, Data: cb,
+		Request: &socketmode.Request{Type: "interactive", EnvelopeID: envelope},
+	}
+}
+
+// covers: spec 0012 AC-8. Approve and Deny clicks are acked and handed on
+// with the clicker from the payload; a bad value and any other action are
+// acked and ignored; logs hold no user id and no trigger id.
+func TestApprovalClicks(t *testing.T) {
+	l, s, _, _, logs := newListener(t)
+	id := "6f1c2c4e-8d0a-4f53-9a51-0c3e5b7d9a10"
+	err := runWith(t, l, s,
+		interaction("env-1", agent.ActionApprove, id, "U0ITLEAD01"),
+		interaction("env-2", agent.ActionDeny, id, "U0ITLEAD02"),
+		interaction("env-3", agent.ActionApprove, "not-a-uuid", "U0ITLEAD01"),
+		interaction("env-4", "something_else", id, "U0ITLEAD01"),
+	)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := clicked(l)
+	if len(got) != 2 || !got[0].Approve || got[0].UserID != "U0ITLEAD01" || got[0].ApprovalID.String() != id ||
+		got[0].ChannelID != "G0ITDESK" || got[0].EventID != "env-1" || got[1].Approve || got[1].UserID != "U0ITLEAD02" {
+		t.Errorf("clicks = %+v", got)
+	}
+	if len(s.acks) != 4 {
+		t.Errorf("acks = %v, want every interaction acked", s.acks)
+	}
+	out := logs.String()
+	for _, want := range []string{`"msg":"slack_interaction_received"`, `"kind":"approve"`, `"msg":"slack_interaction_ignored"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("logs lack %s:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "U0ITLEAD") || strings.Contains(out, "TRIGGER-SECRET") {
+		t.Errorf("logs hold a user id or the trigger id:\n%s", out)
+	}
+}
+
+// covers: spec 0012 AC-7. The card renders as a section of its lines plus an
+// actions block named for the approval, with a confirm on Approve; the
+// outcome card has no buttons.
+func TestCardBlocks(t *testing.T) {
+	card := agent.Card{Fallback: "MFA reset request for <@U1>", Lines: []string{"MFA reset request", "Requester: <@U1> (jan)"}, ApprovalID: "abc"}
+	blocks := cardBlocks(card)
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %d", len(blocks))
+	}
+	actions, ok := blocks[1].(*slackapi.ActionBlock)
+	if !ok || actions.BlockID != "approval:abc" || len(actions.Elements.ElementSet) != 2 {
+		t.Fatalf("actions = %#v", blocks[1])
+	}
+	approve := actions.Elements.ElementSet[0].(*slackapi.ButtonBlockElement)
+	deny := actions.Elements.ElementSet[1].(*slackapi.ButtonBlockElement)
+	if approve.ActionID != agent.ActionApprove || approve.Value != "abc" || approve.Style != slackapi.StylePrimary ||
+		approve.Confirm == nil || approve.Confirm.Text.Text != "Clear this person's MFA methods?" ||
+		deny.ActionID != agent.ActionDeny || deny.Style != slackapi.StyleDanger {
+		t.Errorf("buttons = %#v %#v", approve, deny)
+	}
+	section, ok := blocks[0].(*slackapi.SectionBlock)
+	if !ok || section.Text.Text != "MFA reset request\nRequester: <@U1> (jan)" {
+		t.Errorf("section = %#v", blocks[0])
+	}
+	card.ApprovalID = ""
+	if b := cardBlocks(card); len(b) != 1 {
+		t.Errorf("an outcome card has %d blocks, want only the section", len(b))
 	}
 }

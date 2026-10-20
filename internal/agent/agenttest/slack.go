@@ -6,6 +6,7 @@ package agenttest
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 
 	"github.com/toyinogun/AIITsupport/internal/agent"
@@ -73,6 +74,9 @@ type Poster struct {
 	posts       []Post
 	Err         error
 	NoUnfurlErr error // fails ReplyNoUnfurl only
+	CardErr     error // fails PostCard and UpdateCard
+	cards       []CardPost
+	ephemerals  []Ephemeral
 }
 
 // Reply records the post.
@@ -93,6 +97,61 @@ func (p *Poster) ReplyNoUnfurl(_ context.Context, channel, thread, text string) 
 		return p.NoUnfurlErr
 	}
 	return p.Err
+}
+
+// CardPost is one PostCard or UpdateCard.
+type CardPost struct {
+	Channel, TS string
+	Card        agent.Card
+	Update      bool
+}
+
+// Ephemeral is one chat.postEphemeral.
+type Ephemeral struct{ Channel, User, Text string }
+
+// PostCard records the card and returns a ts, or fails with CardErr.
+func (p *Poster) PostCard(_ context.Context, channel string, c agent.Card) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.CardErr != nil {
+		return "", p.CardErr
+	}
+	ts := "1792400100." + strconv.Itoa(100000+len(p.cards))
+	p.cards = append(p.cards, CardPost{Channel: channel, TS: ts, Card: c})
+	return ts, nil
+}
+
+// UpdateCard records the update, or fails with CardErr.
+func (p *Poster) UpdateCard(_ context.Context, channel, ts string, c agent.Card) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.CardErr != nil {
+		return p.CardErr
+	}
+	p.cards = append(p.cards, CardPost{Channel: channel, TS: ts, Card: c, Update: true})
+	return nil
+}
+
+// Ephemeral records the message.
+func (p *Poster) Ephemeral(_ context.Context, channel, user, text string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ephemerals = append(p.ephemerals, Ephemeral{Channel: channel, User: user, Text: text})
+	return p.Err
+}
+
+// Cards returns every card post and update so far.
+func (p *Poster) Cards() []CardPost {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]CardPost(nil), p.cards...)
+}
+
+// Ephemerals returns every ephemeral message so far.
+func (p *Poster) Ephemerals() []Ephemeral {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]Ephemeral(nil), p.ephemerals...)
 }
 
 // Posts returns every post so far.

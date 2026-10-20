@@ -13,8 +13,8 @@ A leaf package that turns a failure into a fixed token for logs and spans, read 
 ## Conventions
 
 - Log `cause.Of(err)` under the `cause` key, never `err.Error()`: error text can quote a message, a name, or a row.
-- An adapter whose error types callers do not import implements `Causer` (`internal/slack`'s `slackError` gives `slack_<code>`). A token that is not `^[a-z0-9_]{1,64}$` is reported as `other`.
-- Packages with their own error types layer on top: `internal/agent`'s `cause()` checks `not_open`, `anthropic_<status>`, and `mcp_rpc_<code>` first, then calls `Of`. `internal/tools` keeps its own `cause()` in `refusal.go` for LDAP and Zammad errors.
+- An adapter whose error types callers do not import implements `Causer` (`internal/slack`'s `slackError` gives `slack_<code>`; `internal/graph`'s `Error` gives `graph_<status>`). A token that is not `^[a-z0-9_]{1,64}$` is reported as `other`.
+- Packages with their own error types layer on top: `internal/agent`'s `cause()` checks `not_open`, `anthropic_<status>`, and `mcp_rpc_<code>` first, then calls `Of`. `internal/tools` keeps its own `cause()` in `refusal.go` for LDAP, Zammad, and Graph errors.
 
 ## Related specs
 

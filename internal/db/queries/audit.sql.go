@@ -43,6 +43,36 @@ func (q *Queries) CountRecentOutcomes(ctx context.Context, arg CountRecentOutcom
 	return count, err
 }
 
+const executionOutcomeForApproval = `-- name: ExecutionOutcomeForApproval :one
+SELECT outcome, error, result FROM audit_log
+WHERE approval_id = $1 AND kind = 'outcome'
+  AND tool_name IN ($2::text, 'approval.abandon')
+  AND outcome <> 'pending_approval'
+ORDER BY id DESC
+LIMIT 1
+`
+
+type ExecutionOutcomeForApprovalParams struct {
+	ApprovalID uuid.NullUUID
+	ToolName   string
+}
+
+type ExecutionOutcomeForApprovalRow struct {
+	Outcome pgtype.Text
+	Error   pgtype.Text
+	Result  json.RawMessage
+}
+
+// ExecutionOutcomeForApproval is how an approved call ended (spec 0012,
+// AC-13): the newest outcome row naming the approval whose tool is the
+// approved tool or approval.abandon, leaving out the pending_approval row.
+func (q *Queries) ExecutionOutcomeForApproval(ctx context.Context, arg ExecutionOutcomeForApprovalParams) (ExecutionOutcomeForApprovalRow, error) {
+	row := q.db.QueryRow(ctx, executionOutcomeForApproval, arg.ApprovalID, arg.ToolName)
+	var i ExecutionOutcomeForApprovalRow
+	err := row.Scan(&i.Outcome, &i.Error, &i.Result)
+	return i, err
+}
+
 const insertAuditIntent = `-- name: InsertAuditIntent :one
 
 INSERT INTO audit_log (

@@ -135,3 +135,72 @@ func TestMaskPhone(t *testing.T) {
 		}
 	}
 }
+
+// covers: spec 0012 AC-20. The Authenticator list and delete, the sign in
+// preference read, and the fake's TAP 403.
+func TestAuthenticatorMethodsAndDelete(t *testing.T) {
+	f := graphtest.New(t)
+	id := f.AddUser(map[string]any{"mailNickname": "eva.peters", "employeeType": graph.ManagedMarker})
+	f.SetAuthenticators(id, "auth-1")
+	f.SetSignInPreference(id, "push")
+	c := fakeClient(t, f)
+	u, err := c.UserByUsername(t.Context(), "eva.peters")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	methods, err := c.AuthMethods(t.Context(), u)
+	if err != nil {
+		t.Fatalf("AuthMethods: %v", err)
+	}
+	if len(methods) != 2 || methods[1].Type != graph.MethodAuthenticator {
+		t.Errorf("methods = %+v, want password and microsoftAuthenticator", methods)
+	}
+	auth, err := c.AuthenticatorMethods(t.Context(), u)
+	if err != nil || len(auth) != 1 || auth[0].ID != "auth-1" {
+		t.Fatalf("AuthenticatorMethods = %+v, %v", auth, err)
+	}
+	pref, err := c.SignInPreference(t.Context(), u)
+	if err != nil || pref != "push" {
+		t.Errorf("SignInPreference = %q, %v; want push", pref, err)
+	}
+	if err := c.DeleteAuthenticatorMethod(t.Context(), u, "auth-1"); err != nil {
+		t.Fatalf("DeleteAuthenticatorMethod: %v", err)
+	}
+	if left := f.Authenticators(id); len(left) != 0 {
+		t.Errorf("left = %v", left)
+	}
+
+	f.SignInPrefsForbidden = true
+	if _, err := c.SignInPreference(t.Context(), u); !graph.IsForbidden(err) {
+		t.Errorf("SignInPreference with no permission: %v, want 403", err)
+	}
+	err = c.Do(t.Context(), graph.Request{Method: "POST", Path: graph.UserPath(u.ID()) + "/authentication/temporaryAccessPassMethods", Body: map[string]any{}})
+	if !graph.IsForbidden(err) {
+		t.Errorf("TAP: %v, want 403", err)
+	}
+}
+
+// covers: spec 0012 AC-11. The fake refuses to delete the default method
+// while another remains, the rule the clear's order works around.
+func TestFakeRefusesDefaultFirst(t *testing.T) {
+	f := graphtest.New(t)
+	id := f.AddUser(map[string]any{"mailNickname": "eva.peters", "employeeType": graph.ManagedMarker})
+	f.SetAuthenticators(id, "auth-1")
+	f.SetPhones(id, []graphtest.Phone{{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+1 2025550114", PhoneType: "mobile"}})
+	f.SetSignInPreference(id, "sms")
+	c := fakeClient(t, f)
+	u, err := c.UserByUsername(t.Context(), "eva.peters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeletePhoneMethod(t.Context(), u, graphtest.PhoneID("mobile")); graph.Status(err) != 400 {
+		t.Errorf("default first: %v, want 400", err)
+	}
+	if err := c.DeleteAuthenticatorMethod(t.Context(), u, "auth-1"); err != nil {
+		t.Fatalf("other first: %v", err)
+	}
+	if err := c.DeletePhoneMethod(t.Context(), u, graphtest.PhoneID("mobile")); err != nil {
+		t.Errorf("default last: %v", err)
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/toyinogun/AIITsupport/internal/agent/agenttest"
 	"github.com/toyinogun/AIITsupport/internal/canary"
+	"github.com/toyinogun/AIITsupport/internal/mcpclient"
 )
 
 // Texts the canary flows send or script, each hunted in the output.
@@ -133,6 +134,70 @@ func TestCanaryResetLink(t *testing.T) {
 		}
 		if strings.Contains(string(raw), "CANARY-TOKEN") {
 			t.Errorf("model request %d holds the token", i)
+		}
+	}
+}
+
+// covers: spec 0012 AC-22. The MFA flow on the agent side (request, card,
+// an approve click, the settle, and a denied one settled by the tick),
+// logged through logging.New and exported through NewRedactingExporter:
+// no log line or span holds the account, a seed name, a Slack id, or the
+// message text, and no stored message or model request holds a phone
+// number or a device name.
+func TestCanaryMFAApproval(t *testing.T) {
+	const text = "I got a new phone and my Authenticator is gone"
+	hunt, err := canary.Seed(filepath.Join("..", "..", "seed", "directory", "noord.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hunt.AnyCase(janSlack)
+	hunt.AnyCase(itLead)
+	hunt.Word(fakeDepartment)
+	for _, s := range []string{text, mfaAnswer, "New phone"} {
+		hunt.Text(s)
+	}
+	sinks := traceSinks()
+	sinks.exported.Reset()
+
+	approved := requested(t, withProductionLogger())
+	approved.appr.Decisions[approvalID] = mcpclient.DecisionResponse{Moved: true, Approval: view(mcpclient.StatusExecuted)}
+	approved.click(itLead, true)
+	denied := requested(t, withProductionLogger())
+	denied.appr.Views[approvalID] = view(mcpclient.StatusDenied)
+	denied.a.Tick()
+
+	logs := approved.logs.String() + denied.logs.String()
+	for _, want := range []string{`"msg":"approval_card_posted"`, `"outcome":"executed"`, `"outcome":"denied"`} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("the flows did not run as scripted: no %s in\n%s", want, logs)
+		}
+	}
+	spans := sinks.exported.GetSpans()
+	names := map[string]bool{}
+	for _, s := range spans {
+		names[s.Name] = true
+	}
+	if !names["approval.tick"] || !names["agent.turn"] {
+		t.Errorf("spans = %v, want agent.turn and approval.tick", names)
+	}
+	values := append(canary.LogValues([]byte(logs)), canary.SpanValues(spans)...)
+	if leaks := hunt.Leaks(values); len(leaks) > 0 {
+		t.Errorf("logs or spans hold personal data or [redacted]:\n%s\nlogs:\n%s", strings.Join(leaks, "\n"), logs)
+	}
+	for _, h := range []*harness{approved, denied} {
+		for _, m := range h.store.Messages(h.conv().ID) {
+			if c := string(m.Content); strings.Contains(c, "+1 ") || strings.Contains(c, "Device of") {
+				t.Errorf("stored message %d holds a phone or a device name", m.Seq)
+			}
+		}
+		for i, r := range h.model.Calls() {
+			raw, err := json.Marshal(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(raw), "Device of") {
+				t.Errorf("model request %d holds a device name", i)
+			}
 		}
 	}
 }

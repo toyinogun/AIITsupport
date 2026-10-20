@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
+	"github.com/toyinogun/AIITsupport/internal/db/queries"
 	"github.com/toyinogun/AIITsupport/internal/ldap"
 )
 
@@ -67,6 +69,19 @@ type Systems struct {
 	// Reset is the reset link store and settings; required exactly when the
 	// registry holds password_reset_link (spec 0011).
 	Reset *ResetSystem
+	// MFA is what mfa_clear needs; required exactly when the registry holds
+	// it (spec 0012).
+	MFA *MFASystem
+}
+
+// MFASystem is what the MFA tool needs beyond Systems.
+type MFASystem struct {
+	Graph  GraphAPI
+	Reader AccountReader
+	// DeniedGroups is MFA_DENIED_GROUPS: members never get a clear.
+	DeniedGroups []string
+	// ExecuteTimeout is APPROVAL_EXECUTE_TIMEOUT, one approved execution's deadline.
+	ExecuteTimeout time.Duration
 }
 
 // ResetSystem is what the reset link handler needs beyond Systems.
@@ -86,9 +101,11 @@ type Dispatcher struct {
 	fence *Fence
 	// accounts guards reset link targets; nil without the reset system.
 	accounts *AccountFence
-	logger   *slog.Logger
-	tracer   trace.Tracer
-	now      func() time.Time
+	// mfaAccounts guards MFA clears; nil without the MFA system.
+	mfaAccounts *AccountFence
+	logger      *slog.Logger
+	tracer      trace.Tracer
+	now         func() time.Time
 	// beforeHandler runs after every check and before the handler. Tests
 	// use it to flip the kill switch between its two reads.
 	beforeHandler func()
@@ -105,16 +122,22 @@ func NewDispatcher(reg *Registry, cfg Config, sys Systems, logger *slog.Logger) 
 		if _, ok := reg.Lookup(ToolPasswordResetLink); ok && (sys.Reset == nil || sys.Reset.Links == nil) {
 			err = errors.Join(err, errors.New("password_reset_link needs the reset link store"))
 		}
+		if _, ok := reg.Lookup(ToolMFAClear); ok && (sys.MFA == nil || sys.MFA.Graph == nil || sys.MFA.Reader == nil || sys.MFA.ExecuteTimeout <= 0) {
+			err = errors.Join(err, errors.New("mfa_clear needs Graph, the account reader, and an execute timeout"))
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("tool layer: %w", err)
 	}
-	var accounts *AccountFence
+	var accounts, mfaAccounts *AccountFence
 	if sys.Reset != nil {
 		accounts = NewAccountFence(sys.Directory, sys.Reset.DeniedGroups, logger)
 	}
+	if sys.MFA != nil {
+		mfaAccounts = NewAccountFence(sys.Directory, sys.MFA.DeniedGroups, logger)
+	}
 	return &Dispatcher{
-		reg: reg, cfg: cfg, sys: sys, logger: logger, accounts: accounts,
+		reg: reg, cfg: cfg, sys: sys, logger: logger, accounts: accounts, mfaAccounts: mfaAccounts,
 		fence: &Fence{
 			dir: sys.Directory, groupOUs: cfg.GroupOUs, base: cfg.BaseDN,
 			denied: cfg.DeniedGroups, logger: logger,
@@ -220,12 +243,13 @@ func (d *Dispatcher) dispatch(ctx context.Context, t *Tool, req Request) (Respon
 	if err := ctx.Err(); err != nil {
 		return d.fail(ctx, call, directoryFailure(err))
 	}
+	in := Input{Requester: req.Requester, Account: account, Args: args, Now: now}
 	// 9. A medium tool waits for a human; its handler never runs here.
 	if t.Tier == audit.TierMedium {
-		return d.deferCall(ctx, t, call)
+		return d.deferCall(ctx, t, call, in)
 	}
 	// 10. The handler, inside the recorder.
-	return d.run(ctx, t, call, Input{Requester: req.Requester, Account: account, Args: args, Now: now})
+	return d.run(ctx, t, call, in)
 }
 
 type match int
@@ -276,28 +300,98 @@ func (d *Dispatcher) limitFor(t *Tool) int {
 	return 0
 }
 
-func (d *Dispatcher) deferCall(ctx context.Context, t *Tool, call audit.Call) (Response, string) {
-	approval, err := t.Approval(ctx, call)
+// deferCall is step 9 (spec 0012, AC-3 to AC-5): the precheck, then a
+// refusal, a reuse of this thread's pending approval, or a new approval and
+// its ticket note. The handler never runs here.
+func (d *Dispatcher) deferCall(ctx context.Context, t *Tool, call audit.Call, in Input) (Response, string) {
+	call.PendingResult = t.PendingResult
+	pre, err := t.Precheck(ctx, d.mfaDeps(), in)
+	switch {
+	case err != nil:
+		return d.fail(ctx, call, err)
+	case pre.Refusal != nil:
+		return d.refuse(ctx, call, *pre.Refusal)
+	case pre.Reuse != nil:
+		return d.reuse(ctx, call, *pre.Reuse, in.Now)
+	}
+	req, err := t.Approval(ctx, call, in.Now)
 	if err != nil {
 		return d.fail(ctx, call, failed(err))
 	}
-	if _, err := d.sys.Recorder.Defer(recordCtx(ctx), call, approval); err != nil {
+	data := map[string]any{"expires_at": req.ExpiresAt.UTC().Format(time.RFC3339), "reused": false}
+	for k, v := range pre.Data {
+		data[k] = v
+	}
+	approval, err := d.sys.Recorder.Defer(recordCtx(ctx), call, req, data)
+	if errors.Is(err, audit.ErrApprovalPending) {
+		// Another thread's request passed the precheck at the same moment.
+		return d.refuse(ctx, call, refuseAlreadyPending)
+	}
+	if err != nil {
 		return d.auditUnavailable(ctx)
 	}
-	return Response{
-		Code: CodePendingApproval, Text: pendingApprovalSentence,
-		Data: map[string]any{"code": string(CodePendingApproval)},
-	}, string(audit.OutcomePendingApproval)
+	noted := false
+	if pre.Note != nil && call.TicketID != 0 {
+		noted = d.sys.Helpdesk.addInternalNote(ctx, int(call.TicketID), pre.Note(req.ExpiresAt)) == nil
+	}
+	data["ticket_noted"] = noted
+	return d.pendingResponse(approval.ID.String(), req.ExpiresAt, in.Now, call.TicketID, data), string(audit.OutcomePendingApproval)
 }
 
-func (d *Dispatcher) run(ctx context.Context, t *Tool, call audit.Call, in Input) (Response, string) {
-	deps := Deps{
+// reuse answers a repeat request in the thread that already holds a pending
+// approval (spec 0012, AC-5): an audit pair, no new approval, no note.
+func (d *Dispatcher) reuse(ctx context.Context, call audit.Call, a queries.Approval, now time.Time) (Response, string) {
+	data := map[string]any{"expires_at": a.ExpiresAt.UTC().Format(time.RFC3339), "reused": true}
+	if err := d.sys.Recorder.Reuse(recordCtx(ctx), call, a.ID, data); err != nil {
+		return d.auditUnavailable(ctx)
+	}
+	data["ticket_noted"] = false
+	return d.pendingResponse(a.ID.String(), a.ExpiresAt, now, a.ZammadTicketID.Int64, data), string(audit.OutcomePendingApproval)
+}
+
+// pendingResponse is the AC-4 result: not an error, so the model reads it
+// as "wait for IT".
+func (d *Dispatcher) pendingResponse(approvalID string, expiresAt, now time.Time, ticketID int64, data map[string]any) Response {
+	out := map[string]any{
+		"code":               string(CodePendingApproval),
+		"approval_id":        approvalID,
+		"expires_in_minutes": int64(math.Ceil(expiresAt.Sub(now).Minutes())),
+		"ticket_id":          ticketID,
+	}
+	for k, v := range data {
+		out[k] = v
+	}
+	if u := d.sys.Helpdesk.ticketURL(int(ticketID)); u != "" {
+		out["ticket_url"] = u
+	}
+	return Response{Code: CodePendingApproval, Text: pendingApprovalSentence, Data: out}
+}
+
+func (d *Dispatcher) deps() Deps {
+	return Deps{
 		Directory: d.sys.Directory,
 		Helpdesk:  d.sys.Helpdesk,
 		History:   d.sys.Recorder,
 		Fence:     d.fence,
 		Limits:    Limits{TicketMaxPending: d.cfg.TicketMaxPending, PrivilegedWindow: d.cfg.PrivilegedWindow},
 	}
+}
+
+// mfaDeps is MFADeps; registry construction and NewDispatcher make sure the
+// MFA system is there whenever a medium tool is.
+func (d *Dispatcher) mfaDeps() MFADeps {
+	md := MFADeps{
+		Deps: d.deps(), Approvals: d.sys.Recorder, Accounts: d.mfaAccounts, Switch: d.sys.KillSwitch,
+		UserOUs: d.cfg.UserOUs, BaseDN: d.cfg.BaseDN,
+	}
+	if d.sys.MFA != nil {
+		md.Graph, md.Reader = d.sys.MFA.Graph, d.sys.MFA.Reader
+	}
+	return md
+}
+
+func (d *Dispatcher) run(ctx context.Context, t *Tool, call audit.Call, in Input) (Response, string) {
+	deps := d.deps()
 	var res Result
 	var handlerErr error
 	_, err := d.sys.Recorder.Run(ctx, call, func(ctx context.Context) (audit.Result, error) {
@@ -311,7 +405,8 @@ func (d *Dispatcher) run(ctx context.Context, t *Tool, call audit.Call, in Input
 			res, handlerErr = h(ctx, deps, in)
 		case ResetHandler:
 			res, handlerErr = h(ctx, ResetDeps{Deps: deps, Links: d.sys.Reset.Links, Settings: d.sys.Reset.Settings, Accounts: d.accounts}, in)
-		default:
+		default: // an MFAHandler runs only from Execute
+
 			handlerErr = failed(errors.New("unknown handler type"))
 		}
 		if handlerErr != nil {

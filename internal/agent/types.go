@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/toyinogun/AIITsupport/eval"
@@ -53,6 +54,50 @@ type Poster interface {
 	Reply(ctx context.Context, channel, threadTS, text string) error
 	// ReplyNoUnfurl posts with link and media unfurling off (spec 0011, AC-5).
 	ReplyNoUnfurl(ctx context.Context, channel, threadTS, text string) error
+	// PostCard posts an approval card as a new channel message and returns
+	// its ts (spec 0012, AC-7).
+	PostCard(ctx context.Context, channel string, c Card) (string, error)
+	// UpdateCard replaces a posted card (chat.update, spec 0012 AC-16).
+	UpdateCard(ctx context.Context, channel, ts string, c Card) error
+	// Ephemeral shows text to one user in a channel (chat.postEphemeral).
+	Ephemeral(ctx context.Context, channel, userID, text string) error
+}
+
+// Card is an approval card (spec 0012, AC-7): fixed lines built only by
+// code, with no model text, and the Approve and Deny buttons while it can
+// still be decided. The Slack adapter renders it as Block Kit.
+type Card struct {
+	Fallback string   // the message's text, for notifications
+	Lines    []string // mrkdwn lines, every interpolated value already escaped
+	// ApprovalID is the buttons' value; empty renders no buttons.
+	ApprovalID string
+}
+
+// Card action ids (spec 0012, AC-7 and AC-8).
+const (
+	ActionApprove = "approval_approve"
+	ActionDeny    = "approval_deny"
+)
+
+// Click is one Approve or Deny click from the IT channel (spec 0012, AC-8).
+// UserID comes from the interaction payload, never from the model.
+type Click struct {
+	EventID    string // the envelope id, for logs
+	ApprovalID uuid.UUID
+	UserID     string
+	Approve    bool
+	ChannelID  string
+}
+
+// Approvals are the tool server's approval routes (spec 0012, AC-9 to
+// AC-14). *mcpclient.ApprovalClient satisfies it.
+type Approvals interface {
+	Decide(ctx context.Context, id uuid.UUID, clicker string, approve bool) (mcpclient.DecisionResponse, error)
+	Get(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error)
+	// Since lists the approvals created at or after since (the tick's adopt).
+	Since(ctx context.Context, since time.Time) ([]mcpclient.ApprovalView, error)
+	// Expire ends overdue pending approvals and abandons stuck approved ones.
+	Expire(ctx context.Context) (mcpclient.ExpireResponse, error)
 }
 
 // Tools is the tool server, through internal/mcpclient (spec 0007).
@@ -138,7 +183,56 @@ type Store interface {
 	SumTokens(ctx context.Context, id int64) (int64, error)
 	CountRecentConversations(ctx context.Context, requesterSlackID string, since time.Time) (int64, error)
 	ListInterrupted(ctx context.Context, staleBefore time.Time) ([]Conversation, error)
+	GetConversation(ctx context.Context, id int64) (Conversation, error)
 	RetentionStore
+	ApprovalStore
+}
+
+// ApprovalCard is one approval_cards row (spec 0012): the card agent code
+// owes IT, and the outcome it owes the user.
+type ApprovalCard struct {
+	ApprovalID     uuid.UUID
+	ConversationID int64
+	ToolName       string
+	ChannelID      string // where the card goes: SLACK_IT_CHANNEL
+	CardTS         string // empty until a post succeeds
+	PostAttempts   int
+	ExpiresAt      time.Time
+	Settled        bool
+	Outcome        string // executed, failed, denied, or expired once settled
+}
+
+// ErrNoCard means no approval card has that approval id.
+var ErrNoCard = errors.New("agent: no approval card")
+
+// ApprovalStore is the approval_cards table (spec 0012, AC-6 and AC-15).
+type ApprovalStore interface {
+	// AppendToolResultWithCard stores a pending tool result and inserts its
+	// card row in one transaction. created reports whether this call made
+	// the row, and so owes the first post.
+	AppendToolResultWithCard(ctx context.Context, id int64, content json.RawMessage, card ApprovalCard) (created bool, err error)
+	// RecordCardPostAttempt claims one post attempt before it is sent: only
+	// while no post succeeded, under maxAttempts, and spacing after the
+	// last attempt. ok is false when the claim did not happen.
+	RecordCardPostAttempt(ctx context.Context, approvalID uuid.UUID, maxAttempts int, spacing time.Duration) (ok bool, err error)
+	SetCardTS(ctx context.Context, approvalID uuid.UUID, ts string) error
+	// GetApprovalCard returns ErrNoCard for an unknown id.
+	GetApprovalCard(ctx context.Context, approvalID uuid.UUID) (ApprovalCard, error)
+	// SettleCard records the outcome once and, when the conversation is
+	// still open, moves it to status, in one transaction. settled is false
+	// when another settle won.
+	SettleCard(ctx context.Context, approvalID uuid.UUID, outcome, status string) (settled bool, err error)
+	// AdoptApprovalCard inserts the card row of an approval whose pending
+	// result never reached the agent, when its thread (threadChannel,
+	// threadTS) is a known conversation (AC-14). created is false when the
+	// row exists already or the thread is unknown.
+	AdoptApprovalCard(ctx context.Context, card ApprovalCard, threadChannel, threadTS string) (created bool, err error)
+	// HaveApprovalCards reports which of ids already have a card row, so the
+	// adopt step inserts only for the rest (AC-14).
+	HaveApprovalCards(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]bool, error)
+	// ListUnsettledApprovalCards lists up to limit cards whose outcome is
+	// still owed, oldest first (AC-14).
+	ListUnsettledApprovalCards(ctx context.Context, limit int) ([]ApprovalCard, error)
 }
 
 // RetentionStore is what the retention pass writes (spec 0010, AC-8).

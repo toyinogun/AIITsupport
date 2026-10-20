@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
@@ -43,6 +44,15 @@ type Config struct {
 	PostTimeout          time.Duration // the listener's reply timeout
 	ShutdownGrace        time.Duration
 	ITChannel            string // SLACK_IT_CHANNEL: where escalations are posted (spec 0009)
+	// ApprovalDecideTimeout bounds one Approve or Deny call to the tool
+	// server (APPROVAL_DECIDE_TIMEOUT, spec 0012 AC-9).
+	ApprovalDecideTimeout time.Duration
+	// ApprovalPollInterval is the approval tick (APPROVAL_POLL_INTERVAL);
+	// card reposts are spaced by twice it (spec 0012, AC-14).
+	ApprovalPollInterval time.Duration
+	// ApprovalTimeout is APPROVAL_TIMEOUT, shared with the tool server: the
+	// tick adopts approvals created within it plus an hour (AC-14).
+	ApprovalTimeout time.Duration
 }
 
 func (c Config) check() error {
@@ -53,7 +63,8 @@ func (c Config) check() error {
 	if c.MaxTurns < 1 || c.MaxResponseTokens < 1 || c.MaxTokensPerTicket < 1 || c.MaxConcurrent < 1 || c.ConversationsPerHour < 1 {
 		errs = append(errs, errors.New("agent: every limit must be at least 1"))
 	}
-	if c.MessageTimeout <= 0 || c.ToolTimeout <= 0 || c.PostTimeout <= 0 || c.ShutdownGrace <= 0 {
+	if c.MessageTimeout <= 0 || c.ToolTimeout <= 0 || c.PostTimeout <= 0 || c.ShutdownGrace <= 0 ||
+		c.ApprovalDecideTimeout <= 0 || c.ApprovalPollInterval <= 0 || c.ApprovalTimeout <= 0 {
 		errs = append(errs, errors.New("agent: every timeout must be positive"))
 	}
 	return errors.Join(errs...)
@@ -72,8 +83,10 @@ type Deps struct {
 	Tools  Tools
 	Model  Model
 	Store  Store
-	Logger *slog.Logger
-	Now    func() time.Time // defaults to time.Now
+	// Approvals are the tool server's approval routes (spec 0012).
+	Approvals Approvals
+	Logger    *slog.Logger
+	Now       func() time.Time // defaults to time.Now
 }
 
 // Agent runs one turn per accepted Slack message.
@@ -92,20 +105,31 @@ type Agent struct {
 	mu       sync.Mutex
 	workers  map[threadKey]*worker
 	stopping bool
+	ticking  bool               // an approval tick is running (spec 0012, AC-14)
+	settling map[uuid.UUID]bool // approvals with a settle queued or running
 	wg       sync.WaitGroup
 }
 
 type threadKey struct{ channel, thread string }
 
-type worker struct{ queue []Inbound }
+// worker runs a thread's jobs one at a time: a message's turn, or code work
+// such as an approval settle that must never race a turn (spec 0012, AC-15).
+type worker struct{ queue []job }
+
+// job is exactly one of a message or a run func.
+type job struct {
+	in  Inbound
+	run func()
+}
 
 // New checks cfg and deps and returns an agent ready for Submit and Run.
 func New(cfg Config, deps Deps) (*Agent, error) {
 	if err := cfg.check(); err != nil {
 		return nil, err
 	}
-	if deps.Slack == nil || deps.Poster == nil || deps.Tools == nil || deps.Model == nil || deps.Store == nil || deps.Logger == nil {
-		return nil, errors.New("agent: needs Slack, a poster, the tools, a model, a store, and a logger")
+	if deps.Slack == nil || deps.Poster == nil || deps.Tools == nil || deps.Model == nil || deps.Store == nil ||
+		deps.Approvals == nil || deps.Logger == nil {
+		return nil, errors.New("agent: needs Slack, a poster, the tools, a model, a store, the approval routes, and a logger")
 	}
 	if deps.Now == nil {
 		deps.Now = time.Now
@@ -114,9 +138,10 @@ func New(cfg Config, deps Deps) (*Agent, error) {
 	return &Agent{
 		cfg: cfg, deps: deps,
 		workCtx: workCtx, cancelWork: cancel,
-		sem:     make(chan struct{}, cfg.MaxConcurrent),
-		stopCh:  make(chan struct{}),
-		workers: map[threadKey]*worker{},
+		sem:      make(chan struct{}, cfg.MaxConcurrent),
+		stopCh:   make(chan struct{}),
+		workers:  map[threadKey]*worker{},
+		settling: map[uuid.UUID]bool{},
 	}, nil
 }
 
@@ -143,12 +168,35 @@ func (a *Agent) Submit(in Inbound) {
 			a.wg.Go(func() { a.post(a.workCtx, in, TextBusy, "busy") })
 			return
 		}
-		w.queue = append(w.queue, in)
+		w.queue = append(w.queue, job{in: in})
 		return
 	}
-	w := &worker{queue: []Inbound{in}}
+	a.startWorker(key, job{in: in})
+}
+
+// startWorker starts a worker for a thread that has none; a.mu is held.
+func (a *Agent) startWorker(key threadKey, j job) {
+	w := &worker{queue: []job{j}}
 	a.workers[key] = w
 	a.wg.Go(func() { a.runWorker(key, w) })
+}
+
+// onThread queues run on the thread's worker, after any turn in it, so it
+// never races a model turn (spec 0012, AC-15). It reports false while
+// shutting down; the caller's work is then tried again later.
+func (a *Agent) onThread(channel, thread string, run func()) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.stopping {
+		return false
+	}
+	key := threadKey{channel, thread}
+	if w, ok := a.workers[key]; ok {
+		w.queue = append(w.queue, job{run: run})
+		return true
+	}
+	a.startWorker(key, job{run: run})
+	return true
 }
 
 // runWorker runs a thread's messages one at a time, in arrival order, and
@@ -176,25 +224,35 @@ func (a *Agent) runWorker(key threadKey, w *worker) {
 			<-a.sem
 			continue
 		}
-		in := w.queue[0]
+		j := w.queue[0]
 		w.queue = w.queue[1:]
 		a.mu.Unlock()
-		a.runTurn(in)
+		if j.run != nil {
+			j.run()
+		} else {
+			a.runTurn(j.in)
+		}
 		<-a.sem
 	}
 }
 
-// Run waits for ctx to end, runs the second sweep after the stale window,
-// then drains: waiting messages get the shutdown text, and running turns get
+// Run runs the approval tick at start and every APPROVAL_POLL_INTERVAL
+// (spec 0012, AC-14), runs the second sweep after the stale window, and once
+// ctx ends drains: waiting messages get the shutdown text, and running turns get
 // AGENT_SHUTDOWN_GRACE before their contexts are cancelled.
 func (a *Agent) Run(ctx context.Context) error {
 	second := time.NewTimer(a.cfg.staleWindow())
 	defer second.Stop()
+	ticker := time.NewTicker(a.cfg.ApprovalPollInterval)
+	defer ticker.Stop()
+	a.goTick()
 wait:
 	for {
 		select {
 		case <-ctx.Done():
 			break wait
+		case <-ticker.C:
+			a.goTick()
 		case <-second.C:
 			a.mu.Lock()
 			if !a.stopping {
@@ -229,8 +287,10 @@ func (a *Agent) stop() {
 	a.stopping = true
 	close(a.stopCh)
 	for _, w := range a.workers {
-		for _, in := range w.queue {
-			a.wg.Go(func() { a.post(a.workCtx, in, TextShutdown, "shutdown") })
+		for _, j := range w.queue {
+			if j.run == nil { // code work is dropped: the approval tick tries it again
+				a.wg.Go(func() { a.post(a.workCtx, j.in, TextShutdown, "shutdown") })
+			}
 		}
 		w.queue = nil
 	}

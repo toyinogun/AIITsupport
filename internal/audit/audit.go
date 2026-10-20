@@ -99,8 +99,11 @@ type Call struct {
 	// Every other key is dropped and only counted. Never allow a free text key.
 	Store       []string
 	StoreResult []string
-	TraceID     string
-	ApprovalID  uuid.UUID // uuid.Nil when the call is not an approved execution
+	// PendingResult lists the result keys kept on a pending_approval outcome
+	// (Defer, Reuse), separate from StoreResult, which covers the execution.
+	PendingResult []string
+	TraceID       string
+	ApprovalID    uuid.UUID // uuid.Nil when the call is not an approved execution
 	// ApproverSlackID is who approved the call or decided the approval.
 	ApproverSlackID string
 }

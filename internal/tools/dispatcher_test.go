@@ -14,6 +14,7 @@ import (
 	goldap "github.com/go-ldap/ldap/v3"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
+	"github.com/toyinogun/AIITsupport/internal/graph"
 	"github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/tools/toolstest"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
@@ -708,6 +709,9 @@ func TestCause(t *testing.T) {
 		{fmt.Errorf("%w: insert intent: db down", audit.ErrAuditUnavailable), "audit"},
 		{zammad.ErrUserWrite, "zammad_user_write"},
 		{goldap.NewError(goldap.LDAPResultBusy, errors.New("busy")), "ldap_51"},
+		{fmt.Errorf("delete method: %w", &graph.Error{Status: 403, Message: "eva.peters"}), "graph_403"},
+		{fmt.Errorf("user: %w", graph.ErrNotManaged), "graph_not_managed"},
+		{graph.ErrNotFound, "graph_not_found"},
 		{&net.OpError{Op: "dial", Err: errors.New("refused")}, "network"},
 		{errors.New("something else"), "other"},
 	} {

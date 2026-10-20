@@ -46,6 +46,8 @@ linters:
               desc: reset links and their tokens live only in the tool server (spec 0011)
             - pkg: github.com/toyinogun/AIITsupport/internal/resetpage
               desc: the reset page writes AD passwords; it runs only in the tool server (spec 0011)
+            - pkg: github.com/toyinogun/AIITsupport/internal/approvalapi
+              desc: the approval routes decide and run approvals; they serve only in the tool server (spec 0012)
             - pkg: github.com/go-ldap/ldap
               desc: only the tool server may talk to AD (AGENTS.md, Rules)
             - pkg: github.com/Azure/azure-sdk-for-go/sdk/azidentity

@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
+	"github.com/toyinogun/AIITsupport/internal/db/queries"
+	"github.com/toyinogun/AIITsupport/internal/graph"
 	"github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/resetlink"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
@@ -55,6 +57,9 @@ type Input struct {
 	Account   ldap.User // the requester's directory account
 	Args      Args
 	Now       time.Time
+	// ApproverSlackID is who approved the call; set only for an approved
+	// execution (Dispatcher.Execute).
+	ApproverSlackID string
 }
 
 // Result is what a handler returns. Outcome empty means ok; a handler refuses
@@ -64,7 +69,8 @@ type Result struct {
 	Text string
 }
 
-// Handler is a tool's code: a ReadHandler, an AccountHandler, or a ResetHandler.
+// Handler is a tool's code: a ReadHandler, an AccountHandler, a ResetHandler,
+// or an MFAHandler.
 type Handler interface{ handler() }
 
 // ReadHandler may read the directory and use the helpdesk; it cannot write
@@ -80,9 +86,16 @@ type AccountHandler func(ctx context.Context, d AccountDeps, in Input) (Result, 
 // change: the kill switch and TOOL_WRITE_LIMIT apply.
 type ResetHandler func(ctx context.Context, d ResetDeps, in Input) (Result, error)
 
+// MFAHandler clears MFA methods after an IT approval (spec 0012). It runs
+// only from Dispatcher.Execute, never from a tools/call, and the dispatcher
+// treats it as an account change: the kill switch and TOOL_WRITE_LIMIT apply
+// to the request.
+type MFAHandler func(ctx context.Context, d MFADeps, in Input) (Result, error)
+
 func (ReadHandler) handler()    {}
 func (AccountHandler) handler() {}
 func (ResetHandler) handler()   {}
+func (MFAHandler) handler()     {}
 
 // Directory is what every handler may read from AD. *ldap.Client satisfies it.
 type Directory interface {
@@ -116,6 +129,9 @@ type History interface {
 	ThreadHas(ctx context.Context, tool string, outcome audit.Outcome, channelID, threadTS string) (bool, error)
 	CountRecent(ctx context.Context, tool, requesterSlackID string, outcome audit.Outcome, since time.Time) (int64, error)
 	ThreadTicketID(ctx context.Context, channelID, threadTS string) (int64, error)
+	// ThreadHasOpenApproval reports a pending or approved approval of tool in
+	// the thread: the close guard (spec 0012, AC-24).
+	ThreadHasOpenApproval(ctx context.Context, tool, channelID, threadTS string) (bool, error)
 }
 
 // KillSwitch says whether account changes may run right now.
@@ -161,6 +177,43 @@ type ResetDeps struct {
 	Links    ResetLinks
 	Settings ResetSettings
 	Accounts *AccountFence
+}
+
+// AccountReader is the directory plus a lookup by account name, for an
+// execution that has no email to identify by. *ldap.Client satisfies it.
+type AccountReader interface {
+	Directory
+	FindUserByAccount(ctx context.Context, name string) (ldap.User, bool, error)
+}
+
+// GraphAPI is the part of the Graph client the MFA tool uses. *graph.Client
+// satisfies it; every call after UserByUsername takes a fenced ManagedUser.
+type GraphAPI interface {
+	UserByUsername(ctx context.Context, username string) (graph.ManagedUser, error)
+	AuthMethods(ctx context.Context, u graph.ManagedUser) ([]graph.AuthMethod, error)
+	SignInPreference(ctx context.Context, u graph.ManagedUser) (string, error)
+	DeleteAuthenticatorMethod(ctx context.Context, u graph.ManagedUser, methodID string) error
+	DeletePhoneMethod(ctx context.Context, u graph.ManagedUser, methodID string) error
+}
+
+// ApprovalReads are the approval reads a medium tool's precheck makes.
+// *audit.Recorder satisfies it.
+type ApprovalReads interface {
+	PendingApproval(ctx context.Context, account, tool string) (queries.Approval, bool, error)
+}
+
+// MFADeps is what the MFA tool may touch (spec 0012, AC-2): Deps plus Graph,
+// the account reader, the approval reads, the MFA fence, and the kill switch
+// it reads twice before a clear. It holds no directory writer.
+type MFADeps struct {
+	Deps
+	Graph     GraphAPI
+	Reader    AccountReader
+	Approvals ApprovalReads
+	Accounts  *AccountFence // the code floor plus MFA_DENIED_GROUPS
+	Switch    KillSwitch
+	UserOUs   []string // TOOL_USER_OUS, for the execution's account recheck
+	BaseDN    string
 }
 
 // Limits are the settings a handler checks.

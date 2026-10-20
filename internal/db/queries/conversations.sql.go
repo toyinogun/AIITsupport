@@ -86,6 +86,29 @@ func (q *Queries) CountRecentConversations(ctx context.Context, arg CountRecentC
 	return conversations, err
 }
 
+const getConversation = `-- name: GetConversation :one
+SELECT id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at FROM conversations WHERE id = $1
+`
+
+func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, error) {
+	row := q.db.QueryRow(ctx, getConversation, id)
+	var i Conversation
+	err := row.Scan(
+		&i.ID,
+		&i.SlackChannelID,
+		&i.SlackThreadTs,
+		&i.RequesterSlackID,
+		&i.DirectoryAccount,
+		&i.ZammadTicketID,
+		&i.Status,
+		&i.LastSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ClosedAt,
+	)
+	return i, err
+}
+
 const getConversationByThread = `-- name: GetConversationByThread :one
 SELECT id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at FROM conversations
 WHERE slack_channel_id = $1 AND slack_thread_ts = $2

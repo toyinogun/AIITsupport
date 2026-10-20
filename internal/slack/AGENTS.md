@@ -21,6 +21,7 @@ The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`m
 - Web API errors leave the adapters through `wrapErr`, which gives them a fixed `slack_<code>` cause token (`cause.Causer`) for the agent's logs; the error text never reaches a log.
 - `Poster.ReplyNoUnfurl` posts with link and media unfurling off, so Slack never fetches the link; the password reset link goes out only through it (spec 0011, AC-5).
 - `Poster.Reply` with an empty `threadTS` posts to the channel itself, not a thread: that is how the agent posts to `SLACK_IT_CHANNEL` (spec 0009).
+- **Approval clicks (spec 0012, AC-8).** `interactive` events of type `block_actions` with action id `approval_approve` or `approval_deny` are acked at once and handed to `Handler.Click` (the approval id from the button value, the clicker's Slack id, the decision, the channel) without blocking; a value that is not a UUID logs `slack_interaction_ignored`. Every other interaction is acked and ignored. The trigger id is never logged.
 - Tests drive the listener through the `Socket`, `Poster`, and `Dedup` interfaces with fakes; no network.
 
 ## Gotchas
@@ -40,5 +41,6 @@ make dev                             # with both tokens in .env: the agent logs 
 - [0006 helpdesk, KB, and Slack](../../docs/specs/0006-helpdesk-kb-slack/index.md) (AC-11 to AC-14, with [verify.md](../../docs/specs/0006-helpdesk-kb-slack/verify.md))
 - [0003 data model](../../docs/specs/0003-data-model/index.md) (the `slack_events` table and at most once delivery)
 - [0009 refusal and escalation](../../docs/specs/0009-refusal-escalation/index.md) (the IT channel post)
+- [0012 MFA re-registration with approval](../../docs/specs/0012-mfa-reregistration-approval/index.md) (the approval card buttons and the click hand off, AC-8)
 
 _Drafted by /sync from the introducing change, worth a quick human pass._

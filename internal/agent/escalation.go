@@ -110,7 +110,10 @@ type itPost struct {
 }
 
 // escalateReasons are the reasons escalate accepts (spec 0009, AC-2).
-var escalateReasons = []string{escalatePrivileged, escalateOther, escalateSecurity, escalateFailure, escalateRestart}
+var escalateReasons = []string{
+	escalatePrivileged, escalateOther, escalateSecurity, escalateFailure, escalateRestart,
+	escalateManual, escalateApprovalDenied, escalateApprovalExpired, escalateApprovalFailed, escalateApprovalCancelled,
+}
 
 // resultReason is an ok escalate result's reason, or security_concern when
 // the result holds none escalate accepts, so the headline and the

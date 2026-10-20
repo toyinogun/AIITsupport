@@ -2,8 +2,10 @@
 # Actions are pinned by full commit SHA; Dependabot keeps the pins current.
 # Jobs run on ephemeral self-hosted runners in the k3sprox homelab cluster
 # (ARC scale set k3sprox, linux/amd64): a fresh pod with its own dockerd per
-# job. A pull request from a fork runs on ubuntu-latest instead, so code from
-# outside the repo never runs in the cluster. Setup: docs/runbooks/ci-runner.md.
+# job. Only a push to main or a pull request whose head is this repo runs
+# there; anything else (a fork, or a fork deleted since, whose head repo is
+# null) runs on ubuntu-latest, so code from outside the repo never runs in
+# the cluster. Setup: docs/runbooks/ci-runner.md.
 name: ci
 
 on:
@@ -24,7 +26,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,7 +37,7 @@ jobs:
       - run: go tool -modfile=tools.mod lefthook validate
 
   test:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 20
     services:
       postgres:
@@ -86,7 +88,7 @@ jobs:
           path: coverage.out
 
   generated:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,7 +99,7 @@ jobs:
       - run: make tidy-check
 
   vuln:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,7 +109,7 @@ jobs:
       - run: make vuln
 
   secrets:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,7 +121,7 @@ jobs:
       - run: make secrets
 
   images:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -138,7 +140,7 @@ jobs:
           push: false
 
   samba-image:
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -157,7 +159,7 @@ jobs:
   ci-ok:
     if: always()
     needs: [lint, test, generated, vuln, secrets, images, samba-image]
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Require every job to succeed

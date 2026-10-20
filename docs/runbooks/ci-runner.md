@@ -2,18 +2,19 @@
 
 CI (`.github/workflows/ci.yml`) runs on ephemeral self-hosted runners in the k3sprox homelab cluster (k3s on Proxmox, linux/amd64). They come from GitHub's Actions Runner Controller (ARC): a runner scale set named `k3sprox`, which is also the `runs-on` label. Each job gets a fresh pod, used once, then deleted.
 
-Until 2026-10-20 CI ran on two runners on a Raspberry Pi. They shared one user's Docker and Go state, and jobs timed out under load (journal [0039](../journal/0039-pi-runners-share-a-buildx-config.md)).
+Until 2026-10-20 CI ran on two runners on a Raspberry Pi. They shared one user's Docker and Go state, and jobs timed out under load (journal [0049](../journal/0049-pi-runners-share-a-buildx-config.md)).
 
 ## Which runner a job uses
 
 Every job has the same `runs-on` expression:
 
 ```yaml
-runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'k3sprox' }}
+runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
 ```
 
 - A push to `main`, or a pull request from a branch in this repo, runs in the cluster.
-- A pull request from a fork runs on `ubuntu-latest`. The repo is public, and a runner pod is privileged inside a home network, so code from outside the repo never runs there.
+- Anything else runs on `ubuntu-latest`: a pull request from a fork, and one whose fork was deleted (its head repo is null, so a check on `head.repo.fork` alone would pick the cluster). The repo is public, and a runner pod is privileged inside a home network, so code from outside the repo never runs there.
+- Also keep the repo setting **Settings, Actions, General, Fork pull request workflows** on "Require approval for all outside collaborators", so a fork run waits for you either way.
 
 ## What a runner pod is
 

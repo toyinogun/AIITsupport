@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/toyinogun/AIITsupport/internal/agent"
 )
 
@@ -25,6 +27,12 @@ type Store struct {
 	usage   []agent.Usage
 	failOn  map[string]bool
 	failErr map[string]error
+	cards   []*cardRow
+}
+
+type cardRow struct {
+	agent.ApprovalCard
+	lastPostAt time.Time
 }
 
 type row struct {
@@ -358,4 +366,171 @@ func (s *Store) SeedUsage(u agent.Usage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.usage = append(s.usage, u)
+}
+
+// GetConversation returns a conversation by id.
+func (s *Store) GetConversation(ctx context.Context, id int64) (agent.Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "GetConversation"); err != nil {
+		return agent.Conversation{}, err
+	}
+	r := s.find(id)
+	if r == nil {
+		return agent.Conversation{}, errors.New("agenttest: no conversation")
+	}
+	return r.Conversation, nil
+}
+
+// AppendToolResultWithCard is all or nothing, like the transaction; the
+// card insert does nothing for an approval that already has one.
+func (s *Store) AppendToolResultWithCard(ctx context.Context, id int64, content json.RawMessage, card agent.ApprovalCard) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "AppendToolResultWithCard"); err != nil {
+		return false, err
+	}
+	if err := s.append(id, agent.RoleUser, content); err != nil {
+		return false, err
+	}
+	if s.card(card.ApprovalID) != nil {
+		return false, nil
+	}
+	card.ConversationID = id
+	s.cards = append(s.cards, &cardRow{ApprovalCard: card})
+	return true, nil
+}
+
+// RecordCardPostAttempt claims an attempt like the SQL does.
+func (s *Store) RecordCardPostAttempt(ctx context.Context, id uuid.UUID, maxAttempts int, spacing time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "RecordCardPostAttempt"); err != nil {
+		return false, err
+	}
+	c := s.card(id)
+	if c == nil || c.CardTS != "" || c.Settled || c.PostAttempts >= maxAttempts ||
+		(!c.lastPostAt.IsZero() && !c.lastPostAt.Before(s.Now().Add(-spacing))) {
+		return false, nil
+	}
+	c.PostAttempts++
+	c.lastPostAt = s.Now()
+	return true, nil
+}
+
+// SetCardTS stores the card's ts once.
+func (s *Store) SetCardTS(ctx context.Context, id uuid.UUID, ts string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "SetCardTS"); err != nil {
+		return err
+	}
+	if c := s.card(id); c != nil && c.CardTS == "" {
+		c.CardTS = ts
+	}
+	return nil
+}
+
+// GetApprovalCard returns the card, or agent.ErrNoCard.
+func (s *Store) GetApprovalCard(ctx context.Context, id uuid.UUID) (agent.ApprovalCard, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "GetApprovalCard"); err != nil {
+		return agent.ApprovalCard{}, err
+	}
+	if c := s.card(id); c != nil {
+		return c.ApprovalCard, nil
+	}
+	return agent.ApprovalCard{}, agent.ErrNoCard
+}
+
+// SettleCard settles once and moves an open conversation, like the transaction.
+func (s *Store) SettleCard(ctx context.Context, id uuid.UUID, outcome, status string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "SettleCard"); err != nil {
+		return false, err
+	}
+	c := s.card(id)
+	if c == nil || c.Settled {
+		return false, nil
+	}
+	c.Settled, c.Outcome = true, outcome
+	if _, err := s.setStatus(c.ConversationID, agent.StatusChange{Status: status}); err != nil && !errors.Is(err, agent.ErrNotOpen) {
+		return false, err
+	}
+	return true, nil
+}
+
+// AdoptApprovalCard inserts a card row for the conversation that owns the
+// thread, like the SQL; nothing for an unknown thread or a known approval.
+func (s *Store) AdoptApprovalCard(ctx context.Context, card agent.ApprovalCard, threadChannel, threadTS string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "AdoptApprovalCard"); err != nil {
+		return false, err
+	}
+	if s.card(card.ApprovalID) != nil {
+		return false, nil
+	}
+	for _, r := range s.convs {
+		if r.ChannelID == threadChannel && r.ThreadTS == threadTS {
+			card.ConversationID = r.ID
+			s.cards = append(s.cards, &cardRow{ApprovalCard: card})
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// HaveApprovalCards reports which ids have a card row, like the SQL.
+func (s *Store) HaveApprovalCards(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "HaveApprovalCards"); err != nil {
+		return nil, err
+	}
+	have := make(map[uuid.UUID]bool, len(ids))
+	for _, id := range ids {
+		if s.card(id) != nil {
+			have[id] = true
+		}
+	}
+	return have, nil
+}
+
+// ListUnsettledApprovalCards lists unsettled cards in insertion order.
+func (s *Store) ListUnsettledApprovalCards(ctx context.Context, limit int) ([]agent.ApprovalCard, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "ListUnsettledApprovalCards"); err != nil {
+		return nil, err
+	}
+	var out []agent.ApprovalCard
+	for _, c := range s.cards {
+		if !c.Settled && len(out) < limit {
+			out = append(out, c.ApprovalCard)
+		}
+	}
+	return out, nil
+}
+
+// Cards returns every card row.
+func (s *Store) Cards() []agent.ApprovalCard {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]agent.ApprovalCard, 0, len(s.cards))
+	for _, c := range s.cards {
+		out = append(out, c.ApprovalCard)
+	}
+	return out
+}
+
+func (s *Store) card(id uuid.UUID) *cardRow {
+	for _, c := range s.cards {
+		if c.ApprovalID == id {
+			return c
+		}
+	}
+	return nil
 }

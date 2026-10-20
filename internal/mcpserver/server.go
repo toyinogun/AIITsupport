@@ -45,12 +45,13 @@ func Handler(d *tools.Dispatcher, opts Options) (http.Handler, error) {
 
 	sdk := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
-	return requireToken(opts.Token, capBody(opts.MaxRequestBytes, extractTrace(sdk))), nil
+	return RequireToken(opts.Token, CapBody(opts.MaxRequestBytes, ExtractTrace(sdk))), nil
 }
 
-// extractTrace reads the W3C trace context the agent's client sends, so the
-// dispatcher's tool.call span joins the agent's trace (spec 0008).
-func extractTrace(next http.Handler) http.Handler {
+// ExtractTrace reads the W3C trace context the agent's client sends, so the
+// dispatcher's tool.call span joins the agent's trace (spec 0008). The
+// approval routes use it too (spec 0012, AC-13).
+func ExtractTrace(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := propagation.TraceContext{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -116,9 +117,10 @@ func requesterFrom(ctx context.Context) (tools.Requester, bool) {
 	return r, ok
 }
 
-// requireToken compares SHA-256 digests in constant time, so neither the
-// token nor its length leaks through timing. A bad token runs nothing.
-func requireToken(token string, next http.Handler) http.Handler {
+// RequireToken compares SHA-256 digests in constant time, so neither the
+// token nor its length leaks through timing. A bad token runs nothing. It
+// guards /mcp and the approval routes.
+func RequireToken(token string, next http.Handler) http.Handler {
 	want := sha256.Sum256([]byte(token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -132,8 +134,8 @@ func requireToken(token string, next http.Handler) http.Handler {
 	})
 }
 
-// capBody cuts a request body off at max bytes.
-func capBody(maxBytes int64, next http.Handler) http.Handler {
+// CapBody cuts a request body off at maxBytes (TOOLSERVER_MAX_REQUEST_BYTES).
+func CapBody(maxBytes int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > maxBytes {
 			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)

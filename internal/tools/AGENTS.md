@@ -8,20 +8,22 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 
 | File | Owns |
 |---|---|
-| `tools.go` | `Requester`, `Request`, `Args`, `Input`, `Result`, the handler types (`ReadHandler`, `AccountHandler`, `ResetHandler`), `Deps`, `AccountDeps`, `ResetDeps`, and the narrow interfaces (`Directory`, `DirectoryWriter`, `HelpdeskAPI`, `History`, `KillSwitch`) |
-| `registry.go` | `Tool`, `Registry`, `NewRegistry`, the construction checks, the tool names, the schema bounds, the five production tools, and `WithPasswordReset` (adds `password_reset_link` only when the `RESET_*` settings are set) |
+| `tools.go` | `Requester`, `Request`, `Args`, `Input`, `Result`, the handler types (`ReadHandler`, `AccountHandler`, `ResetHandler`, `MFAHandler`), `Deps`, `AccountDeps`, `ResetDeps`, `MFADeps`, and the narrow interfaces (`Directory`, `DirectoryWriter`, `HelpdeskAPI`, `History`, `KillSwitch`, `AccountReader`, `GraphAPI`, `ApprovalReads`) |
+| `registry.go` | `Tool`, `Registry`, `NewRegistry`, the construction checks, the tool names, the schema bounds, the five production tools, `WithPasswordReset` (adds `password_reset_link` only when the `RESET_*` settings are set), and `WithMFAClear` (adds `mfa_clear` only when the `GRAPH_*` settings and `SLACK_IT_APPROVERS` are set) |
 | `dispatcher.go` | `Config` (and `Config.Check`, the startup OU checks), `Systems`, `Dispatcher`, `Call` (timeout, span, `tool_call` log line), the ordered pipeline, identity |
 | `schema.go` | `Field`, the argument validator (`parseArgs`), `InputSchema` for `tools/list` |
-| `refusal.go` | `Code`, the refusal table (code, outcome, stored reason, sentence), `failure`, and the LDAP and Zammad error classification |
+| `refusal.go` | `Code`, the refusal table (code, outcome, stored reason, sentence), `failure`, and the LDAP, Zammad, and Graph error classification |
 | `killswitch.go` | `NewKillSwitch`, `FileSwitch` (read every call, only `read_write` allows) |
 | `fence.go` | `Fence.CheckGroup`, `FloorDeniedGroups`, `ErrGroupProtected`; `AccountFence.CheckAccount` (spec 0011: the account itself is protected by group membership) |
 | `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group and the cached ticket states |
 | `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry); `ticket_update` holds the close guard (spec 0009, AC-6) |
 | `escalate.go` | `escalate` (spec 0009): the escalation reasons, `checkEscalate` (code only reasons need the `_meta` initiator `code`), the audit reads first, then tag and note or create |
+| `mfa_clear.go` | `mfa_clear` (spec 0012): `Prechecked`, the AC-3 precheck order (refuse, reuse this thread's pending approval, or go ahead with the method counts and the ticket note), the clear (`mfaClear`: two kill switch reads, the account and Entra recheck, `clearOrder` with the default method last, `deleteSteps`) |
+| `execute.go` | `Dispatcher.Execute`: runs an approved call once, from the approval row (never `_meta`), with a new call id under `APPROVAL_EXECUTE_TIMEOUT`, then marks the approval executed or failed |
 | `password_reset_link.go` | `password_reset_link` (spec 0011): the AC-3 refusal order, the link issue, the "link sent" note, `ResetURLKey`, `ResetLinkSentText`, and `Helpdesk.CloseWithNote` (used by the reset page) |
 | `toolstest/` | in memory fakes for tests: `MemStore` (an `audit.Store` that answers the history reads like the SQL and, like Postgres, fails a query whose context has ended) and `Directory` (a fake directory that is also the writer; `Stall` and `Slow` model a hung or slow directory) |
-| `../mcpserver/` | `Handler`: stateless streamable HTTP, the bearer check (SHA-256 digests, constant time), the body cap, the W3C trace context extract, and the `_meta` middleware that answers −32602 |
-| `../mcpclient/` | `Client.Call` / `ListTools`, `Requester`, the `_meta` key names, `ErrIncompleteRequester`; every request carries the bearer token and the W3C trace context, so `tool.call` spans join the agent's trace |
+| `../mcpserver/` | `Handler`: stateless streamable HTTP, the bearer check (SHA-256 digests, constant time), the body cap, the W3C trace context extract (exported as `RequireToken`, `CapBody`, and `ExtractTrace` for the approval routes), and the `_meta` middleware that answers −32602 |
+| `../mcpclient/` | `Client.Call` / `ListTools`, `Requester`, the `_meta` key names, `ErrIncompleteRequester`, and `ApprovalClient` for the approval routes (`approvals.go`, see `internal/approvalapi`); every request carries the bearer token and the W3C trace context, so `tool.call` spans join the agent's trace |
 
 ## Conventions
 
@@ -30,9 +32,10 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 - `reset_url` leaves the handler only in the MCP result: the audit row drops it (`_omitted`), and agent code strips it before anything is stored or sent to the model.
 - Identity comes only from MCP `_meta`, checked for exact format in `internal/mcpserver`. No tool argument names the requester, a target account, or a ticket id; account tools act only on the matched requester.
 - Handlers refuse with `refused(refuse...)` and fail with `directoryFailure(err)`, `helpdeskFailure(err)`, or `failed(err)`. The model and the audit `error` column only ever see the fixed text of the refusal table; never echo an argument, an account name, or a directory or Zammad message.
-- `Store` lists only argument keys that are not free text (`Field.FreeText`); registry construction fails otherwise. A tier `medium` tool needs an `Approval` hook; a `blocked` tool has no handler.
+- `Store` lists only argument keys that are not free text (`Field.FreeText`); registry construction fails otherwise. A tier `medium` tool needs an `Approval` hook, a `Precheck`, and an `MFAHandler` (and an `MFAHandler` only runs behind tier `medium`); a `blocked` tool has no handler.
+- A medium call never runs its handler from `tools/call`: step 9 runs the `Precheck`, then refuses, reuses this thread's pending approval (`Recorder.Reuse`), or `Defer`s a new one. The handler runs only from `Dispatcher.Execute`, after a human click. A `Defer` that loses the race for the account's one pending approval (`audit.ErrApprovalPending`) is refused `already_pending`.
 - Logs and spans carry only `tool`, `tier`, `outcome`, and `trace_id`. Log `audit_unavailable` with no error text: a database error can quote the row.
-- A failure also logs one `tool_call_failed` line (`tool`, `code`, `trace_id`, `cause`). `cause` is a fixed token from `cause()` in `refusal.go` (`ldap_<result code>`, `zammad_<status>`, `deadline`, `canceled`, `network`, `audit`, `other`), never error text.
+- A failure also logs one `tool_call_failed` line (`tool`, `code`, `trace_id`, `cause`). `cause` is a fixed token from `cause()` in `refusal.go` (`ldap_<result code>`, `zammad_<status>`, `graph_<status>`, `graph_not_found`, `graph_not_managed`, `deadline`, `canceled`, `network`, `audit`, `other`), never error text.
 - Audit writes and reads outside the handler (refusals, `fail`, the rate limit count, `Defer`) run on `recordCtx(ctx)`, which drops the call's deadline, so a call that ran out of time still leaves its pair. If the checks used up the budget, the call fails before the handler.
 - The kill switch file is read with no cache, at dispatcher step 7 and again inside an account handler just before the write. With `KILL_SWITCH_FILE` unset, `READ_ONLY` decides.
 - `escalate` is a `ReadHandler` on purpose: the kill switch and `TOOL_WRITE_LIMIT` never stop it, and it is not `TicketLimited`. Every audit read comes before any Zammad call. `Requester.Initiator` comes only from the `_meta` key `noord.example/initiator`, which `internal/mcpserver` accepts only as exactly `code`.
@@ -60,5 +63,6 @@ set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run LiveTickets -v 
 - [0003 data model](../../docs/specs/0003-data-model/index.md) (the audit recorder the dispatcher runs every call through)
 - [0009 refusal and escalation](../../docs/specs/0009-refusal-escalation/index.md) (`escalate`, the close guard, the `_meta` initiator)
 - [0011 password reset links](../../docs/specs/0011-password-reset-links/index.md) (`password_reset_link`, `AccountFence`, `RESET_DENIED_GROUPS`)
+- [0012 MFA re-registration with approval](../../docs/specs/0012-mfa-reregistration-approval/index.md) (`mfa_clear`, `Precheck`, `Execute`, `MFA_DENIED_GROUPS`)
 
 _Drafted by /develop from the introducing change, worth a quick human pass._

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -35,6 +36,15 @@ func (e *Error) Error() string {
 		msg += ": " + e.Message
 	}
 	return msg
+}
+
+// Cause is the fixed token cause.Of logs for a Graph error: graph_<status>,
+// or graph when there is no status. It never holds the message.
+func (e *Error) Cause() string {
+	if e.Status <= 0 {
+		return "graph"
+	}
+	return "graph_" + strconv.Itoa(e.Status)
 }
 
 func newError(method, path string, resp response) *Error {

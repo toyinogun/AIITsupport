@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/toyinogun/AIITsupport/internal/cause"
 )
 
 // testClient points a client at handler and records every backoff instead
@@ -208,5 +210,26 @@ func TestErrorTextHasNoQuery(t *testing.T) {
 	err := newError(http.MethodGet, "/users?$filter=mailNickname eq 'eva.peters'", response{status: 400})
 	if strings.Contains(err.Error(), "eva.peters") {
 		t.Errorf("error %q leaks the query", err)
+	}
+}
+
+// covers: spec 0010 AC-3, spec 0012. A Graph error names a fixed cause
+// token from its status, never its message, so cause.Of can log it.
+func TestErrorCause(t *testing.T) {
+	cases := []struct {
+		err  *Error
+		want string
+	}{
+		{&Error{Status: 403, Code: "Authorization_RequestDenied", Message: "eva.peters"}, "graph_403"},
+		{&Error{Status: 429}, "graph_429"},
+		{&Error{}, "graph"},
+	}
+	for _, tc := range cases {
+		if got := tc.err.Cause(); got != tc.want {
+			t.Errorf("Cause() = %q, want %q", got, tc.want)
+		}
+		if got := cause.Of(fmt.Errorf("delete method: %w", tc.err)); got != tc.want {
+			t.Errorf("cause.Of = %q, want %q", got, tc.want)
+		}
 	}
 }

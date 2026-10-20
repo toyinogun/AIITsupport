@@ -1,4 +1,4 @@
-# 0039. The Pi runners shared state and ran out of time, so CI moved to the cluster
+# 0049. The Pi runners shared state and ran out of time, so CI moved to the cluster
 
 **Date:** 2026-10-20 · **Week:** 1 · **Feature:** #4 Coding standards & tooling
 **Time lost:** ~2 hours (estimate) · **Story worthy:** both

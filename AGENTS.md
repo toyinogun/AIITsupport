@@ -81,7 +81,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - Log with `log/slog` only; the standard `log` package is denied (depguard `no-std-log`). slog messages are static strings with snake_case keys (sloglint).
 - Every log and span key must be on `internal/logging`'s allow list (the source scan fails CI otherwise); any other value prints `[redacted]`. Never log error text: log `cause` from `cause.Of`. See [internal/logging/AGENTS.md](internal/logging/AGENTS.md) (spec 0010).
 - Silence a real false positive with `//nolint:<linter> // <reason>` on the narrowest line. A wider exclusion goes in `.golangci.yml` with a comment saying why.
-- CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match. Jobs run on ephemeral ARC runners in the k3sprox cluster (label `k3sprox`, amd64, one fresh pod with its own dockerd per job); fork PRs run on `ubuntu-latest` so outside code never reaches the cluster. A new job copies the same `runs-on` expression. See [docs/runbooks/ci-runner.md](docs/runbooks/ci-runner.md).
+- CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match. Jobs run on ephemeral ARC runners in the k3sprox cluster (label `k3sprox`, amd64, one fresh pod with its own dockerd per job); only a push to `main` or a PR whose head is this repo runs there, anything else (a fork, or a deleted one) runs on `ubuntu-latest`, so outside code never reaches the cluster. A new job copies the same `runs-on` expression. See [docs/runbooks/ci-runner.md](docs/runbooks/ci-runner.md).
 
 ## Agent skills
 
@@ -127,5 +127,6 @@ Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, 
 - [internal/server/AGENTS.md](internal/server/AGENTS.md): the health and MCP HTTP server both binaries run, its shutdown, and the fixed `http_server_error` line
 - [internal/resetlink/AGENTS.md](internal/resetlink/AGENTS.md): the password reset link store (spec 0011): token, hash, issue, claim, revert, and the hourly cleanup
 - [internal/resetpage/AGENTS.md](internal/resetpage/AGENTS.md): the password reset page on its own listener (spec 0011): the form, the audited POST as `svc-pwreset`, the fixed pages and headers
+- [internal/approvalapi/AGENTS.md](internal/approvalapi/AGENTS.md): the tool server approval routes (spec 0012): decide and execute, the views, expire and abandon, never MCP tools
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

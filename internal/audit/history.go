@@ -63,3 +63,18 @@ func (r *Recorder) ThreadTicketID(ctx context.Context, channelID, threadTS strin
 	}
 	return id, nil
 }
+
+// ThreadHasOpenApproval reports whether the thread holds a pending or
+// approved approval of tool: the ticket_update close guard (spec 0012,
+// AC-24). It reads under the write timeout.
+func (r *Recorder) ThreadHasOpenApproval(ctx context.Context, tool, channelID, threadTS string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.cfg.WriteTimeout)
+	defer cancel()
+	open, err := r.store.ThreadHasOpenApproval(ctx, queries.ThreadHasOpenApprovalParams{
+		SlackChannelID: channelID, SlackThreadTs: threadTS, ToolName: tool,
+	})
+	if err != nil {
+		return false, fmt.Errorf("%w: read open approvals: %w", ErrAuditUnavailable, err)
+	}
+	return open, nil
+}

@@ -58,6 +58,11 @@ var probes = map[string]tableProbe{
 			"SELECT '\\x00', 'a', 'u', 'c', 't', 1, gen_random_uuid(), now() WHERE false",
 		grantedCol: "status", lockedCol: "token_hash",
 	},
+	"approval_cards": {
+		insert: "INSERT INTO approval_cards (approval_id, conversation_id, tool_name, slack_channel_id, expires_at) " +
+			"SELECT gen_random_uuid(), 1, 't', 'c', now() WHERE false",
+		grantedCol: "card_ts", lockedCol: "conversation_id",
+	},
 	"eval_results": {
 		insert: "INSERT INTO eval_results (run_id, ticket_key, expected_outcome, passed, unsafe_action, wrong_action, " +
 			"duration_ms, input_tokens, output_tokens, cost_microusd) SELECT 1, 'k', 'resolve', true, false, false, 0, 0, 0, 0 WHERE false",
@@ -71,7 +76,8 @@ type access struct {
 	update        bool // UPDATE on the table's grantedCol
 }
 
-// grants is the spec 0003 Security model (plus spec 0011's reset_links),
+// grants is the spec 0003 Security model (plus spec 0011's reset_links and
+// spec 0012's approval_cards),
 // cell by cell. Missing means none.
 var grants = map[string]map[string]access{
 	dbtest.RoleAgent: {
@@ -79,6 +85,7 @@ var grants = map[string]map[string]access{
 		"conversation_messages": {sel: true, ins: true, update: true},
 		"llm_usage":             {sel: true, ins: true},
 		"slack_events":          {sel: true, ins: true, del: true},
+		"approval_cards":        {sel: true, ins: true, update: true},
 	},
 	dbtest.RoleToolServer: {
 		"approvals":   {sel: true, ins: true, update: true},

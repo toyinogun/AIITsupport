@@ -75,11 +75,43 @@ func (f *fakeStore) ExpireDueApprovals(context.Context, int32) ([]queries.Approv
 	return nil, errNotUsed
 }
 
+func (f *fakeStore) ExpireDueApprovalsFor(context.Context, queries.ExpireDueApprovalsForParams) ([]queries.Approval, error) {
+	return nil, errNotUsed
+}
+
+func (f *fakeStore) AbandonStuckApprovals(context.Context, queries.AbandonStuckApprovalsParams) ([]queries.Approval, error) {
+	return nil, errNotUsed
+}
+
+func (f *fakeStore) FindPendingApproval(context.Context, queries.FindPendingApprovalParams) (queries.Approval, error) {
+	return queries.Approval{}, errNotUsed
+}
+
+func (f *fakeStore) ListApprovalsSince(context.Context, queries.ListApprovalsSinceParams) ([]queries.Approval, error) {
+	return nil, errNotUsed
+}
+
+func (f *fakeStore) MarkApprovalExecuted(context.Context, uuid.UUID) (queries.Approval, error) {
+	return queries.Approval{}, errNotUsed
+}
+
+func (f *fakeStore) MarkApprovalFailed(context.Context, uuid.UUID) (queries.Approval, error) {
+	return queries.Approval{}, errNotUsed
+}
+
+func (f *fakeStore) ExecutionOutcomeForApproval(context.Context, queries.ExecutionOutcomeForApprovalParams) (queries.ExecutionOutcomeForApprovalRow, error) {
+	return queries.ExecutionOutcomeForApprovalRow{}, errNotUsed
+}
+
 func (f *fakeStore) CountRecentOutcomes(context.Context, queries.CountRecentOutcomesParams) (int64, error) {
 	return 0, errNotUsed
 }
 
 func (f *fakeStore) ThreadHasOutcome(context.Context, queries.ThreadHasOutcomeParams) (bool, error) {
+	return false, errNotUsed
+}
+
+func (f *fakeStore) ThreadHasOpenApproval(context.Context, queries.ThreadHasOpenApprovalParams) (bool, error) {
 	return false, errNotUsed
 }
 
@@ -489,7 +521,7 @@ func TestDeferRejectsAnIncompleteRequest(t *testing.T) {
 				if tc.mutate != nil {
 					tc.mutate(&c)
 				}
-				_, err = r.Defer(t.Context(), c, tc.req)
+				_, err = r.Defer(t.Context(), c, tc.req, nil)
 			}
 			if !errors.Is(err, ErrInvalidCall) {
 				t.Fatalf("err = %v, want ErrInvalidCall", err)
