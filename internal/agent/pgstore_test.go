@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/toyinogun/AIITsupport/eval"
@@ -270,5 +271,87 @@ func TestPgRetention(t *testing.T) {
 		if !errors.As(err, &pg) || pg.Code != "42501" {
 			t.Errorf("noord_agent DELETE on %s = %v, want 42501", table, err)
 		}
+	}
+}
+
+// covers: spec 0012 AC-6, AC-14, AC-15. The card rows as noord_agent: the
+// result's card insert, one adopt per approval and only into a known
+// thread, the claimed and capped post attempts, the unsettled list, and a
+// settle that happens once and ends the conversation. Runs only when
+// TEST_DATABASE_URL is set.
+func TestPgApprovalCards(t *testing.T) {
+	tdb := dbtest.New(t)
+	s := agent.NewStore(tdb.Agent)
+	ctx := t.Context()
+	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := agent.ApprovalCard{ApprovalID: uuid.New(), ToolName: "mfa_clear", ChannelID: "C0IT", ExpiresAt: time.Now().Add(30 * time.Minute)}
+	result := mustBlocks(t, anthropic.NewToolResultBlock("t1", "This request is waiting for IT approval.", false))
+	if created, err := s.AppendToolResultWithCard(ctx, c.ID, result, first); err != nil || !created {
+		t.Fatalf("first card = %v, %v", created, err)
+	}
+	if created, err := s.AppendToolResultWithCard(ctx, c.ID, result, first); err != nil || created {
+		t.Errorf("a second insert created a row: %v, %v", created, err)
+	}
+
+	adopted := agent.ApprovalCard{ApprovalID: uuid.New(), ToolName: "mfa_clear", ChannelID: "C0IT", ExpiresAt: time.Now().Add(30 * time.Minute)}
+	if created, err := s.AdoptApprovalCard(ctx, adopted, "D0JAN", "9.9"); err != nil || created {
+		t.Errorf("adopt into an unknown thread = %v, %v", created, err)
+	}
+	if created, err := s.AdoptApprovalCard(ctx, first, "D0JAN", "1.0"); err != nil || created {
+		t.Errorf("adopt of a known approval = %v, %v", created, err)
+	}
+	if created, err := s.AdoptApprovalCard(ctx, adopted, "D0JAN", "1.0"); err != nil || !created {
+		t.Fatalf("adopt = %v, %v", created, err)
+	}
+	got, err := s.GetApprovalCard(ctx, adopted.ApprovalID)
+	if err != nil || got.ConversationID != c.ID || got.CardTS != "" || got.PostAttempts != 0 {
+		t.Errorf("adopted row = %+v, %v", got, err)
+	}
+	unknown := uuid.New()
+	have, err := s.HaveApprovalCards(ctx, []uuid.UUID{first.ApprovalID, adopted.ApprovalID, unknown})
+	if err != nil || len(have) != 2 || !have[first.ApprovalID] || !have[adopted.ApprovalID] || have[unknown] {
+		t.Errorf("HaveApprovalCards = %v, %v; want the two card rows only", have, err)
+	}
+	if have, err := s.HaveApprovalCards(ctx, nil); err != nil || len(have) != 0 {
+		t.Errorf("HaveApprovalCards(nil) = %v, %v", have, err)
+	}
+
+	if ok, err := s.RecordCardPostAttempt(ctx, adopted.ApprovalID, 3, time.Hour); err != nil || !ok {
+		t.Fatalf("first attempt = %v, %v", ok, err)
+	}
+	if ok, _ := s.RecordCardPostAttempt(ctx, adopted.ApprovalID, 3, time.Hour); ok {
+		t.Error("an attempt inside the spacing was claimed")
+	}
+	for range 4 {
+		_, _ = s.RecordCardPostAttempt(ctx, adopted.ApprovalID, 3, 0)
+	}
+	if got, _ = s.GetApprovalCard(ctx, adopted.ApprovalID); got.PostAttempts != 3 {
+		t.Errorf("attempts = %d, want the cap", got.PostAttempts)
+	}
+	if err := s.SetCardTS(ctx, first.ApprovalID, "1.5"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.RecordCardPostAttempt(ctx, first.ApprovalID, 3, 0); ok {
+		t.Error("an attempt on a posted card was claimed")
+	}
+
+	list, err := s.ListUnsettledApprovalCards(ctx, 100)
+	if err != nil || len(list) != 2 || list[0].ApprovalID != first.ApprovalID {
+		t.Fatalf("unsettled = %+v, %v", list, err)
+	}
+	if won, err := s.SettleCard(ctx, first.ApprovalID, "denied", agent.StatusEscalated); err != nil || !won {
+		t.Fatalf("settle = %v, %v", won, err)
+	}
+	if won, err := s.SettleCard(ctx, first.ApprovalID, "denied", agent.StatusEscalated); err != nil || won {
+		t.Errorf("second settle = %v, %v", won, err)
+	}
+	if c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN"); c.Status != agent.StatusEscalated {
+		t.Errorf("status = %s", c.Status)
+	}
+	if list, _ = s.ListUnsettledApprovalCards(ctx, 100); len(list) != 1 || list[0].ApprovalID != adopted.ApprovalID {
+		t.Errorf("unsettled after the settle = %+v", list)
 	}
 }

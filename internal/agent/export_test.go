@@ -23,3 +23,12 @@ func (r *Retention) Pass(ctx context.Context) { r.pass(ctx) }
 
 // SetStepTimeout shortens the per query bound for a test.
 func (r *Retention) SetStepTimeout(d time.Duration) { r.stepTimeout = d }
+
+// Tick runs one approval tick and waits for the settles it queued.
+func (a *Agent) Tick() {
+	a.tick(a.workCtx)
+	a.wg.Wait()
+}
+
+// TickNoWait runs one approval tick without waiting for its settles.
+func (a *Agent) TickNoWait() { a.tick(a.workCtx) }

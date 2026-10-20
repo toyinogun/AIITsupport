@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"strconv"
+	"strings"
 
 	slackapi "github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
@@ -126,4 +127,57 @@ func wrapErr(err error) error {
 		return slackError{err: err, cause: "slack_" + strconv.Itoa(code.Code)}
 	}
 	return err
+}
+
+// confirmText is the Approve button's confirm dialog (spec 0012, AC-7).
+const confirmText = "Clear this person's MFA methods?"
+
+// PostCard posts an approval card as a new channel message and returns its ts.
+func (p poster) PostCard(ctx context.Context, channel string, c agent.Card) (string, error) {
+	_, ts, err := p.api.PostMessageContext(ctx, channel, cardOptions(c)...)
+	if err != nil {
+		return "", wrapErr(err)
+	}
+	return ts, nil
+}
+
+// UpdateCard replaces a posted card (chat.update).
+func (p poster) UpdateCard(ctx context.Context, channel, ts string, c agent.Card) error {
+	_, _, _, err := p.api.UpdateMessageContext(ctx, channel, ts, cardOptions(c)...)
+	return wrapErr(err)
+}
+
+// Ephemeral shows text to one user only (chat.postEphemeral).
+func (p poster) Ephemeral(ctx context.Context, channel, userID, text string) error {
+	_, err := p.api.PostEphemeralContext(ctx, channel, userID, slackapi.MsgOptionText(text, false))
+	return wrapErr(err)
+}
+
+// cardOptions is the card's fallback text and its blocks.
+func cardOptions(c agent.Card) []slackapi.MsgOption {
+	return []slackapi.MsgOption{slackapi.MsgOptionText(c.Fallback, false), slackapi.MsgOptionBlocks(cardBlocks(c)...)}
+}
+
+// cardBlocks renders a card as Block Kit: one section with its lines, then,
+// while it can be decided, the Approve and Deny buttons in an actions block
+// whose id names the approval. Only code builds the lines (spec 0012, AC-7).
+func cardBlocks(c agent.Card) []slackapi.Block {
+	blocks := []slackapi.Block{
+		slackapi.NewSectionBlock(slackapi.NewTextBlockObject(slackapi.MarkdownType, strings.Join(c.Lines, "\n"), false, true), nil, nil),
+	}
+	if c.ApprovalID != "" {
+		approve := slackapi.NewButtonBlockElement(agent.ActionApprove, c.ApprovalID,
+			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Approve", false, false))
+		approve.Style = slackapi.StylePrimary
+		approve.Confirm = slackapi.NewConfirmationBlockObject(
+			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Approve", false, false),
+			slackapi.NewTextBlockObject(slackapi.PlainTextType, confirmText, false, false),
+			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Approve", false, false),
+			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Cancel", false, false))
+		deny := slackapi.NewButtonBlockElement(agent.ActionDeny, c.ApprovalID,
+			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Deny", false, false))
+		deny.Style = slackapi.StyleDanger
+		blocks = append(blocks, slackapi.NewActionBlock("approval:"+c.ApprovalID, approve, deny))
+	}
+	return blocks
 }

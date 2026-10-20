@@ -92,9 +92,10 @@ func run() (err error) {
 // agentModel is what the loop needs from the model side, checked before
 // anything connects (AC-15, AC-16).
 type agentModel struct {
-	price  eval.ModelPrice
-	model  agent.Model
-	client *mcpclient.Client
+	price     eval.ModelPrice
+	model     agent.Model
+	client    *mcpclient.Client
+	approvals *mcpclient.ApprovalClient
 }
 
 func loadModel(cfg config.Agent) (agentModel, error) {
@@ -110,7 +111,11 @@ func loadModel(cfg config.Agent) (agentModel, error) {
 	if err != nil {
 		return agentModel{}, err
 	}
-	return agentModel{price: price, model: &client.Messages, client: tools}, nil
+	approvals, err := mcpclient.NewApprovalClient(cfg.ToolServerURL, cfg.ToolServerToken)
+	if err != nil {
+		return agentModel{}, err
+	}
+	return agentModel{price: price, model: &client.Messages, client: tools, approvals: approvals}, nil
 }
 
 // runSlack checks the bot token, builds the agent, sweeps interrupted
@@ -139,9 +144,13 @@ func runSlack(ctx context.Context, cfg config.Agent, m agentModel, pool *pgxpool
 		PostTimeout:          slack.ReplyTimeout,
 		ShutdownGrace:        cfg.ShutdownGrace,
 		ITChannel:            cfg.SlackITChannel,
+
+		ApprovalDecideTimeout: cfg.ApprovalDecideTimeout,
+		ApprovalPollInterval:  cfg.ApprovalPollInterval,
+		ApprovalTimeout:       cfg.ApprovalTimeout,
 	}, agent.Deps{
 		Slack: listener.Users, Poster: listener.Poster, Tools: m.client,
-		Model: m.model, Store: agent.NewStore(pool), Logger: logger,
+		Model: m.model, Store: agent.NewStore(pool), Approvals: m.approvals, Logger: logger,
 	})
 	if err != nil {
 		return err

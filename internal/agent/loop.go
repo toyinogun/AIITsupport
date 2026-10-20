@@ -191,8 +191,18 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 	change := statusChangeFor(first.name, res, t.conv.TicketID)
 	ctx, cancel := t.a.detached(t.ctx, t.a.cfg.ToolTimeout)
 	defer cancel()
-	if err := t.a.deps.Store.AppendToolResult(ctx, t.conv.ID, content, change); err != nil {
+	card := t.a.pendingCard(first.name, res)
+	var cardCreated bool
+	if card != nil { // the card row goes in the result's transaction (spec 0012, AC-6)
+		cardCreated, err = t.a.deps.Store.AppendToolResultWithCard(ctx, t.conv.ID, content, *card)
+	} else {
+		err = t.a.deps.Store.AppendToolResult(ctx, t.conv.ID, content, change)
+	}
+	if err != nil {
 		return &failure{reason: ReasonStoreUnavailable, cause: cause(err), unknown: !answered}
+	}
+	if cardCreated {
+		t.a.postCard(t.ctx, card.ApprovalID, requestCard(factsFromResult(t.conv, res.Data, card.ExpiresAt), stringOf(res.Data["methods"]), card.ApprovalID))
 	}
 	if change != nil {
 		if change.TicketID != 0 {

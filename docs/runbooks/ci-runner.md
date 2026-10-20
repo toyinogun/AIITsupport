@@ -7,11 +7,12 @@ CI (`.github/workflows/ci.yml`) runs on two self-hosted GitHub Actions runners o
 Every job has the same `runs-on` expression:
 
 ```yaml
-runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'rpi01' }}
+runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'rpi01' || 'ubuntu-latest' }}
 ```
 
 - A push to `main`, or a pull request from a branch in this repo, runs on the Pi.
-- A pull request from a fork runs on `ubuntu-latest`. The repo is public, and the Pi sits on the tailnet, so code from outside the repo never runs there.
+- Anything else runs on `ubuntu-latest`: a pull request from a fork, and one whose fork was deleted (its head repo is null, so a check on `head.repo.fork` alone would pick the Pi). The repo is public, and the Pi sits on the tailnet, so code from outside the repo never runs there.
+- Also keep the repo setting **Settings, Actions, General, Fork pull request workflows** on "Require approval for all outside collaborators", so a fork run waits for you either way.
 
 The Go cache key includes `runner.arch`, so the Pi's arm64 builds and GitHub's x64 builds never share a cache entry. The `test` job maps Postgres to a random host port, so two runs at once on the Pi do not collide.
 

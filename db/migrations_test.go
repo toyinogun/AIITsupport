@@ -19,9 +19,9 @@ import (
 )
 
 // appTables are the eight tables migration 00002 creates (spec 0003) plus
-// 00003's reset_links (spec 0011).
+// 00003's reset_links (spec 0011) and 00004's approval_cards (spec 0012).
 var appTables = []string{
-	"approvals", "audit_log", "conversation_messages", "conversations",
+	"approval_cards", "approvals", "audit_log", "conversation_messages", "conversations",
 	"eval_results", "eval_runs", "llm_usage", "reset_links", "slack_events",
 }
 
@@ -150,8 +150,8 @@ func TestMigrationGoesDownAndUpCleanly(t *testing.T) {
 	if _, err := p.Up(t.Context()); err != nil {
 		t.Fatalf("up again: %v", err)
 	}
-	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 3 {
-		t.Errorf("version after up again = %d, %v; want 3", v, err)
+	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 5 {
+		t.Errorf("version after up again = %d, %v; want 5", v, err)
 	}
 }
 

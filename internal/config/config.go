@@ -87,10 +87,15 @@ type Agent struct {
 	ShutdownGrace        time.Duration `env:"AGENT_SHUTDOWN_GRACE" default:"25s"`
 	ConversationsPerHour int           `env:"AGENT_CONVERSATIONS_PER_HOUR" default:"10"`
 
-	SlackBotToken    string   `env:"SLACK_BOT_TOKEN"`
-	SlackAppToken    string   `env:"SLACK_APP_TOKEN"`
-	SlackITChannel   string   `env:"SLACK_IT_CHANNEL"`   // required with both Slack tokens (spec 0009)
-	SlackITApprovers []string `env:"SLACK_IT_APPROVERS"` // feature #14
+	SlackBotToken  string `env:"SLACK_BOT_TOKEN"`
+	SlackAppToken  string `env:"SLACK_APP_TOKEN"`
+	SlackITChannel string `env:"SLACK_IT_CHANNEL"` // required with both Slack tokens (spec 0009)
+
+	// The approval tick and the decision call (spec 0012, AC-21). Keep the
+	// decide timeout above the tool server's APPROVAL_EXECUTE_TIMEOUT.
+	ApprovalPollInterval  time.Duration `env:"APPROVAL_POLL_INTERVAL" default:"30s"`
+	ApprovalDecideTimeout time.Duration `env:"APPROVAL_DECIDE_TIMEOUT" default:"90s"`
+	ApprovalWindow                      // APPROVAL_TIMEOUT, shared with the tool server: the tick's adopt window
 
 	ToolServerURL string `env:"TOOLSERVER_URL" required:"true"`
 
@@ -120,9 +125,10 @@ type ToolServer struct {
 	// ReadOnly decides the kill switch only when KillSwitchFile is unset (local
 	// dev and tests). Otherwise the file is read on every account change and
 	// only the exact content read_write allows one (feature #9).
-	ReadOnly        bool          `env:"READ_ONLY" default:"true"`
-	KillSwitchFile  string        `env:"KILL_SWITCH_FILE"`
-	ApprovalTimeout time.Duration `env:"APPROVAL_TIMEOUT"` // feature #14
+	ReadOnly       bool   `env:"READ_ONLY" default:"true"`
+	KillSwitchFile string `env:"KILL_SWITCH_FILE"`
+
+	Approvals
 
 	// The tool layer (feature #9, spec 0007). The OU lists are DNs relative
 	// to LDAP_BASE_DN; they hold commas, so they are separated by ";".
@@ -148,6 +154,97 @@ type ToolServer struct {
 	AuditOutcomeRetries  int           `env:"AUDIT_OUTCOME_RETRIES" default:"3"`
 	AuditWriteTimeout    time.Duration `env:"AUDIT_WRITE_TIMEOUT" default:"5s"`
 	AuditMaxPayloadBytes int           `env:"AUDIT_MAX_PAYLOAD_BYTES" default:"4096"`
+}
+
+// Approvals are the medium tier settings (spec 0012, AC-21): who may approve,
+// how long they have, and how an approved call runs. mfa_clear registers only
+// with the GRAPH_* settings complete and SLACK_IT_APPROVERS set.
+type Approvals struct {
+	// SlackITApprovers are the Slack user ids allowed to approve an IT
+	// approval, snapshot into each approval when it is requested.
+	SlackITApprovers []string `env:"SLACK_IT_APPROVERS"`
+	ApprovalWindow
+	ApprovalExecuteTimeout time.Duration `env:"APPROVAL_EXECUTE_TIMEOUT" default:"60s"`
+	// ApprovalExecuteGrace is when an approved call with no confirmed
+	// execution is abandoned as failed; at least twice the execute timeout.
+	ApprovalExecuteGrace time.Duration `env:"APPROVAL_EXECUTE_GRACE" default:"5m"`
+	// MFADeniedGroups protect their members, at any depth, from an MFA clear
+	// on top of the code floor. Separate from RESET_DENIED_GROUPS and
+	// TOOL_DENIED_GROUPS (journal 0037).
+	MFADeniedGroups []string `env:"MFA_DENIED_GROUPS" default:"SG-IT-Admins,APP-Helpdesk-Agents"`
+}
+
+// ApprovalWindow is how long IT has to decide an approval. It is embedded in
+// Approvals (the tool server sets each expiry from it) and in Agent (the
+// approval tick adopts approvals created within it plus an hour, spec 0012
+// AC-14), so both binaries read one value.
+type ApprovalWindow struct {
+	ApprovalTimeout time.Duration `env:"APPROVAL_TIMEOUT" default:"30m"`
+}
+
+// checkApprovalWindow refuses an APPROVAL_TIMEOUT outside 5m to 24h.
+func checkApprovalWindow(w ApprovalWindow) error {
+	if w.ApprovalTimeout < minApprovalTimeout || w.ApprovalTimeout > maxApprovalTimeout {
+		return errors.New("APPROVAL_TIMEOUT must be between 5m and 24h")
+	}
+	return nil
+}
+
+// Range bounds for the approval settings (spec 0012, AC-21).
+const (
+	minApprovalTimeout        = 5 * time.Minute
+	maxApprovalTimeout        = 24 * time.Hour
+	minApprovalExecuteTimeout = 15 * time.Second
+	maxApprovalExecuteTimeout = 5 * time.Minute
+	minApprovalPollInterval   = 10 * time.Second
+	maxApprovalPollInterval   = 5 * time.Minute
+	minApprovalDecideTimeout  = 30 * time.Second
+	maxApprovalDecideTimeout  = 10 * time.Minute
+)
+
+// slackApproverID is an approver's Slack user id (spec 0012, AC-21).
+var slackApproverID = regexp.MustCompile(`^[UW][A-Z0-9]{8,11}$`)
+
+// checkApprovals checks the approver ids and the ranges. Errors name the
+// setting and the entry's position, never its value.
+func checkApprovals(a Approvals) error {
+	var errs []error
+	for i, id := range a.SlackITApprovers {
+		if !slackApproverID.MatchString(id) {
+			errs = append(errs, fmt.Errorf("SLACK_IT_APPROVERS entry %d must be a Slack user id (U or W, then 8 to 11 of A-Z0-9)", i+1))
+		}
+	}
+	if err := checkApprovalWindow(a.ApprovalWindow); err != nil {
+		errs = append(errs, err)
+	}
+	if a.ApprovalExecuteTimeout < minApprovalExecuteTimeout || a.ApprovalExecuteTimeout > maxApprovalExecuteTimeout {
+		errs = append(errs, errors.New("APPROVAL_EXECUTE_TIMEOUT must be between 15s and 5m"))
+	}
+	if a.ApprovalExecuteGrace < 2*a.ApprovalExecuteTimeout {
+		errs = append(errs, errors.New("APPROVAL_EXECUTE_GRACE must be at least twice APPROVAL_EXECUTE_TIMEOUT"))
+	}
+	return errors.Join(errs...)
+}
+
+// checkAgentApprovals checks the agent's approval tick and decision call ranges.
+func checkAgentApprovals(cfg Agent) error {
+	var errs []error
+	if cfg.ApprovalPollInterval < minApprovalPollInterval || cfg.ApprovalPollInterval > maxApprovalPollInterval {
+		errs = append(errs, errors.New("APPROVAL_POLL_INTERVAL must be between 10s and 5m"))
+	}
+	if cfg.ApprovalDecideTimeout < minApprovalDecideTimeout || cfg.ApprovalDecideTimeout > maxApprovalDecideTimeout {
+		errs = append(errs, errors.New("APPROVAL_DECIDE_TIMEOUT must be between 30s and 10m"))
+	}
+	if err := checkApprovalWindow(cfg.ApprovalWindow); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// MFAEnabled reports whether mfa_clear registers (spec 0012, AC-2): the
+// tool server's Entra app is fully set and someone can approve.
+func (cfg ToolServer) MFAEnabled() bool {
+	return cfg.GraphTenantID != "" && cfg.GraphClientID != "" && cfg.GraphClientSecret != "" && len(cfg.SlackITApprovers) > 0
 }
 
 // Reset is the password reset link feature (spec 0011). The first four are
@@ -328,7 +425,8 @@ func (a Agent) SlackConfigured() bool {
 func LoadAgent(lookup LookupFunc) (Agent, error) {
 	var cfg Agent
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkSlack(cfg), checkToolServerToken(cfg.ToolServerToken), checkAgentLoop(cfg), checkRetention(cfg.Retention))
+	err = errors.Join(err, checkSlack(cfg), checkToolServerToken(cfg.ToolServerToken), checkAgentLoop(cfg), checkRetention(cfg.Retention),
+		checkAgentApprovals(cfg))
 	if err != nil {
 		return Agent{}, fmt.Errorf("agent config: %w", err)
 	}
@@ -413,7 +511,7 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
 	err := load(&cfg, lookup)
 	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg), checkRetention(cfg.Retention),
-		checkReset(cfg.Reset, cfg.Retention))
+		checkReset(cfg.Reset, cfg.Retention), checkApprovals(cfg.Approvals))
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}

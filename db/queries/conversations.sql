@@ -10,6 +10,9 @@ RETURNING *;
 SELECT * FROM conversations
 WHERE slack_channel_id = @slack_channel_id AND slack_thread_ts = @slack_thread_ts;
 
+-- name: GetConversation :one
+SELECT * FROM conversations WHERE id = @id;
+
 -- name: SetConversationStatus :one
 -- SetConversationStatus changes only an open conversation. It may keep it open
 -- while filling in the account or ticket id; leaving open sets closed_at.

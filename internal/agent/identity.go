@@ -19,13 +19,21 @@ const (
 	toolPasswordResetLink = "password_reset_link"
 )
 
-// escalate's reasons (spec 0009, AC-2). The last two are code only.
+// escalate's reasons (spec 0009, AC-2; spec 0012 adds manual_action for the
+// model and four approval reasons for code). assistant_failure,
+// restart, and the approval reasons are code only.
 const (
-	escalatePrivileged = "privileged_request"
-	escalateOther      = "other_person"
-	escalateSecurity   = "security_concern"
-	escalateFailure    = "assistant_failure"
-	escalateRestart    = "restart"
+	escalatePrivileged      = "privileged_request"
+	escalateOther           = "other_person"
+	escalateSecurity        = "security_concern"
+	escalateFailure         = "assistant_failure"
+	escalateRestart         = "restart"
+	escalateManual          = "manual_action"
+	escalateApprovalDenied  = "approval_denied"
+	escalateApprovalExpired = "approval_expired"
+	escalateApprovalFailed  = "approval_failed"
+	// escalateApprovalCancelled: the requester denied their own request.
+	escalateApprovalCancelled = "approval_cancelled"
 )
 
 // Tool result codes the agent code acts on (spec 0007, refusal table).

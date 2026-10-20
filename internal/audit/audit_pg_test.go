@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -166,7 +167,7 @@ func mfaCall() Call {
 
 func deferMFA(t *testing.T, r *Recorder, approvers []string, expires time.Time) queries.Approval {
 	t.Helper()
-	a, err := r.Defer(t.Context(), mfaCall(), ApprovalRequest{Kind: ApproverIT, Approvers: approvers, ExpiresAt: expires})
+	a, err := r.Defer(t.Context(), mfaCall(), ApprovalRequest{Kind: ApproverIT, Approvers: approvers, ExpiresAt: expires}, nil)
 	if err != nil {
 		t.Fatalf("Defer: %v", err)
 	}
@@ -396,7 +397,12 @@ func TestPgApproveAndDenyRaceHasOneWinner(t *testing.T) {
 func TestPgExpireMovesOnlyOverdueApprovals(t *testing.T) {
 	r, q := pgRecorder(t)
 	overdue := deferMFA(t, r, []string{approverA}, time.Now().Add(-time.Minute))
-	deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	// Another account, so its Defer does not expire the overdue one itself.
+	other := mfaCall()
+	other.RequesterAccount = "mbakker"
+	if _, err := r.Defer(t.Context(), other, ApprovalRequest{Kind: ApproverIT, Approvers: []string{approverA}, ExpiresAt: time.Now().Add(time.Hour)}, nil); err != nil {
+		t.Fatalf("Defer: %v", err)
+	}
 
 	expired, err := r.Expire(t.Context(), 10)
 	if err != nil {
@@ -412,6 +418,81 @@ func TestPgExpireMovesOnlyOverdueApprovals(t *testing.T) {
 	last := rows[len(rows)-1]
 	if last.ToolName != ToolApprovalExpire || last.Outcome.String != "expired" || last.ApprovalID.UUID != overdue.ID {
 		t.Errorf("last audit row = %s %s for %v", last.ToolName, last.Outcome.String, last.ApprovalID)
+	}
+	// covers: spec 0012 AC-9, AC-18. A click after the tick expired the row
+	// is refused as expired, not as already decided.
+	for _, approve := range []bool{true, false} {
+		d, err := r.Decide(t.Context(), overdue.ID, approverA, approve)
+		if err != nil || d.Moved || d.Reason != "expired" {
+			t.Errorf("click on an expired row (approve %v) = %+v, %v; want refused as expired", approve, d, err)
+		}
+	}
+}
+
+// covers: spec 0012 (at most one pending mfa_clear approval per account).
+// approvals_one_pending_idx refuses a second pending approval for the
+// account, even from another thread and even when both race; Defer first
+// expires the account's overdue row so it never blocks the next request.
+func TestPgOnePendingApprovalPerAccount(t *testing.T) {
+	r, q := pgRecorder(t)
+	req := ApprovalRequest{Kind: ApproverIT, Approvers: []string{approverA}, ExpiresAt: time.Now().Add(time.Hour)}
+	elsewhere := mfaCall()
+	elsewhere.ThreadTS = "1760000000.000999"
+
+	overdue := deferMFA(t, r, []string{approverA}, time.Now().Add(-time.Minute))
+	live, err := r.Defer(t.Context(), elsewhere, req, nil)
+	if err != nil {
+		t.Fatalf("Defer after an overdue row: %v", err)
+	}
+	if got, err := r.Approval(t.Context(), overdue.ID); err != nil || got.Status != "expired" {
+		t.Fatalf("overdue row = %s, %v; want expired by the next Defer", got.Status, err)
+	}
+	rows := threadRows(t, q, mfaCall())
+	if last := rows[len(rows)-1]; last.ToolName != ToolApprovalExpire || last.ApprovalID.UUID != overdue.ID {
+		t.Errorf("last audit row = %s for %v, want the approval.expire pair", last.ToolName, last.ApprovalID)
+	}
+
+	before := len(threadRows(t, q, mfaCall()))
+	if _, err := r.Defer(t.Context(), mfaCall(), req, nil); !errors.Is(err, ErrApprovalPending) {
+		t.Fatalf("second pending Defer: err = %v, want ErrApprovalPending", err)
+	}
+	if after := len(threadRows(t, q, mfaCall())); after != before {
+		t.Errorf("the refused Defer left %d audit rows, want none (rolled back)", after-before)
+	}
+	if _, err := r.Decide(t.Context(), live.ID, approverA, false); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 5 {
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for i, ts := range []string{"1760000000.001001", "1760000000.001002"} {
+			wg.Go(func() {
+				c := mfaCall()
+				c.ThreadTS = ts
+				_, errs[i] = r.Defer(context.WithoutCancel(t.Context()), c, req, nil)
+			})
+		}
+		wg.Wait()
+		won := 0
+		for _, err := range errs {
+			switch {
+			case err == nil:
+				won++
+			case !errors.Is(err, ErrApprovalPending):
+				t.Fatalf("racing Defer: %v", err)
+			}
+		}
+		if won != 1 {
+			t.Fatalf("racing Defers: %d won, want exactly one (%v)", won, errs)
+		}
+		a, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset")
+		if err != nil || !ok {
+			t.Fatalf("PendingApproval: %v, %v", ok, err)
+		}
+		if _, err := r.Decide(t.Context(), a.ID, approverA, false); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -577,5 +658,157 @@ func TestPgThreadTicketID(t *testing.T) {
 	}
 	if id, err := r.ThreadTicketID(t.Context(), c.ChannelID, c.ThreadTS); err != nil || id != 0 {
 		t.Errorf("newest result without ticket_id = %d, %v; want 0", id, err)
+	}
+}
+
+// --- spec 0012: pending results, reuse, the execution and its reads ---
+
+// covers: spec 0012 AC-4, AC-5. Defer and Reuse keep only the PendingResult
+// keys, and both outcomes name the one approval.
+func TestPgDeferAndReuseKeepThePendingResult(t *testing.T) {
+	r, q := pgRecorder(t)
+	c := mfaCall()
+	c.PendingResult = []string{"expires_at", "method_count", "reused"}
+	a, err := r.Defer(t.Context(), c, ApprovalRequest{Kind: ApproverIT, Approvers: []string{approverA}, ExpiresAt: time.Now().Add(time.Hour)},
+		map[string]any{"expires_at": "2026-10-20T10:00:00Z", "method_count": 2, "reused": false, "methods": "phone (2)"})
+	if err != nil {
+		t.Fatalf("Defer: %v", err)
+	}
+	if err := r.Reuse(t.Context(), c, a.ID, map[string]any{"expires_at": "2026-10-20T10:00:00Z", "reused": true}); err != nil {
+		t.Fatalf("Reuse: %v", err)
+	}
+	var results []string
+	for _, row := range threadRows(t, q, c) {
+		if row.Kind == "outcome" {
+			if row.Outcome.String != "pending_approval" || row.ApprovalID.UUID != a.ID {
+				t.Errorf("outcome = %+v", row)
+			}
+			results = append(results, string(row.Result))
+		}
+	}
+	want := []string{
+		`{"reused": false, "_omitted": 1, "expires_at": "2026-10-20T10:00:00Z", "method_count": 2}`,
+		`{"reused": true, "expires_at": "2026-10-20T10:00:00Z"}`,
+	}
+	if !slices.Equal(results, want) {
+		t.Errorf("results = %q, want %q", results, want)
+	}
+	if err := r.Reuse(t.Context(), c, uuid.Nil, nil); !errors.Is(err, ErrInvalidCall) {
+		t.Errorf("Reuse with no approval: %v", err)
+	}
+}
+
+// covers: spec 0012 AC-3. Only a pending, unexpired approval of that tool
+// for that account is found.
+func TestPgPendingApproval(t *testing.T) {
+	r, _ := pgRecorder(t)
+	if _, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset"); ok || err != nil {
+		t.Fatalf("empty: ok %v, %v", ok, err)
+	}
+	deferMFA(t, r, []string{approverA}, time.Now().Add(-time.Minute)) // already past expiry
+	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "mfa_reset"); ok {
+		t.Error("an expired approval counted as pending")
+	}
+	live := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	a, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset")
+	if err != nil || !ok || a.ID != live.ID {
+		t.Errorf("PendingApproval = %v, %v, %v; want %s", a.ID, ok, err, live.ID)
+	}
+	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "other_tool"); ok {
+		t.Error("another tool's approval counted")
+	}
+	if _, err := r.Decide(t.Context(), live.ID, approverA, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "mfa_reset"); ok {
+		t.Error("a denied approval counted as pending")
+	}
+}
+
+// covers: spec 0012 AC-11, AC-13. An execution's outcome is read back by
+// approval, the pending row left out, and the mark moves only approved rows.
+func TestPgExecutionOutcomeAndMark(t *testing.T) {
+	r, _ := pgRecorder(t)
+	a := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	if _, ok, err := r.ExecutionOf(t.Context(), a); ok || err != nil {
+		t.Fatalf("before the run: ok %v, %v", ok, err)
+	}
+	if found, err := r.MarkApproval(t.Context(), a.ID, true); found || err != nil {
+		t.Errorf("marked a pending approval: %v, %v", found, err)
+	}
+	d, err := r.Decide(t.Context(), a.ID, approverA, true)
+	if err != nil || !d.Moved {
+		t.Fatalf("approve: %+v, %v", d, err)
+	}
+	c := mfaCall()
+	c.ApprovalID, c.ApproverSlackID, c.StoreResult = a.ID, approverA, []string{"cleared_phone"}
+	if _, err := r.Run(t.Context(), c, func(context.Context) (Result, error) {
+		return Result{Outcome: OutcomeError, Reason: "method delete failed", Data: map[string]any{"cleared_phone": 1}}, nil
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	ex, ok, err := r.ExecutionOf(t.Context(), a)
+	if err != nil || !ok || ex.Outcome != OutcomeError || ex.Reason != "method delete failed" || string(ex.Result) != `{"cleared_phone": 1}` {
+		t.Errorf("ExecutionOf = %+v, %v, %v", ex, ok, err)
+	}
+	if found, err := r.MarkApproval(t.Context(), a.ID, false); !found || err != nil {
+		t.Errorf("MarkApproval failed = %v, %v", found, err)
+	}
+	got, err := r.Approval(t.Context(), a.ID)
+	if err != nil || got.Status != "failed" {
+		t.Errorf("Approval = %s, %v; want failed", got.Status, err)
+	}
+	if _, err := r.Approval(t.Context(), uuid.New()); !errors.Is(err, ErrApprovalNotFound) {
+		t.Errorf("unknown id: %v", err)
+	}
+	list, err := r.ApprovalsSince(t.Context(), time.Now().Add(-time.Hour), 100)
+	if err != nil || len(list) != 1 || list[0].ID != a.ID {
+		t.Errorf("ApprovalsSince = %d, %v", len(list), err)
+	}
+}
+
+// covers: spec 0012 AC-12, AC-24. Abandon fails only approved rows older
+// than the grace, clears their arguments, never runs them, and writes an
+// approval.abandon pair naming the approver; the close guard sees pending and
+// approved rows only.
+func TestPgAbandonAndOpenApprovals(t *testing.T) {
+	r, q := pgRecorder(t)
+	c := mfaCall()
+	a := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
+	if open, err := r.ThreadHasOpenApproval(t.Context(), "mfa_reset", c.ChannelID, c.ThreadTS); err != nil || !open {
+		t.Fatalf("pending: open %v, %v", open, err)
+	}
+	if d, err := r.Decide(t.Context(), a.ID, approverA, true); err != nil || !d.Moved {
+		t.Fatalf("approve: %+v, %v", d, err)
+	}
+	if got, err := r.Abandon(t.Context(), time.Hour, 100); err != nil || len(got) != 0 {
+		t.Fatalf("within the grace: abandoned %d, %v", len(got), err)
+	}
+	if open, err := r.ThreadHasOpenApproval(t.Context(), "mfa_reset", c.ChannelID, c.ThreadTS); err != nil || !open {
+		t.Fatalf("approved: open %v, %v", open, err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	got, err := r.Abandon(t.Context(), 10*time.Millisecond, 100)
+	if err != nil || len(got) != 1 || got[0].ID != a.ID || got[0].Status != "failed" || got[0].Arguments != nil {
+		t.Fatalf("Abandon = %+v, %v; want the approval failed with no arguments", got, err)
+	}
+	if again, err := r.Abandon(t.Context(), 10*time.Millisecond, 100); err != nil || len(again) != 0 {
+		t.Errorf("second Abandon = %d, %v", len(again), err)
+	}
+	rows := threadRows(t, q, c)
+	last := rows[len(rows)-1]
+	if last.ToolName != ToolApprovalAbandon || last.Outcome.String != "error" || last.Error.String != ReasonExecutionNotConfirmed ||
+		last.ApprovalID.UUID != a.ID || last.ApproverSlackID.String != approverA {
+		t.Errorf("last audit row = %s %s %q approver %q", last.ToolName, last.Outcome.String, last.Error.String, last.ApproverSlackID.String)
+	}
+	ex, ok, err := r.ExecutionOf(t.Context(), got[0])
+	if err != nil || !ok || ex.Outcome != OutcomeError || ex.Reason != ReasonExecutionNotConfirmed {
+		t.Errorf("ExecutionOf = %+v, %v, %v; want the abandon's outcome", ex, ok, err)
+	}
+	if open, err := r.ThreadHasOpenApproval(t.Context(), "mfa_reset", c.ChannelID, c.ThreadTS); err != nil || open {
+		t.Errorf("failed: open %v, %v", open, err)
+	}
+	if _, err := r.Abandon(t.Context(), 0, 100); !errors.Is(err, ErrInvalidCall) {
+		t.Errorf("zero grace: %v", err)
 	}
 }

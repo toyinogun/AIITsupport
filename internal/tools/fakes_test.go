@@ -65,6 +65,12 @@ func newHarness(t *testing.T, extra ...Tool) *harness {
 // newHarnessWith is newHarness with the reset link system (spec 0011).
 func newHarnessWith(t *testing.T, reset *ResetSystem, extra ...Tool) *harness {
 	t.Helper()
+	return newHarnessSystems(t, reset, nil, extra...)
+}
+
+// newHarnessSystems is newHarness with the optional reset and MFA systems.
+func newHarnessSystems(t *testing.T, reset *ResetSystem, mfa *MFASystem, extra ...Tool) *harness {
+	t.Helper()
 	h := &harness{t: t, store: &toolstest.MemStore{}, dir: toolstest.NewDirectory(), zammad: zammadtest.New(t), logs: &bytes.Buffer{}}
 	h.ks = &switchFile{t: t, path: filepath.Join(t.TempDir(), "kill-switch")}
 	h.ks.set("read_write\n")
@@ -80,13 +86,16 @@ func newHarnessWith(t *testing.T, reset *ResetSystem, extra ...Tool) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if mfa != nil && mfa.Reader == nil {
+		mfa.Reader = h.dir // the fake directory also answers by account name
+	}
 	reg, err := newRegistry(append(productionTools(), extra...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.d, err = NewDispatcher(reg, testConfig(), Systems{
 		Directory: h.dir, Writer: h.dir, Helpdesk: NewHelpdesk(client, "IT Support", "http://zammad.test/"),
-		Recorder: rec, KillSwitch: NewKillSwitch(h.ks.path, true), Reset: reset,
+		Recorder: rec, KillSwitch: NewKillSwitch(h.ks.path, true), Reset: reset, MFA: mfa,
 	}, logger)
 	if err != nil {
 		t.Fatal(err)

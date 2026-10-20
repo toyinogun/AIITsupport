@@ -3,7 +3,8 @@
 // drops duplicates through the slack_events table, and hands each accepted
 // message to the agent with a non blocking Submit. It also adapts the Web
 // API calls the agent makes (chat.postMessage, users.info). Nothing listens
-// on the internet: Socket Mode dials out.
+// on the internet: Socket Mode dials out. Approve and Deny clicks on an
+// approval card (spec 0012) reach the agent through Click.
 package slack
 
 import (
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	slackapi "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -59,6 +61,11 @@ type Poster interface {
 	// ReplyNoUnfurl posts text in a thread with link and media unfurling
 	// off, so Slack never fetches a link in it (spec 0011, AC-5).
 	ReplyNoUnfurl(ctx context.Context, channel, threadTS, text string) error
+	// PostCard, UpdateCard, and Ephemeral are the approval card's calls
+	// (spec 0012, AC-7, AC-9, AC-16).
+	PostCard(ctx context.Context, channel string, c agent.Card) (string, error)
+	UpdateCard(ctx context.Context, channel, ts string, c agent.Card) error
+	Ephemeral(ctx context.Context, channel, userID, text string) error
 }
 
 // Socket is the Socket Mode connection with the app token.
@@ -70,10 +77,11 @@ type Socket interface {
 	Run(ctx context.Context) error
 }
 
-// Handler takes each accepted message. It must not block: it is called on
-// the event loop. *agent.Agent implements it.
+// Handler takes each accepted message and each approval click. It must not
+// block: it is called on the event loop. *agent.Agent implements it.
 type Handler interface {
 	Submit(in agent.Inbound)
+	Click(c agent.Click)
 }
 
 // Listener hands each Slack message to the Handler once.
@@ -203,7 +211,53 @@ func (l *Listener) handle(ctx context.Context, evt socketmode.Event) {
 		if api, ok := evt.Data.(slackevents.EventsAPIEvent); ok {
 			l.onEvent(ctx, api)
 		}
+	case socketmode.EventTypeInteractive:
+		// Ack at once, whatever the payload: Slack shows an error otherwise.
+		if evt.Request != nil {
+			if err := l.Socket.Ack(*evt.Request); err != nil {
+				l.Logger.Warn("slack_ack_failed", "cause", cause.Of(err))
+			}
+		}
+		if cb, ok := evt.Data.(slackapi.InteractionCallback); ok {
+			l.onInteraction(envelopeID(evt), cb)
+		}
 	}
+}
+
+func envelopeID(evt socketmode.Event) string {
+	if evt.Request == nil {
+		return ""
+	}
+	return evt.Request.EnvelopeID
+}
+
+// onInteraction hands an Approve or Deny click to the agent (spec 0012,
+// AC-8). Every other interaction is ignored. The trigger id and the user
+// id are never logged.
+func (l *Listener) onInteraction(eventID string, cb slackapi.InteractionCallback) {
+	if cb.Type != slackapi.InteractionTypeBlockActions || len(cb.ActionCallback.BlockActions) == 0 {
+		return
+	}
+	act := cb.ActionCallback.BlockActions[0]
+	var approve bool
+	switch act.ActionID {
+	case agent.ActionApprove:
+		approve = true
+	case agent.ActionDeny:
+	default:
+		return
+	}
+	kind := "deny"
+	if approve {
+		kind = "approve"
+	}
+	id, err := uuid.Parse(act.Value)
+	if err != nil || cb.User.ID == "" {
+		l.Logger.Warn("slack_interaction_ignored", "event_id", eventID, "channel_id", cb.Channel.ID, "kind", kind)
+		return
+	}
+	l.Logger.Info("slack_interaction_received", "event_id", eventID, "channel_id", cb.Channel.ID, "kind", kind)
+	l.Handler.Click(agent.Click{EventID: eventID, ApprovalID: id, UserID: cb.User.ID, Approve: approve, ChannelID: cb.Channel.ID})
 }
 
 // onEvent decides, dedups, logs, and hands the message to the agent.

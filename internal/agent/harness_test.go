@@ -56,6 +56,7 @@ type harness struct {
 	tools  *agenttest.Tools
 	model  *agenttest.Model
 	store  *agenttest.Store
+	appr   *agenttest.Approvals
 	logs   *syncBuffer
 	redact bool // log through logging.New, as cmd/agent does
 }
@@ -72,7 +73,8 @@ func testConfig(t *testing.T) agent.Config {
 		MaxConcurrent: 4, ConversationsPerHour: 10,
 		MessageTimeout: 3 * time.Second, ToolTimeout: time.Second,
 		PostTimeout: time.Second, ShutdownGrace: 2 * time.Second,
-		ITChannel: itChannel,
+		ITChannel:             itChannel,
+		ApprovalDecideTimeout: time.Second, ApprovalPollInterval: 30 * time.Second, ApprovalTimeout: 30 * time.Minute,
 	}
 }
 
@@ -94,6 +96,7 @@ func newHarness(t *testing.T, model *agenttest.Model, opts ...option) *harness {
 		tools:  agenttest.NewTools(janUser, true),
 		model:  model,
 		store:  agenttest.NewStore(func() time.Time { return now }),
+		appr:   agenttest.NewApprovals(),
 		logs:   &syncBuffer{},
 	}
 	for _, o := range opts {
@@ -105,8 +108,8 @@ func newHarness(t *testing.T, model *agenttest.Model, opts ...option) *harness {
 	}
 	a, err := agent.New(h.cfg, agent.Deps{
 		Slack: h.users, Poster: h.poster, Tools: h.tools, Model: h.model, Store: h.store,
-		Logger: logger,
-		Now:    func() time.Time { return now },
+		Approvals: h.appr, Logger: logger,
+		Now: func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatal(err)

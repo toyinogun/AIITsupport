@@ -60,5 +60,15 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0036](0036-samba-ignores-the-password-history-hint.md) | 2026-10-19 | Samba ignores the password history hint on a delegated reset | #13 Password reset links | ~10 min | post |
 | [0037](0037-denied-groups-would-block-every-reset.md) | 2026-10-19 | The denied groups list would have refused a reset link to almost everyone | #13 Password reset links | ~10 min | both |
 | [0038](0038-samba-keeps-the-old-password-for-an-hour.md) | 2026-10-19 | Samba kept accepting the old password for an hour after a reset | #13 Password reset links | ~15 min | both |
+| [0039](0039-a-stale-approval-ran-the-clear-twice.md) | 2026-10-20 | A stale copy of an approval ran the MFA clear a second time | #14 MFA re-registration with approval | ~5 min | post |
+| [0040](0040-test-clock-and-store-clock-disagreed.md) | 2026-10-20 | The test clock and the fake store's clock disagreed, so every approval was born expired | #14 MFA re-registration with approval | ~5 min | no |
+| [0041](0041-graph-will-not-delete-the-default-method-first.md) | 2026-10-20 | Graph will not delete a user's default MFA method while others remain | #14 MFA re-registration with approval | ~15 min | both |
+| [0042](0042-the-slack-test-account-was-a-guest-mapped-to-the-wrong-user.md) | 2026-10-20 | The Slack test account was a guest, and its email mapped to nobody | #14 MFA re-registration with approval | ~15 min | post |
+| [0043](0043-the-tick-had-no-source-for-the-approval-timeout.md) | 2026-10-20 | The approval tick had no source for the approval timeout | #14 MFA re-registration with approval | ~5 min | post |
+| [0044](0044-pre-push-checks-the-working-tree-not-the-commit.md) | 2026-10-20 | The pre push hook checked the working tree, not the commit being pushed | #4 Coding standards & tooling | ~5 min | post |
+| [0045](0045-the-pi-runner-had-no-c-compiler-for-race.md) | 2026-10-20 | The Pi runner had no C compiler, so the race tests could not start | #4 Coding standards & tooling | ~10 min | post |
+| [0046](0046-a-1s-audit-timeout-flaked-on-the-pi.md) | 2026-10-20 | A 1s audit write timeout in the tests timed out on the Pi runner | #4 Coding standards & tooling | ~10 min | no |
+| [0047](0047-one-pending-approval-was-checked-not-enforced.md) | 2026-10-20 | "One pending approval per account" was checked in code, not enforced by the database | #14 MFA re-registration with approval | ~30 min | post |
+| [0048](0048-the-ci-fork-check-failed-open.md) | 2026-10-20 | The CI fork check failed open, so a deleted fork's code would run on the Pi | #4 Coding standards & tooling | ~5 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

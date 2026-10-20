@@ -73,6 +73,9 @@ type Fake struct {
 	// ListAlsoDeleted keeps these deleted user ids in user listings, as
 	// Graph's /users lags just after a delete.
 	ListAlsoDeleted map[string]bool
+	// SignInPrefsForbidden answers 403 to a signInPreferences read, as when
+	// the app lacks the permission.
+	SignInPrefsForbidden bool
 	// Intercept, when set, may answer a request instead of the fake (return
 	// ok false to let it through). It runs before anything is changed.
 	Intercept func(r *http.Request) (Fault, bool)
@@ -84,8 +87,17 @@ type Fake struct {
 	managers map[string]string
 	phones   map[string][]Phone
 	ghosts   map[string][]ghost
-	writes   int
-	requests []string
+	// authenticators are Microsoft Authenticator method ids, others are other
+	// MFA method types (such as softwareOath), and prefs the preferred second
+	// factor, all by user id.
+	authenticators map[string][]string
+	others         map[string][]string
+	prefs          map[string]string
+	// defaultAuth is the Authenticator registration Graph treats as the
+	// default when prefs is "push"; unset means the first one.
+	defaultAuth map[string]string
+	writes      int
+	requests    []string
 }
 
 // New starts a fake Graph that stops when the test ends.
@@ -98,6 +110,11 @@ func New(t testing.TB) *Fake {
 		managers: map[string]string{},
 		phones:   map[string][]Phone{},
 		ghosts:   map[string][]ghost{},
+
+		authenticators: map[string][]string{},
+		others:         map[string][]string{},
+		prefs:          map[string]string{},
+		defaultAuth:    map[string]string{},
 	}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Server.Close)
@@ -229,6 +246,58 @@ func (f *Fake) SetPhones(id string, phones []Phone) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.phones[id] = slices.Clone(phones)
+}
+
+// SetUserField sets one field of a live user directly (empty removes it).
+func (f *Fake) SetUserField(id, field, value string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if value == "" {
+		delete(f.users[id], field)
+		return
+	}
+	f.users[id][field] = value
+}
+
+// Authenticators returns a user's Microsoft Authenticator method ids.
+func (f *Fake) Authenticators(id string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.authenticators[id])
+}
+
+// SetAuthenticators replaces a user's Microsoft Authenticator method ids.
+func (f *Fake) SetAuthenticators(id string, methodIDs ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.authenticators[id] = slices.Clone(methodIDs)
+}
+
+// SetOtherMethods gives a user MFA methods of other short types, such as
+// "softwareOath" or "fido2"; /methods lists them and nothing deletes them.
+func (f *Fake) SetOtherMethods(id string, types ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.others[id] = slices.Clone(types)
+}
+
+// SetSignInPreference sets a user's preferred second factor ("push", "sms",
+// "voiceMobile", "voiceAlternateMobile", "voiceOffice"). While other MFA
+// methods remain, the fake refuses to delete the preferred one, the order
+// rule spec 0012 AC-11 builds for.
+func (f *Fake) SetSignInPreference(id, preferred string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prefs[id] = preferred
+}
+
+// SetDefaultAuthenticator names which of a user's Authenticator
+// registrations is the default while the preference is "push": only that one
+// is refused while other methods remain. Unset, it is the first one.
+func (f *Fake) SetDefaultAuthenticator(id, methodID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.defaultAuth[id] = methodID
 }
 
 // PhoneID is Graph's fixed method id for a phone type.
@@ -448,6 +517,18 @@ func (f *Fake) methods(r *http.Request, id string, rest []string) (int, any) {
 	switch {
 	case len(rest) == 1 && rest[0] == "methods" && r.Method == http.MethodGet:
 		out := []map[string]any{{"@odata.type": "#microsoft.graph.passwordAuthenticationMethod", "id": passwordMethodID}}
+		for _, a := range f.authenticators[id] {
+			out = append(out, map[string]any{
+				"@odata.type": "#microsoft.graph.microsoftAuthenticatorAuthenticationMethod",
+				"id":          a, "displayName": "Device of " + id,
+			})
+		}
+		for i, typ := range f.others[id] {
+			out = append(out, map[string]any{
+				"@odata.type": "#microsoft.graph." + typ + "AuthenticationMethod",
+				"id":          fmt.Sprintf("other-%d", i),
+			})
+		}
 		listed := slices.Clone(f.phones[id])
 		var keep []ghost
 		for _, g := range f.ghosts[id] {
@@ -468,8 +549,63 @@ func (f *Fake) methods(r *http.Request, id string, rest []string) (int, any) {
 		return f.phoneCollection(r, id)
 	case len(rest) == 2 && rest[0] == "phoneMethods":
 		return f.phoneMethod(r, id, rest[1])
+	case len(rest) == 1 && rest[0] == "microsoftAuthenticatorMethods" && r.Method == http.MethodGet:
+		out := []map[string]any{}
+		for _, a := range f.authenticators[id] {
+			out = append(out, map[string]any{"id": a, "displayName": "Device of " + id})
+		}
+		return http.StatusOK, map[string]any{"value": out}
+	case len(rest) == 2 && rest[0] == "microsoftAuthenticatorMethods" && r.Method == http.MethodDelete:
+		return f.deleteAuthenticator(id, rest[1])
+	case len(rest) == 1 && rest[0] == "signInPreferences" && r.Method == http.MethodGet:
+		if f.SignInPrefsForbidden {
+			return fail(http.StatusForbidden, "accessDenied", "Request Authorization failed")
+		}
+		var preferred any
+		if p := f.prefs[id]; p != "" {
+			preferred = p
+		}
+		return http.StatusOK, map[string]any{"userPreferredMethodForSecondaryAuthentication": preferred}
+	case len(rest) == 1 && rest[0] == "temporaryAccessPassMethods" && r.Method == http.MethodPost:
+		// The tool server app never holds the TAP permission (spec 0012, AC-20).
+		return fail(http.StatusForbidden, "accessDenied", "Request Authorization failed")
 	}
 	return fail(http.StatusNotFound, "Request_ResourceNotFound", "no such method route in the fake")
+}
+
+func (f *Fake) deleteAuthenticator(id, methodID string) (int, any) {
+	i := slices.Index(f.authenticators[id], methodID)
+	if i < 0 {
+		return fail(http.StatusNotFound, "Request_ResourceNotFound", "no authenticator method "+methodID)
+	}
+	if f.prefs[id] == "push" && f.mfaCount(id) > 1 && methodID == f.defaultAuthenticator(id) {
+		return fail(http.StatusBadRequest, "badRequest", "The default method cannot be deleted while other methods remain.")
+	}
+	f.authenticators[id] = slices.Delete(f.authenticators[id], i, i+1)
+	return http.StatusNoContent, nil
+}
+
+// defaultAuthenticator is the registration SetDefaultAuthenticator named,
+// else the user's first one.
+func (f *Fake) defaultAuthenticator(id string) string {
+	if d := f.defaultAuth[id]; slices.Contains(f.authenticators[id], d) {
+		return d
+	}
+	if len(f.authenticators[id]) == 0 {
+		return ""
+	}
+	return f.authenticators[id][0]
+}
+
+// mfaCount is how many phone and Authenticator methods a user has left.
+func (f *Fake) mfaCount(id string) int { return len(f.phones[id]) + len(f.authenticators[id]) }
+
+// preferredPhone is the phone type a sign in preference names, if any.
+func preferredPhone(pref string) string {
+	return map[string]string{
+		"sms": "mobile", "voiceMobile": "mobile",
+		"voiceAlternateMobile": "alternateMobile", "voiceOffice": "office",
+	}[pref]
 }
 
 func (f *Fake) phoneCollection(r *http.Request, id string) (int, any) {
@@ -513,6 +649,9 @@ func (f *Fake) phoneMethod(r *http.Request, id, methodID string) (int, any) {
 		f.phones[id][i].PhoneNumber = p.PhoneNumber
 		return http.StatusNoContent, nil
 	case http.MethodDelete:
+		if pt := preferredPhone(f.prefs[id]); pt != "" && pt == f.phones[id][i].PhoneType && f.mfaCount(id) > 1 {
+			return fail(http.StatusBadRequest, "badRequest", "The default method cannot be deleted while other methods remain.")
+		}
 		if f.StaleMethodReads > 0 {
 			f.ghosts[id] = append(f.ghosts[id], ghost{phone: f.phones[id][i], reads: f.StaleMethodReads})
 		}

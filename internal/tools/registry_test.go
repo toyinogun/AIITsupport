@@ -35,6 +35,23 @@ func countingTool(name string, tier audit.Tier, account bool, runs *atomic.Int32
 	return t
 }
 
+// mediumTool is a test medium tool whose precheck passes and whose handler
+// counts its runs.
+func mediumTool(name string, runs *atomic.Int32) Tool {
+	return Tool{
+		Name: name, Description: "test only", Tier: audit.TierMedium, Target: TargetRequester,
+		PendingResult: []string{"expires_at"},
+		Approval: func(_ context.Context, _ audit.Call, now time.Time) (audit.ApprovalRequest, error) {
+			return audit.ApprovalRequest{Kind: audit.ApproverIT, Approvers: []string{"U09IT"}, ExpiresAt: now.Add(time.Hour)}, nil
+		},
+		Precheck: func(context.Context, MFADeps, Input) (Prechecked, error) { return Prechecked{}, nil },
+		Handler: MFAHandler(func(context.Context, MFADeps, Input) (Result, error) {
+			runs.Add(1)
+			return Result{Result: resultData(map[string]any{}), Text: "ran"}, nil
+		}),
+	}
+}
+
 // covers: AC-1, AC-14, and spec 0009 AC-1. The production registry lists
 // exactly the six tools, none of them a test tool, and nothing that approves.
 func TestProductionRegistry(t *testing.T) {
@@ -79,6 +96,10 @@ func TestRegistryConstructionRules(t *testing.T) {
 	var runs atomic.Int32
 	medium := countingTool("t_medium", audit.TierMedium, false, &runs)
 	blocked := Tool{Name: "t_blocked", Description: "x", Tier: audit.TierBlocked, Handler: medium.Handler}
+	noPrecheck := mediumTool("t_noprecheck", &runs)
+	noPrecheck.Precheck = nil
+	lowMFA := mediumTool("t_lowmfa", &runs)
+	lowMFA.Tier = audit.TierLow
 	freeText := countingTool("t_free", audit.TierLow, false, &runs)
 	freeText.Fields = []Field{{Name: "note", MinRunes: 1, FreeText: true}}
 	freeText.Store = []string{"note"}
@@ -88,6 +109,7 @@ func TestRegistryConstructionRules(t *testing.T) {
 	for name, tool := range map[string]Tool{
 		"medium without hook": medium, "blocked with handler": blocked,
 		"stored free text": freeText, "no handler": noHandler, "duplicate name": dup,
+		"medium without precheck": noPrecheck, "mfa handler below medium": lowMFA,
 	} {
 		if _, err := NewTestRegistry(tool); err == nil {
 			t.Errorf("%s: registry built, want an error", name)
@@ -95,37 +117,38 @@ func TestRegistryConstructionRules(t *testing.T) {
 	}
 }
 
-// covers: AC-14. A medium tool is deferred with its hook's request; its
-// handler never runs, and the model is told it waits for IT.
+// covers: AC-14, and spec 0012 AC-4. A medium tool is deferred with its
+// hook's request; its handler never runs, and the model is told it waits for IT.
 func TestMediumToolIsDeferred(t *testing.T) {
 	var runs atomic.Int32
-	tool := countingTool("t_medium", audit.TierMedium, false, &runs)
-	expires := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
-	tool.Approval = func(_ context.Context, c audit.Call) (audit.ApprovalRequest, error) {
+	tool := mediumTool("t_medium", &runs)
+	tool.Approval = func(_ context.Context, c audit.Call, now time.Time) (audit.ApprovalRequest, error) {
 		if c.RequesterAccount != "eva.peters" {
 			t.Errorf("hook saw account %q", c.RequesterAccount)
 		}
-		return audit.ApprovalRequest{Kind: audit.ApproverIT, Approvers: []string{"U09IT"}, ExpiresAt: expires}, nil
+		return audit.ApprovalRequest{Kind: audit.ApproverIT, Approvers: []string{"U09IT"}, ExpiresAt: now.Add(24 * time.Hour)}, nil
 	}
 	h := newHarness(t, tool)
 
 	resp := h.call("t_medium", "", eva())
 	if resp.IsError || resp.Code != CodePendingApproval || resp.Text != "This request is waiting for IT approval." ||
-		resp.Data["code"] != "pending_approval" {
+		resp.Data["code"] != "pending_approval" || resp.Data["expires_in_minutes"] != int64(1440) {
 		t.Fatalf("response = %+v", resp)
 	}
 	if runs.Load() != 0 {
 		t.Fatal("a medium tool's handler ran")
 	}
+	expires := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	if len(h.store.Approvals) != 1 || h.store.Approvals[0].ToolName != "t_medium" || !h.store.Approvals[0].ExpiresAt.Equal(expires) {
 		t.Errorf("approvals = %+v", h.store.Approvals)
 	}
-	if o := h.lastOutcome(); o.Outcome.String != "pending_approval" || !o.ApprovalID.Valid {
-		t.Errorf("outcome = %+v", o)
+	if o := h.lastOutcome(); o.Outcome.String != "pending_approval" || !o.ApprovalID.Valid ||
+		string(o.Result) != `{"_omitted":1,"expires_at":"2026-10-19T12:00:00Z"}` {
+		t.Errorf("outcome = %+v result %s", o, o.Result)
 	}
 
 	// A failing hook is an error, not a pending approval.
-	tool.Approval = func(context.Context, audit.Call) (audit.ApprovalRequest, error) {
+	tool.Approval = func(context.Context, audit.Call, time.Time) (audit.ApprovalRequest, error) {
 		return audit.ApprovalRequest{}, errors.New("no approvers configured")
 	}
 	h = newHarness(t, tool)

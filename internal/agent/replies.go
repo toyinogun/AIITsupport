@@ -1,6 +1,10 @@
 package agent
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/toyinogun/AIITsupport/internal/mcpclient"
+)
 
 // Fixed texts the agent posts (spec 0008, Fixed texts). The eval asserts on
 // them, so change them only with the spec.
@@ -51,7 +55,13 @@ var itHeadlines = map[string]string{
 	escalateSecurity:   ":warning: *Security concern*",
 	escalateFailure:    ":construction: *Assistant could not finish*",
 	escalateRestart:    ":arrows_counterclockwise: *Interrupted by a restart*",
-	codeNotMatched:     ":grey_question: *Slack user not matched to a Noord account*",
+	// spec 0012
+	escalateManual:            ":wrench: *Needs a manual fix*",
+	escalateApprovalDenied:    ":no_entry_sign: *MFA reset denied*",
+	escalateApprovalExpired:   ":hourglass: *MFA reset not approved in time*",
+	escalateApprovalFailed:    ":construction: *MFA reset did not finish*",
+	escalateApprovalCancelled: ":leftwards_arrow_with_hook: *MFA reset cancelled by the requester*",
+	codeNotMatched:            ":grey_question: *Slack user not matched to a Noord account*",
 }
 
 const (
@@ -135,4 +145,57 @@ const (
 	OutcomeClosedThread = "closed_thread"
 	OutcomeSlackRetry   = "slack_retry"
 	OutcomeEmpty        = "empty"
+)
+
+// MFA re-registration texts (spec 0012, Fixed texts). The user's texts never
+// name the approver.
+const (
+	TextMFACleared = "IT approved your request and your MFA sign in methods are cleared. Next time you sign in to Microsoft 365 you'll be asked to set up the Authenticator app again; the steps are in the KB article \"Set up the Authenticator app\". Your ticket is closed."
+	// TextMFAClearedTicketOpen is mfa_cleared when the execution could not
+	// close the ticket (ticket_closed false), so the user and the card agree.
+	TextMFAClearedTicketOpen = "IT approved your request and your MFA sign in methods are cleared. Next time you sign in to Microsoft 365 you'll be asked to set up the Authenticator app again; the steps are in the KB article \"Set up the Authenticator app\". Your ticket is still open, and IT will close it."
+	TextMFADenied            = "IT didn't approve clearing your MFA methods, so nothing changed. Your ticket is with IT and someone will follow up."
+	TextMFAExpired           = "IT couldn't review your request in time, so nothing changed. Your ticket is with IT and someone will follow up."
+	TextMFAFailed            = "Something went wrong while clearing your MFA methods. IT has your ticket and will check your account and follow up."
+	TextMFACancelled         = "You cancelled your MFA reset request, so nothing changed. Your ticket is still with IT if you need more help."
+	TextMFAEndedContactIT    = "Your MFA reset request has ended, but I couldn't hand it to IT. Please contact IT directly."
+
+	TextApprovalProcessing  = "Your decision is being processed. The card will update when it's done."
+	TextApprovalUnknown     = "I can't find this request anymore."
+	TextApprovalNotAllowed  = "Only IT approvers can decide this request."
+	TextApprovalSelf        = "You can't decide your own request."
+	TextApprovalExpired     = "This request has expired."
+	TextApprovalDecided     = "This request was already decided."
+	TextApprovalUnavailable = "I couldn't record your decision. Please try again in a minute."
+)
+
+// settleTexts are the user's one fixed text per ended approval (AC-17).
+var settleTexts = map[string]string{
+	mcpclient.StatusExecuted: TextMFACleared,
+	mcpclient.StatusDenied:   TextMFADenied,
+	mcpclient.StatusExpired:  TextMFAExpired,
+	mcpclient.StatusFailed:   TextMFAFailed,
+}
+
+// The MFA escalation (spec 0012, AC-15): the title escalate uses when it has
+// to open a ticket, and the fixed summaries.
+const (
+	MFAEscalationTitle     = "MFA reset needs IT"
+	MFADeniedSummary       = "IT denied the MFA reset request."
+	MFAExpiredSummary      = "Nobody decided the MFA reset request before it expired."
+	MFAFailedSummaryPrefix = "The approved MFA reset did not finish: "
+	MFACancelledSummary    = "The requester cancelled the MFA reset request."
+)
+
+// The approval card's fixed lines (spec 0012, AC-7).
+const (
+	cardHeader          = "MFA reset request"
+	cardRequester       = "Requester: "
+	cardTicket          = "Ticket: "
+	cardTicketLinkLabel = "open in helpdesk"
+	cardMethods         = "Methods: "
+	cardMethodsInNote   = "Methods: listed in the ticket note."
+	cardExpires         = "Expires: "
+	cardConfirm         = "Confirm with the person by phone or in person before approving."
+	cardFallback        = "MFA reset request for "
 )

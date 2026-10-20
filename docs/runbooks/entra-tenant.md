@@ -31,11 +31,11 @@ Do this twice, once per row below: **App registrations**, then **New registratio
 | App | Suggested name | Application permissions (Microsoft Graph) |
 |---|---|---|
 | Seed app | `noord-seed` | `User.ReadWrite.All`, `User.DeleteRestore.All`, `UserAuthMethod-Phone.ReadWrite.All` |
-| Tool server app | `noord-toolserver` | `User.Read.All`, `UserAuthenticationMethod.Read.All`, `UserAuthMethod-Phone.ReadWrite.All` |
+| Tool server app | `noord-toolserver` | `User.Read.All`, `UserAuthenticationMethod.Read.All`, `UserAuthMethod-Phone.ReadWrite.All`, `UserAuthMethod-MicrosoftAuthApp.ReadWrite.All` (spec 0012, the MFA clear) |
 
 For each app:
 
-1. Open **API permissions**, remove the default delegated `User.Read`, then **Add a permission**, **Microsoft Graph**, **Application permissions**, and add exactly the three in its row. Nothing else.
+1. Open **API permissions**, remove the default delegated `User.Read`, then **Add a permission**, **Microsoft Graph**, **Application permissions**, and add exactly the permissions in its row. Nothing else.
 2. Click **Grant admin consent** and check every row shows a green tick.
 3. **Wait for consent to propagate.** Give it about 5 minutes. A token issued before consent does not carry the new roles, and each `make` run starts a new process, so it always asks for a fresh token. If a call still gets 403 right after consent, wait and run again before you change anything.
 4. Open **Certificates & secrets**, add a **client secret** with a 6 month lifetime, and copy its **Value** (not the Secret ID) straight into `.env`. You cannot see it again later.
@@ -145,6 +145,25 @@ Secrets last 6 months. Two weeks before one expires:
 3. Delete the old secret in the portal.
 
 An expired or wrong secret fails with "client secret for `SEED_GRAPH_CLIENT_ID` (or `GRAPH_CLIENT_ID`) rejected or expired". `AADSTS7000222` in the detail means expired.
+
+## The MFA clear (spec 0012)
+
+The tool server app also holds `UserAuthMethod-MicrosoftAuthApp.ReadWrite.All`, so an approved MFA clear can remove a user's Microsoft Authenticator. Add it like the others and grant admin consent. Never add a Temporary Access Pass permission.
+
+What the build step 1 probe found on this tenant (journal 0041):
+
+- The app lists and deletes Microsoft Authenticator methods, and still gets 403 on `POST .../temporaryAccessPassMethods`.
+- `signInPreferences` answers 400, so the clear cannot read a user's default method.
+- Graph refuses to delete the default method while other methods remain, and a registered Authenticator is the default. The clear therefore deletes the phones first and the Authenticator last.
+- A code only app (Google Authenticator, or "a different authenticator app") shows up as `softwareOath`. The app cannot remove it, so `mfa_clear` refuses with `other_methods` and the request escalates to IT.
+
+To rerun the probe against a demo user who has Microsoft Authenticator registered:
+
+```bash
+set -a && . ./.env && set +a && TEST_ENTRA=1 TEST_ENTRA_MFA_USER=<username> go test -count=1 -run LiveAuthenticatorProbe -v ./internal/graph/
+```
+
+Add `TEST_ENTRA_DELETE=1` to also probe the delete order; it clears the user's methods, so register the Authenticator again afterwards (section 7, step 5) and run `make entra-sync`.
 
 ## Troubleshooting
 

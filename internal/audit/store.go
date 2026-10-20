@@ -20,9 +20,17 @@ type Queries interface {
 	ApproveApproval(ctx context.Context, arg queries.ApproveApprovalParams) (queries.Approval, error)
 	DenyApproval(ctx context.Context, arg queries.DenyApprovalParams) (queries.Approval, error)
 	ExpireDueApprovals(ctx context.Context, maxRows int32) ([]queries.Approval, error)
+	ExpireDueApprovalsFor(ctx context.Context, arg queries.ExpireDueApprovalsForParams) ([]queries.Approval, error)
+	AbandonStuckApprovals(ctx context.Context, arg queries.AbandonStuckApprovalsParams) ([]queries.Approval, error)
+	FindPendingApproval(ctx context.Context, arg queries.FindPendingApprovalParams) (queries.Approval, error)
+	ListApprovalsSince(ctx context.Context, arg queries.ListApprovalsSinceParams) ([]queries.Approval, error)
+	MarkApprovalExecuted(ctx context.Context, id uuid.UUID) (queries.Approval, error)
+	MarkApprovalFailed(ctx context.Context, id uuid.UUID) (queries.Approval, error)
+	ExecutionOutcomeForApproval(ctx context.Context, arg queries.ExecutionOutcomeForApprovalParams) (queries.ExecutionOutcomeForApprovalRow, error)
 	CountRecentOutcomes(ctx context.Context, arg queries.CountRecentOutcomesParams) (int64, error)
 	ThreadHasOutcome(ctx context.Context, arg queries.ThreadHasOutcomeParams) (bool, error)
 	ThreadTicketID(ctx context.Context, arg queries.ThreadTicketIDParams) (int64, error)
+	ThreadHasOpenApproval(ctx context.Context, arg queries.ThreadHasOpenApprovalParams) (bool, error)
 }
 
 // Store is Queries plus a way to run several of them in one transaction.

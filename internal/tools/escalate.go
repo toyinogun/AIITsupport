@@ -10,21 +10,30 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/zammad"
 )
 
-// Escalation reasons (spec 0009, AC-2). The model may use the first three;
-// the last two are code only.
+// Escalation reasons (spec 0009, AC-2; spec 0012 adds manual_action for the
+// model and four approval reasons for code). The model may use the first
+// three and manual_action; the rest are code only.
 const (
 	ReasonPrivilegedRequest = "privileged_request"
 	ReasonOtherPerson       = "other_person"
 	ReasonSecurityConcern   = "security_concern"
 	ReasonAssistantFailure  = "assistant_failure"
 	ReasonRestart           = "restart"
+	ReasonManualAction      = "manual_action"
+	ReasonApprovalDenied    = "approval_denied"
+	ReasonApprovalExpired   = "approval_expired"
+	ReasonApprovalFailed    = "approval_failed"
+	// ReasonApprovalCancelled is a requester who denied their own request
+	// (spec 0012 AC-15, amended 2026-10-20).
+	ReasonApprovalCancelled = "approval_cancelled"
 )
 
 var (
 	escalationReasons = []string{
 		ReasonPrivilegedRequest, ReasonOtherPerson, ReasonSecurityConcern, ReasonAssistantFailure, ReasonRestart,
+		ReasonManualAction, ReasonApprovalDenied, ReasonApprovalExpired, ReasonApprovalFailed, ReasonApprovalCancelled,
 	}
-	codeOnlyReasons = []string{ReasonAssistantFailure, ReasonRestart}
+	codeOnlyReasons = []string{ReasonAssistantFailure, ReasonRestart, ReasonApprovalDenied, ReasonApprovalExpired, ReasonApprovalFailed, ReasonApprovalCancelled}
 )
 
 // Tags an escalation adds (spec 0009, AC-4).

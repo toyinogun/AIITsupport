@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
@@ -23,20 +26,24 @@ import (
 // Base is the fake directory's base DN.
 const Base = "DC=ad,DC=noord,DC=example"
 
-// ErrNotUsed answers the approval reads the tool layer never makes.
-var ErrNotUsed = errors.New("not used by this test")
-
 // MemStore is an in memory audit.Store. It answers the history reads the
 // same way the SQL does and, like Postgres, fails a query whose context has
 // ended.
 type MemStore struct {
-	mu         sync.Mutex
-	rows       []queries.AuditLog
-	Approvals  []queries.CreateApprovalParams
-	IntentErr  error // fails every intent insert
-	OutcomeErr error // fails every outcome insert
-	CountErr   error // fails the rate limit count
-	ThreadErr  error // fails the thread reads (outcomes and ticket id)
+	mu        sync.Mutex
+	rows      []queries.AuditLog
+	Approvals []queries.CreateApprovalParams
+	// rowsApproval are the approvals as the table holds them.
+	rowsApproval []queries.Approval
+	IntentErr    error // fails every intent insert
+	OutcomeErr   error // fails every outcome insert
+	CountErr     error // fails the rate limit count
+	ThreadErr    error // fails the thread reads (outcomes and ticket id)
+	// ApprovalErr fails the pending approval read.
+	ApprovalErr error
+	// HidePending makes FindPendingApproval find nothing, as when a racing
+	// request's approval has not committed yet at the precheck.
+	HidePending bool
 }
 
 // InsertAuditIntent stores an intent row, or fails with IntentErr.
@@ -80,33 +87,236 @@ func (s *MemStore) InsertAuditOutcome(ctx context.Context, p queries.InsertAudit
 	return 0, errors.New("no intent")
 }
 
-// CreateApproval records the approval request.
-func (s *MemStore) CreateApproval(_ context.Context, p queries.CreateApprovalParams) (queries.Approval, error) {
+// CreateApproval records the approval request and stores a pending row.
+func (s *MemStore) CreateApproval(ctx context.Context, p queries.CreateApprovalParams) (queries.Approval, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return queries.Approval{}, err
+	}
+	if p.RequesterAccount.Valid && slices.ContainsFunc(s.rowsApproval, func(a queries.Approval) bool {
+		return a.Status == "pending" && a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName
+	}) {
+		// approvals_one_pending_idx, as Postgres reports it.
+		return queries.Approval{}, &pgconn.PgError{Code: "23505", ConstraintName: "approvals_one_pending_idx"}
+	}
 	s.Approvals = append(s.Approvals, p)
-	return queries.Approval{ID: uuid.New(), CallID: p.CallID, ToolName: p.ToolName, Status: "pending"}, nil
+	a := queries.Approval{
+		ID: uuid.New(), CallID: p.CallID, ToolName: p.ToolName, Arguments: p.Arguments, RiskTier: p.RiskTier,
+		RequesterSlackID: p.RequesterSlackID, RequesterAccount: p.RequesterAccount,
+		SlackChannelID: p.SlackChannelID, SlackThreadTs: p.SlackThreadTs, ZammadTicketID: p.ZammadTicketID,
+		ApproverKind: p.ApproverKind, AllowedApprovers: slices.Clone(p.AllowedApprovers),
+		Status: "pending", ExpiresAt: p.ExpiresAt, CreatedAt: time.Now(),
+	}
+	s.rowsApproval = append(s.rowsApproval, a)
+	return a, nil
 }
 
-// GetApproval is not used by the tool layer.
-func (s *MemStore) GetApproval(context.Context, uuid.UUID) (queries.Approval, error) {
-	return queries.Approval{}, ErrNotUsed
+// Approval returns the stored approval with that id.
+func (s *MemStore) Approval(id uuid.UUID) (queries.Approval, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.approvalIndex(id)
+	if i < 0 {
+		return queries.Approval{}, false
+	}
+	return s.rowsApproval[i], true
 }
 
-// ApproveApproval is not used by the tool layer.
-func (s *MemStore) ApproveApproval(context.Context, queries.ApproveApprovalParams) (queries.Approval, error) {
-	return queries.Approval{}, ErrNotUsed
+// SetApproval replaces a stored approval, to put it in a state for a test.
+func (s *MemStore) SetApproval(a queries.Approval) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := s.approvalIndex(a.ID); i >= 0 {
+		s.rowsApproval[i] = a
+	}
 }
 
-// DenyApproval is not used by the tool layer.
-func (s *MemStore) DenyApproval(context.Context, queries.DenyApprovalParams) (queries.Approval, error) {
-	return queries.Approval{}, ErrNotUsed
+func (s *MemStore) approvalIndex(id uuid.UUID) int {
+	return slices.IndexFunc(s.rowsApproval, func(a queries.Approval) bool { return a.ID == id })
 }
 
-// ExpireDueApprovals is not used by the tool layer.
-func (s *MemStore) ExpireDueApprovals(context.Context, int32) ([]queries.Approval, error) {
-	return nil, ErrNotUsed
+// GetApproval reads one approval like the SQL does.
+func (s *MemStore) GetApproval(_ context.Context, id uuid.UUID) (queries.Approval, error) {
+	if a, ok := s.Approval(id); ok {
+		return a, nil
+	}
+	return queries.Approval{}, pgx.ErrNoRows
 }
+
+// ApproveApproval is the guarded approve, like the SQL.
+func (s *MemStore) ApproveApproval(_ context.Context, p queries.ApproveApprovalParams) (queries.Approval, error) {
+	return s.move(p.ID, func(a *queries.Approval) bool {
+		if !slices.Contains(a.AllowedApprovers, p.Clicker) || p.Clicker == a.RequesterSlackID {
+			return false
+		}
+		a.Status, a.DecidedBy, a.DecidedAt = "approved", text(p.Clicker), now()
+		return true
+	})
+}
+
+// DenyApproval is the guarded deny, like the SQL.
+func (s *MemStore) DenyApproval(_ context.Context, p queries.DenyApprovalParams) (queries.Approval, error) {
+	return s.move(p.ID, func(a *queries.Approval) bool {
+		if !slices.Contains(a.AllowedApprovers, p.Clicker) {
+			return false
+		}
+		a.Status, a.DecidedBy, a.DecidedAt, a.Arguments = "denied", text(p.Clicker), now(), nil
+		return true
+	})
+}
+
+// move applies a decision to a pending, unexpired approval.
+func (s *MemStore) move(id uuid.UUID, apply func(*queries.Approval) bool) (queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.approvalIndex(id)
+	if i < 0 || s.rowsApproval[i].Status != "pending" || !s.rowsApproval[i].ExpiresAt.After(time.Now()) {
+		return queries.Approval{}, pgx.ErrNoRows
+	}
+	a := s.rowsApproval[i]
+	if !apply(&a) {
+		return queries.Approval{}, pgx.ErrNoRows
+	}
+	s.rowsApproval[i] = a
+	return a, nil
+}
+
+// ExpireDueApprovals expires pending approvals past their expiry, like the SQL.
+func (s *MemStore) ExpireDueApprovals(_ context.Context, maxRows int32) ([]queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []queries.Approval
+	for i, a := range s.rowsApproval {
+		if len(out) < int(maxRows) && a.Status == "pending" && !a.ExpiresAt.After(time.Now()) {
+			a.Status, a.Arguments = "expired", nil
+			s.rowsApproval[i] = a
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// ExpireDueApprovalsFor expires one account's overdue pending approvals of
+// a tool, like the SQL.
+func (s *MemStore) ExpireDueApprovalsFor(_ context.Context, p queries.ExpireDueApprovalsForParams) ([]queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []queries.Approval
+	for i, a := range s.rowsApproval {
+		if a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName &&
+			a.Status == "pending" && !a.ExpiresAt.After(time.Now()) {
+			a.Status, a.Arguments = "expired", nil
+			s.rowsApproval[i] = a
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// AbandonStuckApprovals fails approved rows decided longer ago than the
+// grace, like the SQL.
+func (s *MemStore) AbandonStuckApprovals(_ context.Context, p queries.AbandonStuckApprovalsParams) ([]queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := time.Now().Add(-time.Duration(p.GraceSeconds * float64(time.Second)))
+	var out []queries.Approval
+	for i, a := range s.rowsApproval {
+		if len(out) < int(p.MaxRows) && a.Status == "approved" && a.DecidedAt.Valid && a.DecidedAt.Time.Before(cutoff) {
+			a.Status, a.ExecutedAt, a.Arguments = "failed", now(), nil
+			s.rowsApproval[i] = a
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// ThreadHasOpenApproval answers like the SQL does.
+func (s *MemStore) ThreadHasOpenApproval(ctx context.Context, p queries.ThreadHasOpenApprovalParams) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := cmp.Or(ctx.Err(), s.ApprovalErr); err != nil {
+		return false, err
+	}
+	for _, a := range s.rowsApproval {
+		if a.SlackChannelID == p.SlackChannelID && a.SlackThreadTs == p.SlackThreadTs && a.ToolName == p.ToolName &&
+			(a.Status == "pending" || a.Status == "approved") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// FindPendingApproval answers like the SQL does.
+func (s *MemStore) FindPendingApproval(ctx context.Context, p queries.FindPendingApprovalParams) (queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := cmp.Or(ctx.Err(), s.ApprovalErr); err != nil {
+		return queries.Approval{}, err
+	}
+	if s.HidePending {
+		return queries.Approval{}, pgx.ErrNoRows
+	}
+	for _, a := range slices.Backward(s.rowsApproval) {
+		if a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName && a.Status == "pending" && a.ExpiresAt.After(time.Now()) {
+			return a, nil
+		}
+	}
+	return queries.Approval{}, pgx.ErrNoRows
+}
+
+// ListApprovalsSince answers like the SQL does.
+func (s *MemStore) ListApprovalsSince(_ context.Context, p queries.ListApprovalsSinceParams) ([]queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []queries.Approval
+	for _, a := range s.rowsApproval {
+		if len(out) < int(p.MaxRows) && !a.CreatedAt.Before(p.Since) {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// MarkApprovalExecuted moves an approved row to executed, like the SQL.
+func (s *MemStore) MarkApprovalExecuted(_ context.Context, id uuid.UUID) (queries.Approval, error) {
+	return s.endApproved(id, "executed")
+}
+
+// MarkApprovalFailed moves an approved row to failed, like the SQL.
+func (s *MemStore) MarkApprovalFailed(_ context.Context, id uuid.UUID) (queries.Approval, error) {
+	return s.endApproved(id, "failed")
+}
+
+func (s *MemStore) endApproved(id uuid.UUID, status string) (queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.approvalIndex(id)
+	if i < 0 || s.rowsApproval[i].Status != "approved" {
+		return queries.Approval{}, pgx.ErrNoRows
+	}
+	a := s.rowsApproval[i]
+	a.Status, a.ExecutedAt, a.Arguments = status, now(), nil
+	s.rowsApproval[i] = a
+	return a, nil
+}
+
+// ExecutionOutcomeForApproval answers like the SQL does.
+func (s *MemStore) ExecutionOutcomeForApproval(_ context.Context, p queries.ExecutionOutcomeForApprovalParams) (queries.ExecutionOutcomeForApprovalRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range slices.Backward(s.rows) {
+		if r.Kind == "outcome" && r.ApprovalID == p.ApprovalID && r.Outcome.String != "pending_approval" &&
+			(r.ToolName == p.ToolName || r.ToolName == "approval.abandon") {
+			return queries.ExecutionOutcomeForApprovalRow{Outcome: r.Outcome, Error: r.Error, Result: r.Result}, nil
+		}
+	}
+	return queries.ExecutionOutcomeForApprovalRow{}, pgx.ErrNoRows
+}
+
+func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
+
+func now() pgtype.Timestamptz { return pgtype.Timestamptz{Time: time.Now(), Valid: true} }
 
 // CountRecentOutcomes counts like the SQL does, or fails with CountErr.
 func (s *MemStore) CountRecentOutcomes(ctx context.Context, p queries.CountRecentOutcomesParams) (int64, error) {
@@ -223,6 +433,23 @@ func (f *Directory) FindUsersByMail(ctx context.Context, mail string) ([]ldap.Us
 		}
 	}
 	return out, nil
+}
+
+// FindUserByAccount finds a user by exact account name, enabled or not, or
+// fails with Err.
+func (f *Directory) FindUserByAccount(_ context.Context, name string) (ldap.User, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return ldap.User{}, false, f.Err
+	}
+	for _, u := range f.Users {
+		if u.Username == name {
+			return u, true, nil
+		}
+	}
+	return ldap.User{}, false, nil
 }
 
 // Lock reports the lock in Locked, or fails with Err.

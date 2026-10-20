@@ -60,6 +60,7 @@ These rules span the agent and the tool server. They are stack level so no later
 
 - **Trusted request context.** The agent's code, never the model, attaches the requesting Slack user id, the Slack thread, and the ticket id to every tool call, in the MCP request `_meta`. The tool server takes the requester only from there and ignores any identity a tool argument claims. (Details: features #9 and #10.)
 - **Approvals bypass the model.** An approval is a pending approval row holding the exact tool name and arguments. A button click goes from the agent straight to a tool server approve endpoint that is **not** in the `tools/list` the model sees. The tool server checks the clicker against the approver allow list and the pending row, runs the stored call, and the agent only posts the result. The model loop never needs resuming. (Details: features #5, #14, #15.)
+  - *Amended by [spec 0012](../0012-mfa-reregistration-approval/index.md) (Decision, AC-9 to AC-14):* the approve endpoint is `POST /approvals/{id}/decision`, one of four plain JSON routes on the tool server's MCP listener beside `/mcp`, behind the same bearer token, body cap, and trace context extract, and never in `tools/list`. Agent code posts the card, takes the click from Slack, and runs the clock (expiry, settle) on its own tick; the tool server decides with the guarded SQL and runs the stored call detached from the request. The route trusts the agent's bearer token for who clicked, the same trust `_meta` carries; a tool server owned card is spec 0012's hardening follow up.
 - **No audit row, no write.** If the tool server cannot write the audit row, it does not perform the write action and returns an error. (Ordering details: features #5 and #9.)
 - **Durable state in Postgres.** Conversations are keyed by Slack `thread_ts`; pending approvals live in their own table. Nothing that must survive a restart lives in memory. (Tables: feature #5.)
 - **Slack delivery.** Acknowledge each Socket Mode event immediately, then process it; drop duplicates by Slack `event_id`.
@@ -128,6 +129,7 @@ docs/               scope, specs, discovery, journal
 - Model: `LLM_PROVIDER` (`anthropic` or `bedrock`), `LLM_MODEL` (default `claude-sonnet-5-5`), `ANTHROPIC_API_KEY`; for Bedrock `AWS_REGION` (an EU region), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (agent only).
 - Agent loop bounds: `AGENT_MAX_TURNS` (8), `AGENT_TOOL_TIMEOUT` (20s), `AGENT_MESSAGE_TIMEOUT` (45s), `AGENT_MAX_RETRIES` (2), `AGENT_MAX_TOKENS_PER_TICKET` (30000).
 - Slack: `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` (agent only); `SLACK_IT_CHANNEL` and `SLACK_IT_APPROVERS` (escalation channel and approver user ids, feature #11 and #14).
+  - *Amended by [spec 0012](../0012-mfa-reregistration-approval/index.md) AC-21:* `SLACK_IT_APPROVERS` is a tool server setting, not the agent's: the tool server snapshots it into each approval and the SQL guard checks it. `SLACK_IT_CHANNEL` stays on the agent.
 - Agent to tool server: `TOOLSERVER_URL`, `TOOLSERVER_TOKEN` (token on both sides).
 - Listen addresses: `AGENT_HTTP_ADDR` (`:8080`, health only), `TOOLSERVER_HTTP_ADDR` (`:8080`, MCP and health).
 - Database: one URL per role, never shared: `AGENT_DATABASE_URL` (`noord_agent`), `TOOLSERVER_DATABASE_URL` (`noord_toolserver`), `MIGRATE_DATABASE_URL` (`noord_owner`, migrations only), and `EVAL_DATABASE_URL` (`noord_eval`, feature #20). Roles, grants, and the audit settings (`AUDIT_OUTCOME_RETRIES`, `AUDIT_WRITE_TIMEOUT`, `AUDIT_MAX_PAYLOAD_BYTES`, `SLACK_EVENT_DEDUP_TTL`): [spec 0003](../0003-data-model/index.md).
@@ -135,6 +137,7 @@ docs/               scope, specs, discovery, journal
 - Entra (tool server only, unset if feature #7 takes the AD only fallback): `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`.
 - Zammad (tool server only): `ZAMMAD_URL`, `ZAMMAD_TOKEN`, `ZAMMAD_DEFAULT_GROUP` (feature #8).
 - Policy: `READ_ONLY` (boot default for the kill switch), `KILL_SWITCH_FILE` (path of the mounted ConfigMap file), `APPROVAL_TIMEOUT` (feature #14), `TICKET_RETENTION_DAYS` (feature #12).
+  - *Amended by [spec 0012](../0012-mfa-reregistration-approval/index.md) AC-21 (as amended 2026-10-20):* `APPROVAL_TIMEOUT` defaults to `30m` (5m to 24h) and is read by both binaries: the tool server sets each expiry from it, the agent's tick adopts approvals created within it plus an hour. New tool server settings: `APPROVAL_EXECUTE_TIMEOUT` (`60s`), `APPROVAL_EXECUTE_GRACE` (`5m`), `MFA_DENIED_GROUPS`; new agent settings: `APPROVAL_POLL_INTERVAL` (`30s`), `APPROVAL_DECIDE_TIMEOUT` (`90s`).
 - Telemetry: `LOG_LEVEL` (`info`), `OTEL_EXPORTER_OTLP_ENDPOINT` (unset until feature #18).
 
 Credentials for client systems live only in the tool server's environment. The agent never receives them.

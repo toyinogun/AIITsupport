@@ -9,6 +9,7 @@ import (
 	goldap "github.com/go-ldap/ldap/v3"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
+	"github.com/toyinogun/AIITsupport/internal/graph"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
 )
 
@@ -36,6 +37,12 @@ const (
 	CodeAlreadyEscalated  Code = "already_escalated"
 	CodeEscalateFirst     Code = "escalate_first"
 	CodeAccountDisabled   Code = "account_disabled"
+	// Spec 0012.
+	CodeAlreadyPending  Code = "already_pending"
+	CodeNotInEntra      Code = "not_in_entra"
+	CodeNothingToClear  Code = "nothing_to_clear"
+	CodeOtherMethods    Code = "other_methods"
+	CodeApprovalPending Code = "approval_pending"
 )
 
 // Reasons stored in audit_log.error. Fixed text only, never request data.
@@ -60,6 +67,20 @@ const (
 	reasonEscalateFirst       = "escalate first"
 	reasonAccountDisabled     = "account disabled"
 	accountDisabledSentence   = "This account is disabled, so no reset link can be sent."
+	reasonAlreadyPending      = "approval already pending"
+	reasonNotInEntra          = "not in entra"
+	reasonNothingToClear      = "nothing to clear"
+	reasonOtherMethods        = "other methods"
+	reasonApprovalPending     = "approval pending"
+	reasonAccountNotEligible  = "account not eligible"
+	reasonMethodDeleteFailed  = "method delete failed"
+	reasonEntraDown           = "entra unavailable"
+	entraDownSentence         = "Entra cannot be reached right now."
+	alreadyPendingSentence    = "An MFA reset for this account is already waiting for IT approval in another conversation."
+	notInEntraSentence        = "This account has no cloud sign in that the assistant can change, so IT needs to handle it."
+	nothingToClearSentence    = "This account has no phone or Authenticator app sign in method to clear."
+	otherMethodsSentence      = "This account has other sign in methods the assistant can't clear, so IT needs to handle it."
+	approvalPendingSentence   = "This ticket is waiting on an IT approval and closes by itself when IT decides."
 	alreadyEscalatedSentence  = "This conversation is already with IT."
 	escalateFirstSentence     = "A refused privileged request in this conversation has not been escalated yet; call escalate before closing the ticket."
 	pendingApprovalSentence   = "This request is waiting for IT approval."
@@ -104,6 +125,14 @@ var (
 	refuseAlreadyEscalated  = refusal{CodeAlreadyEscalated, audit.OutcomeDeniedPolicy, reasonAlreadyEscalated, alreadyEscalatedSentence}
 	refuseEscalateFirst     = refusal{CodeEscalateFirst, audit.OutcomeDeniedPolicy, reasonEscalateFirst, escalateFirstSentence}
 	refuseAccountDisabled   = refusal{CodeAccountDisabled, audit.OutcomeDeniedPolicy, reasonAccountDisabled, accountDisabledSentence}
+	refuseAlreadyPending    = refusal{CodeAlreadyPending, audit.OutcomeDeniedPolicy, reasonAlreadyPending, alreadyPendingSentence}
+	refuseNotInEntra        = refusal{CodeNotInEntra, audit.OutcomeDeniedPolicy, reasonNotInEntra, notInEntraSentence}
+	refuseNothingToClear    = refusal{CodeNothingToClear, audit.OutcomeDeniedPolicy, reasonNothingToClear, nothingToClearSentence}
+	refuseOtherMethods      = refusal{CodeOtherMethods, audit.OutcomeDeniedPolicy, reasonOtherMethods, otherMethodsSentence}
+	refuseApprovalPending   = refusal{CodeApprovalPending, audit.OutcomeDeniedPolicy, reasonApprovalPending, approvalPendingSentence}
+	// refuseNotEligible ends an approved execution whose account no longer
+	// passes the recheck (spec 0012, AC-11); the model never sees it.
+	refuseNotEligible = refusal{CodeProtected, audit.OutcomeDeniedPolicy, reasonAccountNotEligible, protectedSentence}
 )
 
 // handlerRefusals are the refusals a handler may return, found again by
@@ -115,6 +144,8 @@ func init() {
 		refuseNoHelpdeskAccount, refuseReadOnly, refuseProtected, refuseHasTicket,
 		refuseNoTicket, refuseNotYours, refuseTicketClosed, refuseAlreadyEscalated, refuseEscalateFirst,
 		refuseAccountDisabled, refuseRateLimited,
+		refuseAlreadyPending, refuseNotInEntra, refuseNothingToClear, refuseOtherMethods, refuseNotEligible,
+		refuseApprovalPending,
 	} {
 		handlerRefusals[r.reason] = r
 	}
@@ -177,8 +208,8 @@ func Cause(err error) string { return cause(err) }
 func DirectoryReason(err error) string { return asFailure(directoryFailure(err)).reason }
 
 // cause names where an error came from as a fixed token that is safe to log
-// and holds no request data: an LDAP result code, a Zammad HTTP status, or a
-// class. An operator reads it to tell an outage from a permission problem.
+// and holds no request data: an LDAP result code, a Zammad or Graph HTTP
+// status, or a class. An operator reads it to tell an outage from a permission problem.
 func cause(err error) string {
 	var le *goldap.Error
 	switch {
@@ -196,6 +227,12 @@ func cause(err error) string {
 		return "zammad_" + strconv.Itoa(zammad.Status(err))
 	case errors.As(err, &le):
 		return "ldap_" + strconv.Itoa(int(le.ResultCode))
+	case errors.Is(err, graph.ErrNotManaged):
+		return "graph_not_managed"
+	case errors.Is(err, graph.ErrNotFound):
+		return "graph_not_found"
+	case graph.Status(err) > 0:
+		return "graph_" + strconv.Itoa(graph.Status(err))
 	case isNetErr(err):
 		return "network"
 	}

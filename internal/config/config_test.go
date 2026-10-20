@@ -149,13 +149,13 @@ func TestInvalidBoolIsRejected(t *testing.T) {
 }
 
 func TestListValuesAreSplitAndTrimmed(t *testing.T) {
-	env := minimalAgentEnv()
-	env["SLACK_IT_APPROVERS"] = "U01, U02 ,,U03"
-	cfg, err := LoadAgent(envFrom(env))
+	env := minimalToolServerEnv()
+	env["SLACK_IT_APPROVERS"] = "U0000000001, U0000000002 ,,W0000000003"
+	cfg, err := LoadToolServer(envFrom(env))
 	if err != nil {
-		t.Fatalf("LoadAgent: %v", err)
+		t.Fatalf("LoadToolServer: %v", err)
 	}
-	want := []string{"U01", "U02", "U03"}
+	want := []string{"U0000000001", "U0000000002", "W0000000003"}
 	if !slices.Equal(cfg.SlackITApprovers, want) {
 		t.Errorf("SlackITApprovers = %v, want %v", cfg.SlackITApprovers, want)
 	}
@@ -300,9 +300,9 @@ func TestUnsetSettingWithoutDefaultStaysZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadToolServer: %v", err)
 	}
-	if cfg.ApprovalTimeout != 0 || cfg.KillSwitchFile != "" {
-		t.Errorf("unset settings should stay zero, got ApprovalTimeout=%v KillSwitchFile=%q",
-			cfg.ApprovalTimeout, cfg.KillSwitchFile)
+	if cfg.SlackITApprovers != nil || cfg.KillSwitchFile != "" {
+		t.Errorf("unset settings should stay zero, got SlackITApprovers=%v KillSwitchFile=%q",
+			cfg.SlackITApprovers, cfg.KillSwitchFile)
 	}
 	if cfg.TicketRetentionDays != 30 {
 		t.Errorf("TicketRetentionDays = %d, want the default 30 (spec 0010)", cfg.TicketRetentionDays)
@@ -1069,5 +1069,95 @@ func TestLoadToolServerResetRules(t *testing.T) {
 				t.Errorf("%s=%s: err = %v, want ok %v", c.key, c.value, err, c.ok)
 			}
 		})
+	}
+}
+
+// covers: spec 0012 AC-21. The approval defaults on both binaries.
+func TestApprovalDefaults(t *testing.T) {
+	ts, err := LoadToolServer(envFrom(minimalToolServerEnv()))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	if ts.ApprovalTimeout != 30*time.Minute || ts.ApprovalExecuteTimeout != time.Minute ||
+		ts.ApprovalExecuteGrace != 5*time.Minute ||
+		strings.Join(ts.MFADeniedGroups, ",") != "SG-IT-Admins,APP-Helpdesk-Agents" {
+		t.Errorf("approvals = %+v", ts.Approvals)
+	}
+	ag, err := LoadAgent(envFrom(minimalAgentEnv()))
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	if ag.ApprovalPollInterval != 30*time.Second || ag.ApprovalDecideTimeout != 90*time.Second || ag.ApprovalTimeout != 30*time.Minute {
+		t.Errorf("agent approvals = %v, %v, %v", ag.ApprovalPollInterval, ag.ApprovalDecideTimeout, ag.ApprovalTimeout)
+	}
+}
+
+// covers: spec 0012 AC-21. Each bad value fails at load, naming the setting.
+func TestApprovalRanges(t *testing.T) {
+	cases := map[string]struct {
+		agent      bool
+		key, value string
+		name       string // the setting the error must name; empty when ok
+	}{
+		"approver ok":             {false, "SLACK_IT_APPROVERS", "U0123456789,W012345678", ""},
+		"approver too short":      {false, "SLACK_IT_APPROVERS", "U01", "SLACK_IT_APPROVERS"},
+		"approver lower case":     {false, "SLACK_IT_APPROVERS", "u0123456789", "SLACK_IT_APPROVERS"},
+		"approver channel":        {false, "SLACK_IT_APPROVERS", "C0123456789", "SLACK_IT_APPROVERS"},
+		"timeout too short":       {false, "APPROVAL_TIMEOUT", "4m", "APPROVAL_TIMEOUT"},
+		"timeout too long":        {false, "APPROVAL_TIMEOUT", "25h", "APPROVAL_TIMEOUT"},
+		"timeout at the top":      {false, "APPROVAL_TIMEOUT", "24h", ""},
+		"execute too short":       {false, "APPROVAL_EXECUTE_TIMEOUT", "14s", "APPROVAL_EXECUTE_TIMEOUT"},
+		"execute too long":        {false, "APPROVAL_EXECUTE_TIMEOUT", "6m", "APPROVAL_EXECUTE_TIMEOUT"},
+		"grace under twice":       {false, "APPROVAL_EXECUTE_GRACE", "119s", "APPROVAL_EXECUTE_GRACE"},
+		"grace at twice":          {false, "APPROVAL_EXECUTE_GRACE", "2m", ""},
+		"poll too short":          {true, "APPROVAL_POLL_INTERVAL", "9s", "APPROVAL_POLL_INTERVAL"},
+		"poll too long":           {true, "APPROVAL_POLL_INTERVAL", "6m", "APPROVAL_POLL_INTERVAL"},
+		"decide too short":        {true, "APPROVAL_DECIDE_TIMEOUT", "29s", "APPROVAL_DECIDE_TIMEOUT"},
+		"decide too long":         {true, "APPROVAL_DECIDE_TIMEOUT", "11m", "APPROVAL_DECIDE_TIMEOUT"},
+		"decide at the boundary":  {true, "APPROVAL_DECIDE_TIMEOUT", "10m", ""},
+		"agent timeout too short": {true, "APPROVAL_TIMEOUT", "4m", "APPROVAL_TIMEOUT"},
+		"agent timeout ok":        {true, "APPROVAL_TIMEOUT", "2h", ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var err error
+			if c.agent {
+				env := minimalAgentEnv()
+				env[c.key] = c.value
+				_, err = LoadAgent(envFrom(env))
+			} else {
+				env := minimalToolServerEnv()
+				env[c.key] = c.value
+				_, err = LoadToolServer(envFrom(env))
+			}
+			switch {
+			case c.name == "" && err != nil:
+				t.Errorf("%s=%s: %v, want ok", c.key, c.value, err)
+			case c.name != "" && (err == nil || !strings.Contains(err.Error(), c.name)):
+				t.Errorf("%s=%s: %v, want an error naming %s", c.key, c.value, err, c.name)
+			case c.name != "" && strings.Contains(err.Error(), c.value):
+				t.Errorf("the error holds the value: %v", err)
+			}
+		})
+	}
+}
+
+// covers: spec 0012 AC-2. mfa_clear needs the whole Graph app and an approver.
+func TestMFAEnabled(t *testing.T) {
+	full := map[string]string{
+		"GRAPH_TENANT_ID": "t", "GRAPH_CLIENT_ID": "c", "GRAPH_CLIENT_SECRET": "s",
+		"SLACK_IT_APPROVERS": "U0123456789",
+	}
+	for _, drop := range []string{"", "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET", "SLACK_IT_APPROVERS"} {
+		env := minimalToolServerEnv()
+		maps.Copy(env, full)
+		delete(env, drop)
+		cfg, err := LoadToolServer(envFrom(env))
+		if err != nil {
+			t.Fatalf("without %q: %v", drop, err)
+		}
+		if got := cfg.MFAEnabled(); got != (drop == "") {
+			t.Errorf("without %q: MFAEnabled = %v", drop, got)
+		}
 	}
 }

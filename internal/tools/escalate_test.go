@@ -288,7 +288,10 @@ func TestEscalateCountsRecentAttempts(t *testing.T) {
 // other bounds are the schema's.
 func TestEscalateArguments(t *testing.T) {
 	h := newHarness(t)
-	for _, reason := range []string{ReasonAssistantFailure, ReasonRestart} {
+	for _, reason := range []string{
+		ReasonAssistantFailure, ReasonRestart,
+		"approval_denied", "approval_expired", "approval_failed", "approval_cancelled", // spec 0012
+	} {
 		resp := h.call(ToolEscalate, escalateArgs(reason), eva())
 		wantCode(t, resp, CodeInvalidArguments)
 		if !strings.Contains(resp.Text, "(field: reason)") {
@@ -311,6 +314,13 @@ func TestEscalateArguments(t *testing.T) {
 	resp := h.call(ToolEscalate, escalateArgs(ReasonAssistantFailure), asCode(eva()))
 	if resp.IsError || resp.Data["initiator"] != "code" {
 		t.Errorf("code escalation = %+v", resp)
+	}
+	// Each spec 0012 approval reason passes the argument check from code; a
+	// thread escalates once, so a later one is refused for that, not its reason.
+	for _, reason := range []string{"approval_denied", "approval_expired", "approval_failed", "approval_cancelled"} {
+		if resp := h.call(ToolEscalate, escalateArgs(reason), asCode(eva())); resp.Code == CodeInvalidArguments {
+			t.Errorf("%s from code = %+v", reason, resp)
+		}
 	}
 }
 

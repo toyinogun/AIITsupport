@@ -230,16 +230,16 @@ spec [0011](../specs/0011-password-reset-links/index.md) · code in `internal/re
 First medium risk action. Clearing MFA methods posts an Approve or Deny card to IT in Slack; no answer in time escalates the ticket.
 **Done when:** MFA is cleared only after an IT approval in Slack; a deny or a timeout leaves MFA untouched and escalates; the audit row names the approver. If Entra was dropped, MFA tickets escalate with context instead.
 - [x] Design it (spec): `/architect mfa re-registration with approval`
-- [ ] Build it: `/develop mfa re-registration with approval`
-  - [ ] Tracer thread: the live Graph probe (Authenticator permission, delete order, TAP still 403), `approval_cards`, `mfa_clear` with `Defer`, the decision route and execution, the IT card, the click, the `executed` settle, the prompt, one live approve from Slack (AC-1, AC-2, AC-4, AC-6 to AC-11, AC-13, AC-15 to AC-17, AC-20, AC-21, AC-23)
-  - [ ] The other doors: the full precheck order, reuse and `already_pending`, Deny and its escalation, ephemeral refusals, both kill switch reads, the close guard, one live deny (AC-1, AC-3, AC-5, AC-9, AC-15, AC-18, AC-19, AC-23, AC-24)
-  - [ ] The clock and failure: expire and abandon, the tick with adopt and capped card posts, expired and failed settles, the `reidentify` retry, partial deletes, the detached execution (AC-6, AC-9 to AC-17)
-  - [ ] Proof and docs: `approval_id` on the allow list, the canary, the boundary test, live adversarial clicks, the MFA approvals runbook, the Entra runbook, amendment notes (AC-18, AC-20, AC-22)
-- [ ] Verify it: `/check verify mfa re-registration with approval`
-- [ ] Test it: `/test mfa re-registration with approval`
-- [ ] Review it (fresh model): `/check review mfa re-registration with approval`
+- [x] Build it: `/develop mfa re-registration with approval`
+  - [x] Tracer thread: the live Graph probe (Authenticator permission, delete order, TAP still 403), `approval_cards`, `mfa_clear` with `Defer`, the decision route and execution, the IT card, the click, the `executed` settle, the prompt, one live approve from Slack (AC-1, AC-2, AC-4, AC-6 to AC-11, AC-13, AC-15 to AC-17, AC-20, AC-21, AC-23)
+  - [x] The other doors: the full precheck order, reuse and `already_pending`, Deny and its escalation, ephemeral refusals, both kill switch reads, the close guard, one live deny (AC-1, AC-3, AC-5, AC-9, AC-15, AC-18, AC-19, AC-23, AC-24)
+  - [x] The clock and failure: expire and abandon, the tick with adopt and capped card posts, expired and failed settles, the `reidentify` retry, partial deletes, the detached execution (AC-6, AC-9 to AC-17)
+  - [x] Proof and docs: `approval_id` on the allow list, the canary, the boundary test, live adversarial clicks, the MFA approvals runbook, the Entra runbook, amendment notes (AC-18, AC-20, AC-22)
+- [x] Verify it: `/check verify mfa re-registration with approval`
+- [x] Test it: `/test mfa re-registration with approval`
+- [x] Review it (fresh model): `/check review mfa re-registration with approval`
 - [ ] Document it: `/document mfa re-registration with approval`
-spec [0012](../specs/0012-mfa-reregistration-approval/index.md)
+spec [0012](../specs/0012-mfa-reregistration-approval/index.md) · code in `internal/tools` (`mfa_clear.go`, `execute.go`), `internal/approvalapi`, `internal/audit` (`approvals.go`), `internal/graph` (`methods.go`), `internal/mcpclient` (`approvals.go`), `internal/agent` (`approvals.go`, `tick.go`, `pgcards.go`, `prompt/system.md`), `internal/slack`, `internal/config`, `cmd/toolserver`, `cmd/agent`, `db/migrations/00004_approval_cards.sql`
 
 ## Slice 5: Access requests via group owner
 
