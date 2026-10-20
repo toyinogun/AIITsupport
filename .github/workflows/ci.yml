@@ -126,6 +126,10 @@ jobs:
         cmd: [agent, toolserver]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Both Pi runners run as one user, so they share ~/.docker/buildx. A
+      # per job BUILDX_CONFIG keeps one job's builder cleanup off the other's
+      # build (a main run lost its BuildKit mid build to exactly that).
+      - run: echo "BUILDX_CONFIG=$RUNNER_TEMP/buildx" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # The Dockerfile cross compiles from $BUILDPLATFORM, so no QEMU is needed.
       # Pushing to GHCR is feature #17's job.
@@ -143,6 +147,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The image's apt step runs per arch, so arm64 is built under QEMU (AC-18).
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      # Per job buildx config, as in the images job.
+      - run: echo "BUILDX_CONFIG=$RUNNER_TEMP/buildx" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
