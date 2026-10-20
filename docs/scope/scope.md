@@ -238,7 +238,7 @@ First medium risk action. Clearing MFA methods posts an Approve or Deny card to 
 - [x] Verify it: `/check verify mfa re-registration with approval`
 - [x] Test it: `/test mfa re-registration with approval`
 - [x] Review it (fresh model): `/check review mfa re-registration with approval`
-- [ ] Document it: `/document mfa re-registration with approval`
+- [x] Document it: `/document mfa re-registration with approval`
 spec [0012](../specs/0012-mfa-reregistration-approval/index.md) · code in `internal/tools` (`mfa_clear.go`, `execute.go`), `internal/approvalapi`, `internal/audit` (`approvals.go`), `internal/graph` (`methods.go`), `internal/mcpclient` (`approvals.go`), `internal/agent` (`approvals.go`, `tick.go`, `pgcards.go`, `prompt/system.md`), `internal/slack`, `internal/config`, `cmd/toolserver`, `cmd/agent`, `db/migrations/00004_approval_cards.sql`
 
 ## Slice 5: Access requests via group owner
