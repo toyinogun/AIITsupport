@@ -10,6 +10,15 @@ inputs:
 runs:
   using: composite
   steps:
+    # The ARC runner image has no make or C compiler (cgo, for -race);
+    # ubuntu-latest has both, so this is a no-op there.
+    - name: Install make and gcc if missing
+      shell: bash
+      run: |
+        if ! command -v make >/dev/null || ! command -v gcc >/dev/null; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends make gcc libc6-dev
+        fi
     # setup-go's go-version-file reads the go line (1.27.0), not the
     # toolchain line, so pass the toolchain version explicitly.
     - name: Read the toolchain line
@@ -31,7 +40,7 @@ runs:
         path: |
           ~/go/pkg/mod
           ~/.cache/go-build
-        # runner.arch keeps the Pi's arm64 builds apart from ubuntu-latest's x64 ones.
+        # runner.arch keeps builds for different architectures apart.
         key: ${{ inputs.cache-key }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'tools.sum') }}
         restore-keys: ${{ inputs.cache-key }}-${{ runner.os }}-${{ runner.arch }}-
     - name: Check the Go toolchain
