@@ -13,7 +13,7 @@ repo:
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: CHANGE_ME
+  tag: 387cbe77bd075ad976985674d00a559667421d98
 
 # The tracer thread runs the agent stack only (build plan task 1); the
 # directory and helpdesk join with tasks 2 and 3.
