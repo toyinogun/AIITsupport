@@ -8,17 +8,17 @@ repo:
   url: https://github.com/toyinogun/AIITsupport.git
   revision: main
 
-# Set by make release (AC-19); the tracer run uses the first main commit
-# that has all four images.
+# Set by make release (AC-19); by hand until it exists: the first main
+# commit with the directory part (task 2).
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: 387cbe77bd075ad976985674d00a559667421d98
+  tag: b5c29f47956fd11ceae308da6612d015e6276eb7
 
-# The tracer thread runs the agent stack only (build plan task 1); the
-# directory and helpdesk join with tasks 2 and 3.
+# The demo directory runs here since build plan task 2; the helpdesk
+# joins with task 3.
 demo:
-  enabled: false
+  enabled: true
 
 # k3sprox already runs Sealed Secrets, cert-manager, CNPG, and the Tailscale
 # operator. The Barman Cloud plugin joins with backups (task 7).
