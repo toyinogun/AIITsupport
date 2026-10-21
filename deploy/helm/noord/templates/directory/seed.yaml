@@ -1,0 +1,64 @@
+{{- if eq .Values.component "directory" }}
+{{- $seed := .Values.directory.seed }}
+{{- /* A plain Job, not a sync hook: its name carries a hash of everything it
+reads, so it runs once per change and never on a self heal (AC-10). The seed
+files are in the image, so the tag covers them; make resume bumps seedRun. */}}
+{{- $hash := printf "%s|%v|%s|%s" .Values.image.tag .Values.seedRun (toYaml (index .Values.sealed "noord-seed-directory")) (toYaml .Values.directory) | sha256sum | trunc 10 }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-directory-{{ $hash }}
+  namespace: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    app.kubernetes.io/name: seed-directory
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  backoffLimit: {{ $seed.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seed-directory
+    spec:
+      restartPolicy: Never
+      {{- include "noord.podSecurity" . | nindent 6 }}
+      containers:
+        - name: seed
+          image: {{ include "noord.image" (list . "seed") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["directory"]
+          env:
+            - name: SEED_LDAP_URL
+              value: ldaps://samba.noord-directory.svc.cluster.local:636
+            - name: SEED_CA_CERT
+              value: /etc/noord/ca/ca.crt
+            - name: SEED_WAIT_TIMEOUT
+              value: {{ $seed.waitTimeout | quote }}
+            - name: SEED_OVERLAY_FILE
+              value: /etc/noord/overlays/overlay.local.yaml
+            - name: SEED_ENTRA_DEMO_FILE
+              value: /etc/noord/overlays/demo.local.yaml
+          envFrom:
+            - secretRef:
+                name: noord-seed-directory
+          resources:
+            {{- toYaml $seed.resources | nindent 12 }}
+          {{- include "noord.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - name: ca
+              mountPath: /etc/noord/ca
+              readOnly: true
+            - name: overlays
+              mountPath: /etc/noord/overlays
+              readOnly: true
+      volumes:
+        - name: ca
+          configMap:
+            name: noord-ca
+        # Made by make install, never by git (AC-6); empty when there are no
+        # overlays. Not optional: the pod waits until it exists.
+        - name: overlays
+          secret:
+            secretName: noord-seed-overlays
+{{- end }}

@@ -26,6 +26,9 @@ ca:
 # The sealed blocks, one per Secret in files/secrets.yaml (sealed-values.yaml).
 sealed: {}
 
+# make resume bumps this so every seed step runs once more (AC-20).
+seedRun: 0
+
 # Shared by the agent's purge and the helpdesk seed (spec 0010, AC-13).
 ticketRetentionDays: 30
 logLevel: info
@@ -68,3 +71,24 @@ agent:
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {cpu: 500m, memory: 512Mi}
+
+directory:
+  samba:
+    realm: AD.NOORD.EXAMPLE
+    domain: NOORD
+    lockout:
+      threshold: 5
+      duration: 15
+      window: 15
+    storage:
+      size: 1Gi
+    storageClass: ""   # empty: the cluster's default StorageClass
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  seed:
+    waitTimeout: 5m
+    backoffLimit: 6
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 500m, memory: 256Mi}

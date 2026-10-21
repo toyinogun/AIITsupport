@@ -1,0 +1,152 @@
+{{- if eq .Values.component "directory" }}
+{{- $s := .Values.directory.samba }}
+# Noord's fictional Samba AD (spec 0004), LDAPS only.
+# samba.noord-directory.svc.cluster.local, a name on the server certificate,
+# is this Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: samba
+  namespace: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  selector:
+    app.kubernetes.io/name: samba
+  ports:
+    - name: ldaps
+      port: 636
+      targetPort: ldaps
+---
+# The domain and the smb.conf provisioning writes. Same wave as the
+# Deployment, so a StorageClass that binds on first use never stalls the sync.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: samba-data
+  namespace: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with $s.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $s.storage.size }}
+---
+# A Deployment, not a StatefulSet: Samba listens only under the host name
+# samba (journal 0008), and a StatefulSet always names its pod samba-0.
+# Recreate, so two pods never hold the domain at once.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: samba
+  namespace: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    app.kubernetes.io/name: samba
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: samba
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: samba
+      annotations:
+        checksum/sealed: {{ include "noord.sealedChecksum" (list . "noord-samba") }}
+        checksum/ca: {{ .Values.ca.certificate | sha256sum }}
+    spec:
+      hostname: samba
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: samba
+          image: {{ include "noord.image" (list . "samba") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: SAMBA_REALM
+              value: {{ $s.realm | quote }}
+            - name: SAMBA_DOMAIN
+              value: {{ $s.domain | quote }}
+            - name: SAMBA_LOCKOUT_THRESHOLD
+              value: {{ $s.lockout.threshold | quote }}
+            - name: SAMBA_LOCKOUT_DURATION
+              value: {{ $s.lockout.duration | quote }}
+            - name: SAMBA_LOCKOUT_WINDOW
+              value: {{ $s.lockout.window | quote }}
+            {{- range list "ADMIN" "SVC" "ZAMMAD" "PWRESET" }}
+            - name: SAMBA_{{ . }}_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: noord-samba
+                  key: SAMBA_{{ . }}_PASSWORD
+                  {{- if eq . "PWRESET" }}
+                  optional: true
+                  {{- end }}
+            {{- end }}
+          ports:
+            - name: ldaps
+              containerPort: 636
+          # Provisioning on first boot takes a minute or two.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "LDAPTLS_CACERT=/certs/ca.pem ldapsearch -H ldaps://localhost:636 -x -b '' -s base >/dev/null"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "LDAPTLS_CACERT=/certs/ca.pem ldapsearch -H ldaps://localhost:636 -x -b '' -s base >/dev/null"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: ldaps
+            periodSeconds: 20
+          resources:
+            {{- toYaml $s.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            # One volume holds the domain and the smb.conf provisioning
+            # writes, so a restarted pod keeps both.
+            - name: data
+              mountPath: /var/lib/samba
+              subPath: lib
+            - name: data
+              mountPath: /etc/samba
+              subPath: etc
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: samba-data
+        - name: certs
+          projected:
+            sources:
+              - configMap:
+                  name: noord-ca
+                  items:
+                    - {key: ca.crt, path: ca.pem}
+              - secret:
+                  name: noord-samba
+                  items:
+                    - {key: tls.crt, path: server.pem}
+                    - {key: tls.key, path: server.key}
+{{- end }}

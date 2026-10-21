@@ -1,0 +1,15 @@
+{{- if eq .Values.component "directory" }}
+# The demo CA: Samba serves a certificate it signed, and the seed Jobs
+# verify LDAPS against it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noord-ca
+  namespace: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  ca.crt: {{ required "ca.certificate is required (make install writes it)" .Values.ca.certificate | quote }}
+{{- end }}

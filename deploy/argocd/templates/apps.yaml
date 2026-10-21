@@ -23,4 +23,8 @@ spec:
 ---
 {{- $killSwitch := list (dict "group" "" "kind" "ConfigMap" "name" "noord-kill-switch" "namespace" "noord-agent" "jsonPointers" (list "/data")) }}
 {{ include "apps.component" (dict "root" . "component" "agent" "namespace" "noord-agent" "wave" "0" "ignoreDifferences" $killSwitch) }}
+{{- if .Values.demo.enabled }}
+---
+{{ include "apps.component" (dict "root" . "component" "directory" "namespace" "noord-directory" "wave" "0") }}
+{{- end }}
 {{- end }}

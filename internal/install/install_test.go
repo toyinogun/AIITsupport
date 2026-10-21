@@ -78,9 +78,10 @@ func must(t *testing.T, err error) {
 func (f *fixture) answers() map[string]func(Cmd) ([]byte, error) {
 	kc := "kubectl --context k3sprox "
 	return map[string]func(Cmd) ([]byte, error){
-		"kubectl config current-context":    func(Cmd) ([]byte, error) { return []byte(f.context + "\n"), nil },
-		kc + "get storageclass":             say(`{"items":[{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}]}`),
-		kc + "get deployment argocd-server": say("deployment.apps/argocd-server\n"),
+		"kubectl config current-context":     func(Cmd) ([]byte, error) { return []byte(f.context + "\n"), nil },
+		kc + "get storageclass":              say(`{"items":[{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}]}`),
+		kc + "get deployment argocd-server":  say("deployment.apps/argocd-server\n"),
+		kc + "get namespace noord-directory": say("namespace/noord-directory\n"),
 		kc + "get secret": func(c Cmd) ([]byte, error) {
 			ns := c.Args[slices.Index(c.Args, "-n")+1]
 			data, ok := f.live[ns+"/"+c.Args[4]]
@@ -201,7 +202,7 @@ func TestRunThenRerun(t *testing.T) {
 	}
 
 	// The cluster now holds what was sealed.
-	plain, err := realTable(t).Build(env, []string{componentAgent}, false)
+	plain, err := realTable(t).Build(env, nil, []string{componentAgent}, false)
 	must(t, err)
 	for name, data := range plain {
 		f.live[realTable(t).Secrets[name].Namespace+"/"+name] = data

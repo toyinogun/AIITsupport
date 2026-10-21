@@ -29,7 +29,7 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0005](0005-govulncheck-flags-go-toolchain.md) | 2026-10-17 | govulncheck fails the first run on the Go toolchain itself | #4 Coding standards & tooling | ~5 min | post |
 | [0006](0006-setup-go-ignores-toolchain-line.md) | 2026-10-17 | CI installs the go line's Go, not the toolchain line's | #4 Coding standards & tooling | ~5 min | no |
 | [0007](0007-edited-migration-breaks-local-down.md) | 2026-10-17 | Editing a migration that already ran locally breaks goose down | #5 Data model | ~5 min | no |
-| [0008](0008-samba-hangs-without-its-hostname.md) | 2026-10-18 | Samba starts but never listens unless the hostname is "samba" | #6 Noord directory & seeded mess | ~10 min | post |
+| [0008](0008-samba-hangs-without-its-hostname.md) | 2026-10-18 | Samba starts but never listens unless the hostname is "samba" (again on 2026-10-21: it rules out a StatefulSet) | #6 Noord directory & seeded mess, #17 | ~35 min | post |
 | [0009](0009-ldapsearch-cannot-check-ldaps-on-macos.md) | 2026-10-18 | ldapsearch on macOS cannot check our LDAPS cert | #6 Noord directory & seeded mess | ~8 min | post |
 | [0010](0010-gitleaks-flags-a-checksum-in-tools-sum.md) | 2026-10-18 | gitleaks flags a module checksum in tools.sum | #6 Noord directory & seeded mess | ~5 min | post |
 | [0011](0011-testcontainers-hangs-on-docker-credentials.md) | 2026-10-18 | Live Samba tests hang forever on Docker's credential helper | #7 Entra tenant & sync | ~20 min | post |

@@ -1,12 +1,17 @@
 #!/bin/sh
 # First boot: provision the domain and lay down the security skeleton, offline
 # against sam.ldb, before samba serves anything. A plain restart skips straight
-# to starting samba, because the container's own filesystem is the state.
+# to starting samba: in Compose the container's own filesystem is the state; in
+# a cluster a volume holds /var/lib/samba and /etc/samba (spec 0015). The certs
+# are copied in on every boot, so a renewed certificate takes effect on restart.
 set -eu
 
 PRIVATE=/var/lib/samba/private
 SAM="$PRIVATE/sam.ldb"
 TLS_DIR="$PRIVATE/tls-noord"
+# Written only after provisioning, the skeleton, and the delegation all
+# succeed. A domain without it was cut off halfway and is provisioned again.
+MARKER=/var/lib/samba/.noord-provisioned
 
 SAMBA_REALM="${SAMBA_REALM:-AD.NOORD.EXAMPLE}"
 SAMBA_DOMAIN="${SAMBA_DOMAIN:-NOORD}"
@@ -148,18 +153,27 @@ delegate() {
 	fi
 }
 
-# Provisioned as host "samba", Samba starts but never listens under any other
-# hostname. Fail loudly instead of hanging.
-[ "$(hostname)" = samba ] || fail "the container hostname is $(hostname), it must be samba (Compose: hostname: samba)"
+# Samba starts but never listens unless the hostname is samba, even when
+# provisioned under another name (journal 0008). Fail loudly instead of
+# hanging. Compose: hostname: samba; the cluster: a Deployment with hostname.
+[ "$(hostname)" = samba ] || fail "the container hostname is $(hostname), it must be samba"
 
-if [ ! -f "$SAM" ]; then
+if [ ! -f "$MARKER" ]; then
+	if [ -f "$SAM" ]; then
+		echo "entrypoint: found a domain without its marker, provisioning again" >&2
+	fi
+	# Empty the directories, not remove them: in a cluster they are mounts.
+	find /var/lib/samba /etc/samba -mindepth 1 -delete
 	install_certs
 	provision
 	base="$(base_dn)"
 	[ -n "$base" ] || fail "could not read the base DN after provisioning"
 	skeleton "$base"
 	delegate "$base"
+	touch "$MARKER"
 	echo "entrypoint: provisioned $SAMBA_REALM, skeleton and delegation in place"
+else
+	install_certs
 fi
 
 exec samba --foreground --no-process-group --debug-stdout

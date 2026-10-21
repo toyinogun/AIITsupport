@@ -113,6 +113,27 @@ Each was asked in the design conversation unless marked *recommended here*.
 | *Recommended here:* backup retention | 14 days, a value | 30 days, rejected because purged conversations would live a full extra retention period in backups |
 | *Recommended here:* repo URL in the bootstrap | Derived from `git remote get-url origin` (https form) and the current branch | A value typed by hand |
 
+### Amendment (2026-10-21): the Samba workload
+
+Building task 2 showed AC-10's StatefulSet cannot run the Samba image. Samba listens only when the host name is exactly `samba`, with no error otherwise (journal 0008). A Docker check during the build added one fact: provisioning under a matching name (`samba-0`, or `sambazero`) still stays silent, so it is not a mismatch between the provisioned name and the host name. The root cause is still unknown. A StatefulSet always names its pod `<name>-<ordinal>` and sets the host name to match, so its pod can never be `samba`.
+
+| Option | Verdict |
+|---|---|
+| A one replica Deployment, `Recreate`, `hostname: samba`, its own PVC | **Chosen.** A Deployment honors `hostname` in the pod spec. `Recreate` plus a ReadWriteOnce volume means two pods never hold the domain at once. Nothing needs a StatefulSet's stable pod identity: there is one replica, and clients use the Service name. |
+| A StatefulSet, with the entrypoint provisioning under the pod name | Rejected: tested, Samba stays silent under `samba-0`. |
+| A StatefulSet whose entrypoint sets the host name at boot | Rejected: `sethostname` needs `CAP_SYS_ADMIN`, which the baseline Pod Security level refuses and spec 0004 already ruled out. |
+| Make Samba listen under any host name | Not now: two attempts never found the cause, and Noord's demo needs only one name. Worth retrying if a real client ever runs our image under another name. |
+
+Smaller calls rode along, most of them from a cross check on a different model (2026-10-21), all applied:
+
+- The PVC holds `/etc/samba` as well as `/var/lib/samba`, because provisioning writes `smb.conf` into the container's filesystem, which a new pod would lose.
+- The entrypoint copies the certificates in on every boot, not only on first boot, so the `certs` step's renewal within 60 days actually reaches a running domain.
+- Provisioning becomes crash safe with a completion marker. In Compose a half provisioned container was thrown away; on a volume, a pod killed between provisioning and delegation would otherwise come back serving a domain with no `svc-itsupport` and no delegation, silently.
+- The PVC shares wave 1 with the Deployment. A StatefulSet's `volumeClaimTemplates` avoided this for free; a standalone PVC in an earlier wave would sit Pending on a StorageClass that binds on first use and stall the sync.
+- `Prune=false` on the PVC was considered and dropped: turning demo off deletes the whole `noord-directory` Application, which is not a prune, and the demo domain is reseedable anyway.
+- A cluster directory reset is a runbook procedure (AC-28), not a new make target, and it is the only way to change a Samba account password, since those are written into the domain at provisioning.
+- Task 2 must confirm LDAPS answers inside the cluster, because "only `samba` works" is proven in Docker only.
+
 ### Landscape check (2026-10-21, cheap model, once)
 
 - **EU inference.** First party API `inference_geo`: `global` (default) or `us` only, Claude 4.6 and later, `us` at 1.1x. Vertex AI: an `eu` multi region endpoint for current models, regional endpoints only up to Sonnet 4.6, 10% over global; Go: `vertex.WithGoogleAuth(ctx, "eu", projectID)`. Bedrock: `eu.` geo profiles in EU regions, from search snippets only; the Go `bedrock` package exists but its constructor was not confirmed.

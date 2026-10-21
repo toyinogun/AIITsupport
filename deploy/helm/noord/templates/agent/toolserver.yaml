@@ -40,6 +40,9 @@ spec:
               "ZAMMAD_DEFAULT_GROUP" .Values.toolserver.zammadDefaultGroup }}
             {{- if .Values.demo.enabled }}
             {{- $_ := set $env "LDAP_URL" "ldaps://samba.noord-directory.svc.cluster.local:636" }}
+            {{- /* The Zammad chart's web Service with fullnameOverride: zammad
+            (read from chart 20.0.0); the helpdesk part (task 3) sets it. */}}
+            {{- $_ := set $env "ZAMMAD_URL" "http://zammad-nginx.noord-client.svc:8080" }}
             {{- end }}
             {{- include "noord.env" (merge (deepCopy .Values.toolserver.env) $env) | trim | nindent 12 }}
           envFrom:

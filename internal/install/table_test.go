@@ -25,6 +25,7 @@ var loaders = map[string]any{
 	"agent":      &config.Agent{},
 	"toolserver": &config.ToolServer{},
 	"migrate":    &config.Migrate{},
+	"seed":       &config.Seed{},
 }
 
 // covers: AC-7 (spec 0015). The keys the chart puts in a workload's Secret

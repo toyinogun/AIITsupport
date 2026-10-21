@@ -1,0 +1,14 @@
+{{- if eq .Values.component "directory" }}
+# Baseline, not restricted: Samba runs as root to own its domain files (AC-12).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+{{- end }}

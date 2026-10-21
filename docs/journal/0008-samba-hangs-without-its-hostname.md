@@ -31,3 +31,8 @@ The entrypoint now refuses to start when `hostname` is not `samba`, naming the f
 - Commit or PR: not committed yet
 - Eval run (if any): none
 - Clip file and timestamp: TODO (you): clip file and timestamp
+
+## Follow up (2026-10-21, #17 One command GitOps install)
+It came back when moving Samba into the cluster. Spec 0015 runs Samba as a StatefulSet, whose pod is always named `samba-0`, and Kubernetes sets the host name to the pod name. I made the entrypoint take its host name from `SAMBA_HOST_NAME` and provision with it, then tested in Docker: as `samba` LDAPS came up in about a minute; as `samba-0`, and even as `sambazero` provisioned to match, Samba provisioned, started, and never answered in 2 minutes. So it is not a mismatch between the provisioned name and the host name: only `samba` works, still with no error. Root cause still unknown.
+
+Consequence: a StatefulSet cannot run this image. A one replica Deployment can, since it honors `hostname: samba` in the pod spec. Spec 0015 was amended the same day (AC-10): Samba runs as that Deployment, with crash safe provisioning, and task 2 must confirm LDAPS answers inside the cluster. Time lost: ~25 min (estimate).
