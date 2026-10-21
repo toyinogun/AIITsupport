@@ -29,10 +29,13 @@ spec:
   managed:
     roles:
       {{- range list "agent" "toolserver" "eval" }}
+      # connectionLimit is CNPG's default, stated so the live role list
+      # matches this one and ArgoCD does not show the Cluster OutOfSync.
       - name: noord_{{ . }}
         ensure: present
         login: true
         inherit: true
+        connectionLimit: -1
         passwordSecret:
           name: noord-pg-{{ . }}
       {{- end }}
