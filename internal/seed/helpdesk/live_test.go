@@ -31,7 +31,10 @@ import (
 // import. Neither changes the seeded content.
 
 type liveEnv struct {
-	cfg       config.SeedHelpdesk
+	cfg config.SeedHelpdesk
+	// seed has the domain Administrator, which only the lock test needs;
+	// seed helpdesk itself never reads it.
+	seed      config.Seed
 	content   Content
 	model     directory.Model
 	runner    ComposeRunner
@@ -53,6 +56,10 @@ func live(t *testing.T) liveEnv {
 	if err != nil {
 		t.Fatalf("load .env settings: %v", err)
 	}
+	seedCfg, err := config.LoadSeed(os.LookupEnv)
+	if err != nil {
+		t.Fatalf("load .env settings: %v", err)
+	}
 	m, err := directory.Load(cfg.File, cfg.OverlayFile)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +76,7 @@ func live(t *testing.T) liveEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return liveEnv{cfg: cfg, content: c, model: m, runner: ComposeRunner{Dir: repoRoot, Limit: cfg.ZammadWaitTimeout}, admin: admin, assistant: assistant}
+	return liveEnv{cfg: cfg, seed: seedCfg, content: c, model: m, runner: ComposeRunner{Dir: repoRoot, Limit: cfg.ZammadWaitTimeout}, admin: admin, assistant: assistant}
 }
 
 type report struct {
@@ -276,7 +283,7 @@ func TestLiveSignInFollowsAD(t *testing.T) {
 	e := live(t)
 	ctx := t.Context()
 	signIn := func(login string) error {
-		c, err := zammad.New(zammad.Options{BaseURL: e.cfg.ZammadURL, Timeout: e.cfg.ZammadTimeout, Auth: zammad.BasicAuth{Login: login, Password: e.cfg.UserPassword}})
+		c, err := zammad.New(zammad.Options{BaseURL: e.cfg.ZammadURL, Timeout: e.cfg.ZammadTimeout, Auth: zammad.BasicAuth{Login: login, Password: e.seed.UserPassword}})
 		if err != nil {
 			return err
 		}
@@ -292,7 +299,7 @@ func TestLiveSignInFollowsAD(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := noordldap.Dialer{URL: e.cfg.LDAPURL, RootCAs: pool}
-	admin, err := d.Bind(e.cfg.AdminUser, e.cfg.AdminPassword)
+	admin, err := d.Bind(e.seed.AdminUser, e.seed.AdminPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +318,7 @@ func TestLiveSignInFollowsAD(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !state.Locked {
-		if err := directory.LockAndConfirm(ctx, admin, d, dn, directory.WrongPassword(e.cfg.UserPassword), threshold); err != nil {
+		if err := directory.LockAndConfirm(ctx, admin, d, dn, directory.WrongPassword(e.seed.UserPassword), threshold); err != nil {
 			t.Fatalf("lock yara.schouten: %v", err)
 		}
 	}

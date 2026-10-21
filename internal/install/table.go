@@ -61,6 +61,8 @@ type Key struct {
 	Role     string `yaml:"role"`
 	Password string `yaml:"password"`
 	File     string `yaml:"file"`
+	// Rails marks a key the Zammad image reads, not our loader (AC-7).
+	Rails bool `yaml:"rails"`
 }
 
 // deriveDatabaseURL is the one derivation the table names.

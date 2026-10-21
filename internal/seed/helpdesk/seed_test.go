@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -293,6 +294,34 @@ func TestSeedLDAPFailureNamesSamba(t *testing.T) {
 	}
 }
 
+// covers: AC-11 (spec 0015). Bootstrap gets the LDAP host and the site
+// from settings: the Compose defaults when unset, the cluster's otherwise.
+func TestBootstrapSiteAndLDAPHost(t *testing.T) {
+	for _, c := range []struct {
+		name, host, publicURL         string
+		wantHost, wantFQDN, wantHTTPT string
+	}{
+		{"compose", "", "", "samba", "127.0.0.1:58080", "http"},
+		{
+			"cluster", "samba.noord-directory.svc.cluster.local", "https://noord-k3sprox-helpdesk.example.ts.net",
+			"samba.noord-directory.svc.cluster.local", "noord-k3sprox-helpdesk.example.ts.net", "https",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, r, _, users := fixture(t)
+			s.LDAPHost, s.PublicURL = c.host, c.publicURL
+			r.bootstrap = result(freshResult(users))
+			if _, err := s.Run(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			env := r.envs[0]
+			if env["NOORD_LDAP_HOST"] != c.wantHost || env["NOORD_FQDN"] != c.wantFQDN || env["NOORD_HTTP_TYPE"] != c.wantHTTPT {
+				t.Errorf("bootstrap env host %q fqdn %q http_type %q", env["NOORD_LDAP_HOST"], env["NOORD_FQDN"], env["NOORD_HTTP_TYPE"])
+			}
+		})
+	}
+}
+
 func TestComposeRunnerRefusesBadInput(t *testing.T) {
 	r := ComposeRunner{Limit: time.Second}
 	if _, err := r.Run(t.Context(), "../evil", nil, nil); err == nil {
@@ -300,6 +329,70 @@ func TestComposeRunnerRefusesBadInput(t *testing.T) {
 	}
 	if _, err := r.Run(t.Context(), "bootstrap", map[string]string{"a=b": "x"}, nil); err == nil {
 		t.Error("accepted a bad environment name")
+	}
+}
+
+func TestLocalRunnerRefusesBadInput(t *testing.T) {
+	r := LocalRunner{RailsDir: t.TempDir(), Limit: time.Second}
+	if _, err := r.Run(t.Context(), "../evil", nil, nil); err == nil {
+		t.Error("accepted a step name with a path")
+	}
+	if _, err := r.Run(t.Context(), "bootstrap", map[string]string{"a=b": "x"}, nil); err == nil {
+		t.Error("accepted a bad environment name")
+	}
+	if _, err := (LocalRunner{Limit: time.Second}).Run(t.Context(), "bootstrap", nil, nil); err == nil {
+		t.Error("ran without a rails directory")
+	}
+}
+
+// fakeTimeout puts a `timeout` on PATH that records its arguments, working
+// directory, NOORD_X, and stdin, then exits with code.
+func fakeTimeout(t *testing.T, code int) (record string) {
+	t.Helper()
+	bin := t.TempDir()
+	record = filepath.Join(bin, "record")
+	script := "#!/bin/sh\n{ echo \"$@\"; pwd; echo \"$NOORD_X\"; echo \"[$SEED_ZAMMAD_ADMIN_PASSWORD$ZAMMAD_TOKEN$POSTGRESQL_HOST]\"; cat; } > " + record + "\necho 'NOORD_RESULT {\"ok\":true}'\nexit " + strconv.Itoa(code) + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "timeout"), []byte(script), 0o700); err != nil { //nolint:gosec // G306: the fake must be executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return record
+}
+
+// covers: AC-11 (spec 0015). The local Runner runs the same timeout and
+// rails r command as the Compose one, in the Rails root, with the step's
+// env as environment variables and the payload on stdin. Rails keeps
+// Zammad's own environment but never sees the Job's secrets.
+func TestLocalRunnerRunsRailsInProcess(t *testing.T) {
+	record := fakeTimeout(t, 0)
+	t.Setenv("SEED_ZAMMAD_ADMIN_PASSWORD", "admin-secret")
+	t.Setenv("ZAMMAD_TOKEN", "token-secret")
+	t.Setenv("POSTGRESQL_HOST", "pg")
+	app, rails := t.TempDir(), t.TempDir()
+	r := LocalRunner{RailsDir: rails, Limit: 90 * time.Second, AppDir: app}
+	out, err := r.Run(t.Context(), "backdate", map[string]string{"NOORD_X": "from-env"}, []byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, ok := findResult(out.Stdout); !ok || string(res) != `{"ok":true}` {
+		t.Errorf("result = %s, %v", res, ok)
+	}
+	got, err := os.ReadFile(record) //nolint:gosec // G304: the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	appReal, _ := filepath.EvalSymlinks(app)
+	want := "-k 5 90 bundle exec rails r " + filepath.Join(rails, "backdate.rb") + "\n" + appReal + "\nfrom-env\n[pg]\npayload"
+	if string(got) != want {
+		t.Errorf("the command saw\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestLocalRunnerMapsTimeout(t *testing.T) {
+	fakeTimeout(t, 124)
+	r := LocalRunner{RailsDir: t.TempDir(), Limit: time.Second, AppDir: t.TempDir()}
+	if _, err := r.Run(t.Context(), "bootstrap", nil, nil); !errors.Is(err, ErrStepTimeout) {
+		t.Errorf("err = %v, want ErrStepTimeout", err)
 	}
 }
 

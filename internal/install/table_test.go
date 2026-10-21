@@ -1,7 +1,6 @@
 package install
 
 import (
-	"maps"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -22,10 +21,11 @@ func realTable(t *testing.T) Table {
 
 // loaders maps a table loader to the config struct that workload reads.
 var loaders = map[string]any{
-	"agent":      &config.Agent{},
-	"toolserver": &config.ToolServer{},
-	"migrate":    &config.Migrate{},
-	"seed":       &config.Seed{},
+	"agent":        &config.Agent{},
+	"toolserver":   &config.ToolServer{},
+	"migrate":      &config.Migrate{},
+	"seed":         &config.Seed{},
+	"seedhelpdesk": &config.SeedHelpdesk{},
 }
 
 // covers: AC-7 (spec 0015). The keys the chart puts in a workload's Secret
@@ -43,7 +43,13 @@ func TestSecretKeysMatchConfigTags(t *testing.T) {
 			continue
 		}
 		seen[s.Loader] = true
-		got := slices.Sorted(maps.Keys(s.Keys))
+		var got []string
+		for key, k := range s.Keys {
+			if !k.Rails {
+				got = append(got, key)
+			}
+		}
+		slices.Sort(got)
 		want := config.Sealed(cfg)
 		for _, k := range want {
 			if !slices.Contains(got, k) {

@@ -19,7 +19,7 @@ syncPolicy:
 app.kubernetes.io/part-of: noord-{{ required "cluster.name is required" .Values.cluster.name }}
 {{- end -}}
 
-{{/* One of our component Applications; pass (dict "root" $ "component" "agent" "namespace" "noord-agent" "wave" "0"). */}}
+{{/* One of our component Applications; pass (dict "root" $ "component" "agent" "namespace" "noord-agent" "wave" "0"), plus optional "values" for its valuesObject. */}}
 {{- define "apps.component" -}}
 {{- $root := .root -}}
 {{- $c := $root.Values.cluster.name -}}
@@ -41,12 +41,17 @@ spec:
     targetRevision: {{ $root.Values.repo.revision }}
     path: deploy/helm/noord
     helm:
+      # The Zammad chart's Helm test Jobs are not part of the install.
+      skipTests: true
       valueFiles:
         - values.yaml
         - ../../clusters/{{ $c }}/values.yaml
         - ../../clusters/{{ $c }}/sealed-values.yaml
       valuesObject:
         component: {{ .component }}
+        {{- with .values }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .namespace }}

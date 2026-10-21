@@ -1,0 +1,15 @@
+{{- if eq .Values.component "client" }}
+# The demo CA: Zammad's LDAP source and the helpdesk seed verify Samba's
+# LDAPS certificate against it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noord-ca
+  namespace: noord-client
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  ca.crt: {{ required "ca.certificate is required (make install writes it)" .Values.ca.certificate | quote }}
+{{- end }}

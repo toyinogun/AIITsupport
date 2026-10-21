@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,6 +27,10 @@ const (
 	Organization = "Noord Logistics"
 	// AssistantLogin is the local user behind ZAMMAD_TOKEN.
 	AssistantLogin = "noord-assistant"
+	// defaultLDAPHost is the Compose service Samba runs as.
+	defaultLDAPHost = "samba"
+	// localFQDN is where make helpdesk-up publishes Zammad.
+	localFQDN = "127.0.0.1:58080"
 	// pendingFor sets a pending ticket's reminder after the seed run, so
 	// Zammad's scheduler never flips it back to open.
 	pendingFor = 30 * 24 * time.Hour
@@ -62,6 +67,13 @@ type Seeder struct {
 	Now func() time.Time
 	// RetentionDays is TICKET_RETENTION_DAYS, the noord-retention window.
 	RetentionDays int
+	// LDAPHost is the LDAPS host Zammad's LDAP source uses
+	// (SEED_ZAMMAD_LDAP_HOST); empty means samba, the Compose service.
+	LDAPHost string
+	// PublicURL is Zammad's browser URL (ZAMMAD_PUBLIC_URL); bootstrap sets
+	// the fqdn and http_type settings from it. Empty keeps the local stack's
+	// http://127.0.0.1:58080.
+	PublicURL string
 }
 
 // Result says what the run did.
@@ -172,8 +184,34 @@ func (s Seeder) now() time.Time {
 	return time.Now()
 }
 
+func (s Seeder) ldapHost() string {
+	if s.LDAPHost != "" {
+		return s.LDAPHost
+	}
+	return defaultLDAPHost
+}
+
+// site is the fqdn and http_type Zammad builds its links from.
+func (s Seeder) site() (fqdn, httpType string, err error) {
+	if s.PublicURL == "" {
+		return localFQDN, "http", nil
+	}
+	u, err := url.Parse(s.PublicURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", "", errors.New("ZAMMAD_PUBLIC_URL must be an http or https URL with a host")
+	}
+	return u.Host, u.Scheme, nil
+}
+
 func (s Seeder) bootstrap(ctx context.Context) (bootstrapResult, error) {
+	fqdn, httpType, err := s.site()
+	if err != nil {
+		return bootstrapResult{}, err
+	}
 	env := map[string]string{
+		"NOORD_LDAP_HOST":       s.ldapHost(),
+		"NOORD_FQDN":            fqdn,
+		"NOORD_HTTP_TYPE":       httpType,
 		"NOORD_MARKER":          s.Marker,
 		"NOORD_ADMIN_EMAIL":     s.Secrets.AdminEmail,
 		"NOORD_ADMIN_PASSWORD":  s.Secrets.AdminPassword,
@@ -185,7 +223,7 @@ func (s Seeder) bootstrap(ctx context.Context) (bootstrapResult, error) {
 	if err != nil {
 		var serr *StepError
 		if errors.As(err, &serr) && strings.HasPrefix(serr.Output, "ldap") {
-			return bootstrapResult{}, fmt.Errorf("zammad could not import from ldaps://samba:636: %w", err)
+			return bootstrapResult{}, fmt.Errorf("zammad could not import from ldaps://%s:636: %w", s.ldapHost(), err)
 		}
 		return bootstrapResult{}, err
 	}

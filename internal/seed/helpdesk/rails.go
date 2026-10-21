@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -28,6 +29,8 @@ const (
 	failedPrefix = "NOORD_FAILED "
 	// railsDir is where the override mounts seed/helpdesk/rails/.
 	railsDir = "/opt/noord-seed/rails"
+	// zammadAppDir is the Rails root inside every Zammad image.
+	zammadAppDir = "/opt/zammad"
 	// killGrace is how long `timeout` waits after TERM before KILL.
 	killGrace = 5 * time.Second
 	// dockerGrace is extra time for docker itself around the step limit.
@@ -42,8 +45,8 @@ var (
 )
 
 // Runner runs one Rails step inside Zammad. env holds the step's secrets
-// and settings; they travel only as environment variables. #17 swaps in a
-// cluster implementation.
+// and settings; they travel only as environment variables. ComposeRunner
+// serves the local stack, LocalRunner the cluster's helpdesk Job.
 type Runner interface {
 	Run(ctx context.Context, step string, env map[string]string, stdin []byte) (Output, error)
 }
@@ -76,25 +79,14 @@ type ComposeRunner struct {
 
 // Run runs one step.
 func (r ComposeRunner) Run(ctx context.Context, step string, env map[string]string, stdin []byte) (Output, error) {
-	if !stepName.MatchString(step) {
-		return Output{}, fmt.Errorf("rails step %q: invalid name", step)
-	}
-	if r.Limit <= 0 {
-		return Output{}, errors.New("rails runner: the step limit must be positive")
+	names, err := checkStep(step, env, r.Limit)
+	if err != nil {
+		return Output{}, err
 	}
 	service := r.Service
 	if service == "" {
 		service = "zammad-railsserver"
 	}
-
-	names := make([]string, 0, len(env))
-	for name := range env {
-		if !envName.MatchString(name) {
-			return Output{}, fmt.Errorf("rails step %s: invalid environment name %q", step, name)
-		}
-		names = append(names, name)
-	}
-	slices.Sort(names)
 
 	args := []string{"compose", "--profile", "helpdesk", "exec", "-T"}
 	cmdEnv := os.Environ()
@@ -102,15 +94,111 @@ func (r ComposeRunner) Run(ctx context.Context, step string, env map[string]stri
 		args = append(args, "-e", name)
 		cmdEnv = append(cmdEnv, name+"="+env[name])
 	}
-	seconds := strconv.Itoa(int(r.Limit.Seconds()))
-	args = append(args, service, "timeout", "-k", strconv.Itoa(int(killGrace.Seconds())), seconds,
-		"bundle", "exec", "rails", "r", railsDir+"/"+step+".rb")
+	args = append(args, service)
+	args = append(args, railsCommand(r.Limit, railsDir+"/"+step+".rb")...)
 
 	ctx, cancel := context.WithTimeout(ctx, r.Limit+killGrace+dockerGrace)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Dir = r.Dir
 	cmd.Env = cmdEnv
+	return runCommand(ctx, cmd, stdin, "docker compose exec")
+}
+
+// LocalRunner runs a step in process, inside a Zammad image (the cluster's
+// helpdesk Job, spec 0015 AC-11), with the same command, limit, and
+// environment handling as ComposeRunner:
+//
+//	timeout -k 5 <seconds> bundle exec rails r <RailsDir>/<step>.rb
+//
+// in Zammad's Rails root. The step's env joins this process's environment,
+// which already holds the chart's database, Redis, and Memcached settings;
+// no secret is ever an argument.
+type LocalRunner struct {
+	// RailsDir holds the step scripts (seed export's copy of
+	// seed/helpdesk/rails/).
+	RailsDir string
+	// Limit stops the step (SEED_ZAMMAD_WAIT_TIMEOUT).
+	Limit time.Duration
+	// AppDir defaults to /opt/zammad.
+	AppDir string
+}
+
+// Run runs one step.
+func (r LocalRunner) Run(ctx context.Context, step string, env map[string]string, stdin []byte) (Output, error) {
+	names, err := checkStep(step, env, r.Limit)
+	if err != nil {
+		return Output{}, err
+	}
+	if r.RailsDir == "" {
+		return Output{}, errors.New("rails runner: the rails directory is required")
+	}
+	appDir := r.AppDir
+	if appDir == "" {
+		appDir = zammadAppDir
+	}
+	cmdEnv := railsEnv(os.Environ())
+	for _, name := range names {
+		cmdEnv = append(cmdEnv, name+"="+env[name])
+	}
+	args := railsCommand(r.Limit, filepath.Join(r.RailsDir, step+".rb"))
+
+	ctx, cancel := context.WithTimeout(ctx, r.Limit+killGrace+dockerGrace)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // G204: a fixed command; the step name is checked
+	cmd.Dir = appDir
+	cmd.Env = cmdEnv
+	return runCommand(ctx, cmd, stdin, "rails runner")
+}
+
+// seedOnly are the Job's own settings and secrets, which Rails never needs:
+// a step gets what it reads through its env, as with docker compose exec -e.
+var seedOnly = []string{"SEED_", "ZAMMAD_TOKEN", "ZAMMAD_POSTGRES_PASSWORD", "ZAMMAD_REDIS_PASSWORD"}
+
+// railsEnv drops the seedOnly variables from environ, so Rails and its gems
+// see Zammad's own environment only.
+func railsEnv(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		if !slices.ContainsFunc(seedOnly, func(p string) bool { return strings.HasPrefix(kv, p) }) {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+// checkStep refuses a bad step name, environment name, or limit, and
+// returns the environment names sorted.
+func checkStep(step string, env map[string]string, limit time.Duration) ([]string, error) {
+	if !stepName.MatchString(step) {
+		return nil, fmt.Errorf("rails step %q: invalid name", step)
+	}
+	if limit <= 0 {
+		return nil, errors.New("rails runner: the step limit must be positive")
+	}
+	names := make([]string, 0, len(env))
+	for name := range env {
+		if !envName.MatchString(name) {
+			return nil, fmt.Errorf("rails step %s: invalid environment name %q", step, name)
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// railsCommand stops the script inside the container after limit, then
+// kills it killGrace later.
+func railsCommand(limit time.Duration, script string) []string {
+	return []string{
+		"timeout", "-k", strconv.Itoa(int(killGrace.Seconds())), strconv.Itoa(int(limit.Seconds())),
+		"bundle", "exec", "rails", "r", script,
+	}
+}
+
+// runCommand runs cmd and maps a timeout (exit 124 or 137, or the context)
+// to ErrStepTimeout.
+func runCommand(ctx context.Context, cmd *exec.Cmd, stdin []byte, what string) (Output, error) {
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -129,7 +217,7 @@ func (r ComposeRunner) Run(ctx context.Context, step string, env map[string]stri
 	if ctx.Err() != nil {
 		return out, ErrStepTimeout
 	}
-	return out, fmt.Errorf("docker compose exec: %w", err)
+	return out, fmt.Errorf("%s: %w", what, err)
 }
 
 // StepError is a failed Rails step. Its text holds the step's output with

@@ -41,7 +41,7 @@ module NoordBootstrap
     return finish(state: state) if state != 'fresh'
 
     UserInfo.current_user_id = 1
-    step('settings') { settings }
+    step('settings') { settings(env!('NOORD_FQDN'), env!('NOORD_HTTP_TYPE')) }
     step('mail off') { mail_off }
     group = step('group') { it_support_group(env!('NOORD_GROUP')) }
     step('stock content') { remove_stock_content }
@@ -49,7 +49,7 @@ module NoordBootstrap
     step('ca') { trust_ca }
     assistant = step('assistant') { assistant_user(group, env!('NOORD_ASSISTANT_TOKEN')) }
     kb = step('knowledge base') { knowledge_base }
-    step('ldap source') { ldap_source(env!('NOORD_BIND_PASSWORD')) }
+    step('ldap source') { ldap_source(env!('NOORD_LDAP_HOST'), env!('NOORD_BIND_PASSWORD')) }
     stats = step('ldap import') { ldap_import }
     org = step('organization') { organization }
 
@@ -72,9 +72,12 @@ module NoordBootstrap
     'needs_reset'
   end
 
-  def settings
-    Setting.set('fqdn', '127.0.0.1:58080')
-    Setting.set('http_type', 'http')
+  # fqdn and http_type are where Zammad's links point: the local stack's
+  # 127.0.0.1:58080 over http, or the cluster's tailnet host over https
+  # (spec 0015). cmd/seed derives both from ZAMMAD_PUBLIC_URL.
+  def settings(fqdn, http_type)
+    Setting.set('fqdn', fqdn)
+    Setting.set('http_type', http_type)
     Setting.set('locale_default', KB_LOCALE)
     Setting.set('timezone_default', 'Europe/Amsterdam')
     # AC-17: no self signup and no password reset, so AD is the only way in.
@@ -150,13 +153,15 @@ module NoordBootstrap
     kb
   end
 
-  def ldap_source(bind_password)
+  # host is samba in Compose, the Samba Service FQDN in the cluster; the
+  # certificate is checked against the CA trusted above either way.
+  def ldap_source(host, bind_password)
     agent = Role.find_by!(name: 'Agent')
     admin = Role.find_by!(name: 'Admin')
     LdapSource.create!(
       name: 'Noord AD', active: true, prio: 1,
       preferences: {
-        host: 'samba', port: 636, ssl: 'ssl', ssl_verify: true,
+        host: host, port: 636, ssl: 'ssl', ssl_verify: true,
         bind_user: BIND_DN, bind_pw: bind_password, base_dn: SEARCH_BASE,
         user_filter: USER_FILTER, user_uid: 'samaccountname',
         user_attributes: {
