@@ -74,5 +74,7 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0050](0050-two-branches-took-the-same-journal-number.md) | 2026-10-20 | Two branches took the same journal number, so the merge from main collided | #14 MFA re-registration with approval | ~10 min | no |
 | [0051](0051-parallel-test-packages-raced-on-one-image-tag.md) | 2026-10-20 | Parallel test packages raced to build one Samba image tag, so a docs only PR failed CI | #6 Noord directory & seeded mess | ~20 min | post |
 | [0052](0052-govulncheck-flags-go-1-27-2.md) | 2026-10-21 | govulncheck flagged the Go 1.27.2 standard library partway through a feature build | #4 Coding standards & tooling | ~15 min | no |
+| [0053](0053-elasticsearch-disk-watermark-stalled-zammad-init.md) | 2026-10-21 | A full Docker disk stalled the Zammad reset at the Elasticsearch watermark | #15 Access requests via group owner | ~12 min | post |
+| [0054](0054-pgrep-wait-loop-matched-itself.md) | 2026-10-21 | A pgrep wait loop matched itself, so the binaries never started | #15 Access requests via group owner | ~5 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

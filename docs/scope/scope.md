@@ -247,10 +247,10 @@ spec [0012](../specs/0012-mfa-reregistration-approval/index.md) · code in `inte
 "Can I get access to X" routed to the right owner. The agent resolves messy group names, finds the owner, asks them to approve, and escalates when nobody owns the group.
 **Done when:** a request for "finance" resolves to the right group (or asks which one), the owner gets the approval card, unowned groups escalate to IT, and privileged groups are never offered.
 - [x] Design it (spec): `/architect access requests`
-- [ ] Build it: `/develop access requests`
-  - [ ] Tracer thread: migration `00006`, department tags in the seed (and `noor.elamrani` out of `SG-Finance`), the LDAP group reads and `AddMember`, the group handler family, `group_search`, `group_access_request` with `Defer`, the kind aware decide with `clicker_email`, the execute, the owner DM card, the click, the `executed` settle, the prompt, one live approve (AC-1 to AC-4, AC-6 to AC-10, AC-12 to AC-16, AC-20, AC-23)
-  - [ ] Refusals and escalation: the full precheck order, `one_per_thread` and the pending limits, `protected` in the privileged window, `no_group_owner`, one live unowned run (AC-5, AC-19, AC-22, AC-23)
-  - [ ] The other endings: the cancel route and `cancel_reason`, owner unreachable, deny with the code close, expiry and failure, the tick for both tools, the close guard, one live leaver owner run (AC-10, AC-11, AC-15 to AC-18, AC-23)
+- [x] Build it: `/develop access requests`
+  - [x] Tracer thread: migration `00006`, department tags in the seed (and `noor.elamrani` out of `SG-Finance`), the LDAP group reads and `AddMember`, the group handler family, `group_search`, `group_access_request` with `Defer`, the kind aware decide with `clicker_email`, the execute, the owner DM card, the click, the `executed` settle, the prompt, one live approve (AC-1 to AC-4, AC-6 to AC-10, AC-12 to AC-16, AC-20, AC-23)
+  - [x] Refusals and escalation: the full precheck order, `one_per_thread` and the pending limits, `protected` in the privileged window, `no_group_owner`, one live unowned run (AC-5, AC-19, AC-22, AC-23)
+  - [x] The other endings: the cancel route and `cancel_reason`, owner unreachable, deny with the code close, expiry and failure, the tick for both tools, the close guard, one live leaver owner run (AC-10, AC-11, AC-15 to AC-18, AC-23)
   - [x] Proof: the logging allow list, the canary on the access path, amendment notes in specs 0003, 0004, 0007, 0009, 0012 (AC-3, AC-8, AC-19, AC-21)
 - [ ] Verify it: `/check verify access requests`
 - [ ] Test it: `/test access requests`
