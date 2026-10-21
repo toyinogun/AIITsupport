@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/config"
-	"github.com/toyinogun/AIITsupport/internal/seed/certs"
 )
 
 // Exit codes (spec 0015, Interface surface).
@@ -79,6 +78,7 @@ type state struct {
 	git       Git
 	demo      bool
 	comps     []string
+	files     map[string]string // the cluster's cert dir, by file name, for sealing
 	bootstrap []byte
 	track     Tracking
 }
@@ -105,6 +105,7 @@ func Run(ctx context.Context, opts Options) error {
 		{"seal", s.seal},
 		{"commit and push", s.commitAndPush},
 		{"apply", s.apply},
+		{"overlays", s.overlays},
 		{"wait", s.wait},
 	}
 	for _, step := range steps {
@@ -120,10 +121,6 @@ func Run(ctx context.Context, opts Options) error {
 func (s *state) say(format string, args ...any) {
 	_, _ = fmt.Fprintf(s.Out, "install %s: "+format+"\n", append([]any{s.Cluster}, args...)...)
 }
-
-// components are the parts this install renders. The directory and helpdesk
-// parts arrive with build plan tasks 2 and 3; until then demo must be off.
-func components() []string { return []string{componentAgent} }
 
 func (s *state) preflight(ctx context.Context) error {
 	var err error
@@ -149,7 +146,8 @@ func (s *state) preflight(ctx context.Context) error {
 	if s.bootstrap, err = os.ReadFile(s.folder.path(bootstrapFile)); err != nil {
 		return fmt.Errorf("read %s/%s: %w", s.folder.Dir, bootstrapFile, err)
 	}
-	s.demo, s.comps = s.values.DemoEnabled(), components()
+	s.demo = s.values.DemoEnabled()
+	s.comps = components(s.demo)
 	s.kube = Kube{run: s.Run, context: s.cfg.KubeContext}
 	s.git = Git{run: s.Run}
 
@@ -185,9 +183,6 @@ func (s *state) checkTools(context.Context) error {
 
 func (s *state) checkSettings(context.Context) error {
 	var errs []error
-	if s.demo {
-		errs = append(errs, errors.New("demo.enabled is true, but the directory and helpdesk parts are not built yet; set demo.enabled: false"))
-	}
 	if !s.demo && strings.TrimSpace(s.values.CA.Certificate) == "" {
 		errs = append(errs, errors.New("ca.certificate is empty; with demo off it must hold your directory's CA certificate"))
 	}
@@ -303,29 +298,6 @@ func (s *state) platformApp() string { return "noord-" + s.Cluster + "-platform"
 
 func (s *state) appsApp() string { return "noord-" + s.Cluster }
 
-// certs makes the demo directory's CA in ~/.noord/<cluster>/ when absent
-// and writes its certificate into values.yaml. With demo off, ca.certificate
-// is yours (preflight checked it is set).
-func (s *state) certs(context.Context) error {
-	if !s.demo {
-		s.say("demo off, keeping your ca.certificate")
-		return nil
-	}
-	dir := filepath.Join(s.Home, ".noord", s.Cluster)
-	if _, err := certs.Generate(dir, nil); err != nil {
-		return err
-	}
-	pem, err := os.ReadFile(filepath.Join(dir, certs.CAFile)) //nolint:gosec // our own cert dir
-	if err != nil {
-		return fmt.Errorf("read the CA certificate: %w", err)
-	}
-	changed, err := s.folder.SetCACertificate(string(pem))
-	if changed {
-		s.say("wrote ca.certificate")
-	}
-	return err
-}
-
 func (s *state) generate(ctx context.Context) error {
 	filled, err := s.table.Generate(ctx, s.env, s.kube, s.comps, s.demo)
 	if len(filled) > 0 {
@@ -338,7 +310,7 @@ func (s *state) generate(ctx context.Context) error {
 }
 
 func (s *state) seal(ctx context.Context) error {
-	plain, err := s.table.Build(s.env, s.comps, s.demo)
+	plain, err := s.table.Build(s.env, s.files, s.comps, s.demo)
 	if err != nil {
 		return err
 	}

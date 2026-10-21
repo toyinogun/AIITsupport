@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"gopkg.in/yaml.v3"
@@ -59,6 +60,7 @@ type Key struct {
 	Derive   string `yaml:"derive"`
 	Role     string `yaml:"role"`
 	Password string `yaml:"password"`
+	File     string `yaml:"file"`
 }
 
 // deriveDatabaseURL is the one derivation the table names.
@@ -96,6 +98,8 @@ func (t Table) check() error {
 				return fmt.Errorf("%s.%s: derive must be %s with a role and a password", name, key, deriveDatabaseURL)
 			case k.Value != "" && (k.From != "" || k.Derive != ""):
 				return fmt.Errorf("%s.%s: value excludes from and derive", name, key)
+			case k.File != "" && (k.Value != "" || k.From != "" || k.Derive != "" || k.File != filepath.Base(k.File)):
+				return fmt.Errorf("%s.%s: file is a bare file name and excludes value, from, and derive", name, key)
 			}
 		}
 	}
@@ -112,10 +116,11 @@ func applies(demo *bool, demoEnabled bool) bool {
 	return demo == nil || *demo == demoEnabled
 }
 
-// source is the secrets.env name a key reads, or "" for a fixed value.
+// source is the secrets.env name a key reads, or "" for a fixed value or a
+// file from the cluster's cert dir.
 func (k Key) source(key string) string {
 	switch {
-	case k.Value != "":
+	case k.Value != "" || k.File != "":
 		return ""
 	case k.Derive != "":
 		return k.Password
@@ -184,7 +189,7 @@ func (t Table) home(name string) (secret, key string, ok bool) {
 		keys := t.Secrets[s].Keys
 		for _, k := range slices.Sorted(maps.Keys(keys)) {
 			spec := keys[k]
-			if spec.Derive == "" && spec.Value == "" && spec.source(k) == name {
+			if spec.Derive == "" && spec.source(k) == name {
 				return s, k, true
 			}
 		}

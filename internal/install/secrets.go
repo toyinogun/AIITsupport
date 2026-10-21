@@ -24,10 +24,11 @@ type Live interface {
 	Secret(ctx context.Context, namespace, name string) (data map[string]string, ok bool, err error)
 }
 
-// Build makes the plaintext of every enabled Secret from secrets.env.
-// Optional keys with no value are left out; a missing required value is an
-// error naming the setting (preflight reports these first).
-func (t Table) Build(env *EnvFile, components []string, demo bool) (Plain, error) {
+// Build makes the plaintext of every enabled Secret from secrets.env and
+// files, the cluster's cert dir by file name. Optional keys with no value
+// are left out; a missing required value is an error naming the setting or
+// the file (preflight reports settings first).
+func (t Table) Build(env *EnvFile, files map[string]string, components []string, demo bool) (Plain, error) {
 	plain := Plain{}
 	var missing []string
 	for _, name := range t.Enabled(components) {
@@ -38,10 +39,12 @@ func (t Table) Build(env *EnvFile, components []string, demo bool) (Plain, error
 			if !applies(k.Demo, demo) {
 				continue
 			}
-			v := t.value(key, k, env)
+			v := t.value(key, k, env, files)
 			switch {
 			case v != "":
 				data[key] = v
+			case !k.Optional && k.File != "":
+				missing = append(missing, "the cert file "+k.File)
 			case !k.Optional:
 				missing = append(missing, k.source(key))
 			}
@@ -50,15 +53,17 @@ func (t Table) Build(env *EnvFile, components []string, demo bool) (Plain, error
 	}
 	if len(missing) > 0 {
 		slices.Sort(missing)
-		return nil, fmt.Errorf("secrets.env needs %s", strings.Join(slices.Compact(missing), ", "))
+		return nil, fmt.Errorf("missing %s", strings.Join(slices.Compact(missing), ", "))
 	}
 	return plain, nil
 }
 
-func (t Table) value(key string, k Key, env *EnvFile) string {
+func (t Table) value(key string, k Key, env *EnvFile, files map[string]string) string {
 	switch {
 	case k.Value != "":
 		return k.Value
+	case k.File != "":
+		return files[k.File]
 	case k.Derive == deriveDatabaseURL:
 		password := env.Get(k.Password)
 		if password == "" {

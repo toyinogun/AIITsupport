@@ -146,13 +146,24 @@ func (k Kube) HasDefaultStorageClass(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// Exists reports whether one object exists.
+// Exists reports whether one object exists; an empty namespace means a
+// cluster scoped kind.
 func (k Kube) Exists(ctx context.Context, namespace, kind, name string) (bool, error) {
-	out, err := k.kubectl(ctx, nil, "get", kind, name, "-n", namespace, "-o", "name", "--ignore-not-found")
+	args := []string{"get", kind, name, "-o", "name", "--ignore-not-found"}
+	if namespace != "" {
+		args = append(args, "-n", namespace)
+	}
+	out, err := k.kubectl(ctx, nil, args...)
 	if err != nil {
 		return false, err
 	}
 	return len(bytes.TrimSpace(out)) > 0, nil
+}
+
+// Apply applies one manifest from memory.
+func (k Kube) Apply(ctx context.Context, manifest []byte) error {
+	_, err := k.kubectl(ctx, manifest, "apply", "-f", "-")
+	return err
 }
 
 // ApplyPart applies the bootstrap Applications labelled with part.

@@ -79,6 +79,7 @@ func tracerEnv(t *testing.T) *EnvFile {
 		"ZAMMAD_URL=https://zammad.example",
 		"ZAMMAD_TOKEN=" + strings.Repeat("z", 40),
 		"SLACK_BOT_TOKEN=",
+		`SEED_ADMIN_USER="CN=Administrator,CN=Users,DC=ad,DC=noord,DC=example"`,
 	}, "\n")))
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +134,7 @@ func TestBuild(t *testing.T) {
 	if _, err := tbl.Generate(t.Context(), env, fakeLive{}, []string{componentAgent}, false); err != nil {
 		t.Fatal(err)
 	}
-	plain, err := tbl.Build(env, []string{componentAgent}, false)
+	plain, err := tbl.Build(env, nil, []string{componentAgent}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +154,7 @@ func TestBuild(t *testing.T) {
 		t.Error("the owner Secret lost its fixed username")
 	}
 	env.Set("LDAP_BIND_PASSWORD", "")
-	if _, err := tbl.Build(env, []string{componentAgent}, false); err == nil || !strings.Contains(err.Error(), "LDAP_BIND_PASSWORD") {
+	if _, err := tbl.Build(env, nil, []string{componentAgent}, false); err == nil || !strings.Contains(err.Error(), "LDAP_BIND_PASSWORD") {
 		t.Errorf("err = %v, want LDAP_BIND_PASSWORD named", err)
 	}
 }
