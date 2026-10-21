@@ -27,7 +27,11 @@ spec:
 ---
 {{ include "apps.component" (dict "root" . "component" "directory" "namespace" "noord-directory" "wave" "0") }}
 ---
-{{- /* The helpdesk after the directory: Zammad's LDAP source needs Samba. */}}
-{{ include "apps.component" (dict "root" . "component" "client" "namespace" "noord-client" "wave" "1" "values" (dict "zammad" (dict "enabled" true))) }}
+{{- /* The helpdesk after the directory: Zammad's LDAP source needs Samba.
+The Zammad chart's Postgres StatefulSet leaves apiVersion and kind out of
+its claim template; Kubernetes fills them in, which ArgoCD would show as a
+diff forever. */}}
+{{- $claimDefaults := list (dict "group" "apps" "kind" "StatefulSet" "jqPathExpressions" (list ".spec.volumeClaimTemplates[]?.apiVersion" ".spec.volumeClaimTemplates[]?.kind")) }}
+{{ include "apps.component" (dict "root" . "component" "client" "namespace" "noord-client" "wave" "1" "values" (dict "zammad" (dict "enabled" true)) "ignoreDifferences" $claimDefaults) }}
 {{- end }}
 {{- end }}
