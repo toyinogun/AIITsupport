@@ -9,6 +9,14 @@
 //	required:"true"     the binary refuses to start without it
 //	oneof:"a|b"         the only accepted values
 //	sep:";"             the list separator for a []string (default a comma)
+//	secret:"true"       a credential (token, password, key, database URL)
+//	private:"true"      not a credential, but kept out of the public repo
+//	                    (tenant, client and channel ids, public URLs, a
+//	                    client's own hosts and DNs)
+//
+// In a cluster every secret and private setting a workload reads arrives in
+// that workload's own sealed Secret (spec 0015, AC-5); everything else is a
+// chart value.
 //
 // Later features flip a setting to required when their code starts using it.
 package config
@@ -33,7 +41,7 @@ type LookupFunc func(key string) (string, bool)
 // Common holds settings both binaries read.
 type Common struct {
 	LogLevel        string `env:"LOG_LEVEL" default:"info" oneof:"debug|info|warn|error"`
-	ToolServerToken string `env:"TOOLSERVER_TOKEN" required:"true"`
+	ToolServerToken string `env:"TOOLSERVER_TOKEN" required:"true" secret:"true"`
 	OTelEndpoint    string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 	Retention
 }
@@ -66,14 +74,14 @@ type Agent struct {
 	Common
 
 	HTTPAddr    string `env:"AGENT_HTTP_ADDR" default:":8080"`
-	DatabaseURL string `env:"AGENT_DATABASE_URL" required:"true"` // connects as noord_agent
+	DatabaseURL string `env:"AGENT_DATABASE_URL" required:"true" secret:"true"` // connects as noord_agent
 
 	LLMProvider        string `env:"LLM_PROVIDER" default:"anthropic" oneof:"anthropic|bedrock"`
 	LLMModel           string `env:"LLM_MODEL" default:"claude-sonnet-5-5"`
-	AnthropicAPIKey    string `env:"ANTHROPIC_API_KEY"`
+	AnthropicAPIKey    string `env:"ANTHROPIC_API_KEY" secret:"true"`
 	AWSRegion          string `env:"AWS_REGION"`
-	AWSAccessKeyID     string `env:"AWS_ACCESS_KEY_ID"`
-	AWSSecretAccessKey string `env:"AWS_SECRET_ACCESS_KEY"`
+	AWSAccessKeyID     string `env:"AWS_ACCESS_KEY_ID" secret:"true"`
+	AWSSecretAccessKey string `env:"AWS_SECRET_ACCESS_KEY" secret:"true"`
 
 	MaxTurns           int           `env:"AGENT_MAX_TURNS" default:"8"`
 	ToolTimeout        time.Duration `env:"AGENT_TOOL_TIMEOUT" default:"20s"`
@@ -87,9 +95,9 @@ type Agent struct {
 	ShutdownGrace        time.Duration `env:"AGENT_SHUTDOWN_GRACE" default:"25s"`
 	ConversationsPerHour int           `env:"AGENT_CONVERSATIONS_PER_HOUR" default:"10"`
 
-	SlackBotToken  string `env:"SLACK_BOT_TOKEN"`
-	SlackAppToken  string `env:"SLACK_APP_TOKEN"`
-	SlackITChannel string `env:"SLACK_IT_CHANNEL"` // required with both Slack tokens (spec 0009)
+	SlackBotToken  string `env:"SLACK_BOT_TOKEN" secret:"true"`
+	SlackAppToken  string `env:"SLACK_APP_TOKEN" secret:"true"`
+	SlackITChannel string `env:"SLACK_IT_CHANNEL" private:"true"` // required with both Slack tokens (spec 0009)
 
 	// The approval tick and the decision call (spec 0012, AC-21). Keep the
 	// decide timeout above the tool server's APPROVAL_EXECUTE_TIMEOUT.
@@ -109,13 +117,13 @@ type ToolServer struct {
 	Common
 
 	HTTPAddr    string `env:"TOOLSERVER_HTTP_ADDR" default:":8080"`
-	DatabaseURL string `env:"TOOLSERVER_DATABASE_URL" required:"true"` // connects as noord_toolserver
+	DatabaseURL string `env:"TOOLSERVER_DATABASE_URL" required:"true" secret:"true"` // connects as noord_toolserver
 
 	// feature #9: svc-itsupport over LDAPS.
-	LDAPURL          string        `env:"LDAP_URL" required:"true"`
-	LDAPBaseDN       string        `env:"LDAP_BASE_DN" required:"true"`
-	LDAPBindDN       string        `env:"LDAP_BIND_DN" required:"true"`
-	LDAPBindPassword string        `env:"LDAP_BIND_PASSWORD" required:"true"`
+	LDAPURL          string        `env:"LDAP_URL" required:"true" private:"true"`
+	LDAPBaseDN       string        `env:"LDAP_BASE_DN" required:"true" private:"true"`
+	LDAPBindDN       string        `env:"LDAP_BIND_DN" required:"true" private:"true"`
+	LDAPBindPassword string        `env:"LDAP_BIND_PASSWORD" required:"true" secret:"true"`
 	LDAPCACert       string        `env:"LDAP_CA_CERT" required:"true"`
 	LDAPTimeout      time.Duration `env:"LDAP_TIMEOUT" default:"5s"`
 
@@ -145,7 +153,7 @@ type ToolServer struct {
 	// Escalation (feature #11, spec 0009). ZammadPublicURL is Zammad's
 	// browser URL for ticket links, optional; the window bounds the blocked
 	// privileged attempt count.
-	ZammadPublicURL  string        `env:"ZAMMAD_PUBLIC_URL"`
+	ZammadPublicURL  string        `env:"ZAMMAD_PUBLIC_URL" private:"true"`
 	PrivilegedWindow time.Duration `env:"PRIVILEGED_ATTEMPT_WINDOW" default:"24h"`
 
 	KB
@@ -164,7 +172,7 @@ type ToolServer struct {
 type Approvals struct {
 	// SlackITApprovers are the Slack user ids allowed to approve an IT
 	// approval, snapshot into each approval when it is requested.
-	SlackITApprovers []string `env:"SLACK_IT_APPROVERS"`
+	SlackITApprovers []string `env:"SLACK_IT_APPROVERS" private:"true"`
 	ApprovalWindow
 	ApprovalExecuteTimeout time.Duration `env:"APPROVAL_EXECUTE_TIMEOUT" default:"60s"`
 	// ApprovalExecuteGrace is when an approved call with no confirmed
@@ -327,10 +335,10 @@ func checkKB(k KB) error {
 // one set: all unset turns the feature off (no tool, no listener), and a
 // partial set is an error naming each missing setting.
 type Reset struct {
-	ResetPublicURL        string        `env:"RESET_PUBLIC_URL"` // browser base URL in links
-	ResetHTTPAddr         string        `env:"RESET_HTTP_ADDR"`  // the reset page's own listener
-	ResetLDAPBindDN       string        `env:"RESET_LDAP_BIND_DN"`
-	ResetLDAPBindPassword string        `env:"RESET_LDAP_BIND_PASSWORD"` // svc-pwreset
+	ResetPublicURL        string        `env:"RESET_PUBLIC_URL" private:"true"` // browser base URL in links
+	ResetHTTPAddr         string        `env:"RESET_HTTP_ADDR"`                 // the reset page's own listener
+	ResetLDAPBindDN       string        `env:"RESET_LDAP_BIND_DN" private:"true"`
+	ResetLDAPBindPassword string        `env:"RESET_LDAP_BIND_PASSWORD" secret:"true"` // svc-pwreset
 	ResetLinkTTL          time.Duration `env:"RESET_LINK_TTL" default:"15m"`
 	ResetLinkLimit        int           `env:"RESET_LINK_LIMIT" default:"3"`
 	ResetLinkWindow       time.Duration `env:"RESET_LINK_WINDOW" default:"24h"`
@@ -398,9 +406,9 @@ func isResetURL(raw string) bool {
 // users and their MFA methods and change only phone methods. The tool server
 // boots with it empty (the AD only fallback); LoadGraph requires it.
 type Graph struct {
-	GraphTenantID     string        `env:"GRAPH_TENANT_ID"`
-	GraphClientID     string        `env:"GRAPH_CLIENT_ID"`
-	GraphClientSecret string        `env:"GRAPH_CLIENT_SECRET"`
+	GraphTenantID     string        `env:"GRAPH_TENANT_ID" private:"true"`
+	GraphClientID     string        `env:"GRAPH_CLIENT_ID" private:"true"`
+	GraphClientSecret string        `env:"GRAPH_CLIENT_SECRET" secret:"true"`
 	GraphMaxRetries   int           `env:"GRAPH_MAX_RETRIES" default:"5"`
 	GraphTimeout      time.Duration `env:"GRAPH_TIMEOUT" default:"30s"`
 }
@@ -408,8 +416,8 @@ type Graph struct {
 // Zammad is the helpdesk's REST API as the noord-assistant user (spec 0006).
 // The tool server holds it; cmd/seed holds it too, to install the token.
 type Zammad struct {
-	ZammadURL          string        `env:"ZAMMAD_URL"`
-	ZammadToken        string        `env:"ZAMMAD_TOKEN"`
+	ZammadURL          string        `env:"ZAMMAD_URL" private:"true"`
+	ZammadToken        string        `env:"ZAMMAD_TOKEN" secret:"true"`
 	ZammadDefaultGroup string        `env:"ZAMMAD_DEFAULT_GROUP"`
 	ZammadTimeout      time.Duration `env:"ZAMMAD_TIMEOUT" default:"15s"`
 }
@@ -423,11 +431,79 @@ type SeedEntraMFA struct {
 }
 
 // Migrate holds the settings for running migrations as the table owner role.
-// `make migrate` reads MIGRATE_DATABASE_URL from the shell today; the
-// migration Job in feature #17 adds a loader. Declaring it here keeps the
-// .env.example drift test covering the name.
+// `make migrate` reads MIGRATE_DATABASE_URL from the shell; `seed migrate`,
+// the cluster's migration Job (spec 0015, AC-9), loads it with LoadMigrate.
 type Migrate struct {
-	DatabaseURL string `env:"MIGRATE_DATABASE_URL" required:"true"` // connects as noord_owner
+	DatabaseURL string `env:"MIGRATE_DATABASE_URL" required:"true" secret:"true"` // connects as noord_owner
+	// WaitTimeout bounds how long `seed migrate` waits for the database to
+	// accept the owner and for the managed roles to exist.
+	WaitTimeout time.Duration `env:"MIGRATE_WAIT_TIMEOUT" default:"5m"`
+}
+
+// The range MIGRATE_WAIT_TIMEOUT must fall in.
+const (
+	minMigrateWait = 10 * time.Second
+	maxMigrateWait = 30 * time.Minute
+)
+
+// LoadMigrate reads and validates the settings for `seed migrate`.
+func LoadMigrate(lookup LookupFunc) (Migrate, error) {
+	var cfg Migrate
+	err := load(&cfg, lookup)
+	if cfg.WaitTimeout < minMigrateWait || cfg.WaitTimeout > maxMigrateWait {
+		err = errors.Join(err, errors.New("MIGRATE_WAIT_TIMEOUT must be between 10s and 30m"))
+	}
+	if err != nil {
+		return Migrate{}, fmt.Errorf("migrate config: %w", err)
+	}
+	return cfg, nil
+}
+
+// Install is what `seed install` and its siblings read from a cluster's
+// deploy/clusters/<name>/secrets.env (spec 0015). Never a workload's
+// setting: the workloads get their values from the sealed Secrets the
+// installer writes. The PG_* passwords are generated once (AC-5) and become
+// the CNPG role Secrets and the per role database URLs.
+type Install struct {
+	KubeContext    string        `env:"KUBE_CONTEXT" required:"true"`
+	Tailnet        string        `env:"TAILNET" private:"true"`
+	InstallTimeout time.Duration `env:"INSTALL_TIMEOUT" default:"30m"`
+	GraphCertFile  string        `env:"GRAPH_CERT_FILE"` // a local path, read and sealed (AC-24)
+
+	BackupS3Endpoint        string `env:"BACKUP_S3_ENDPOINT" private:"true"`
+	BackupS3Bucket          string `env:"BACKUP_S3_BUCKET" private:"true"`
+	BackupS3Region          string `env:"BACKUP_S3_REGION" default:"auto"`
+	BackupS3AccessKeyID     string `env:"BACKUP_S3_ACCESS_KEY_ID" secret:"true"`
+	BackupS3SecretAccessKey string `env:"BACKUP_S3_SECRET_ACCESS_KEY" secret:"true"`
+
+	TSOAuthClientID     string `env:"TS_OAUTH_CLIENT_ID" secret:"true"`
+	TSOAuthClientSecret string `env:"TS_OAUTH_CLIENT_SECRET" secret:"true"`
+
+	PGOwnerPassword      string `env:"PG_OWNER_PASSWORD" secret:"true"`
+	PGAgentPassword      string `env:"PG_AGENT_PASSWORD" secret:"true"`
+	PGToolServerPassword string `env:"PG_TOOLSERVER_PASSWORD" secret:"true"`
+	PGEvalPassword       string `env:"PG_EVAL_PASSWORD" secret:"true"`
+}
+
+// The range INSTALL_TIMEOUT must fall in.
+const (
+	minInstallTimeout = 5 * time.Minute
+	maxInstallTimeout = 3 * time.Hour
+)
+
+// LoadInstall reads and validates the installer's own settings. Settings an
+// enabled component needs are checked by the installer's preflight, which
+// knows which components are on.
+func LoadInstall(lookup LookupFunc) (Install, error) {
+	var cfg Install
+	err := load(&cfg, lookup)
+	if cfg.InstallTimeout < minInstallTimeout || cfg.InstallTimeout > maxInstallTimeout {
+		err = errors.Join(err, errors.New("INSTALL_TIMEOUT must be between 5m and 3h"))
+	}
+	if err != nil {
+		return Install{}, fmt.Errorf("install config: %w", err)
+	}
+	return cfg, nil
 }
 
 // Seed holds the settings for cmd/seed, which builds Noord's directory as the
@@ -438,27 +514,27 @@ type Seed struct {
 
 	LDAPURL       string        `env:"SEED_LDAP_URL" default:"ldaps://localhost:55636"`
 	CACert        string        `env:"SEED_CA_CERT" default:".dev/certs/ca.pem"`
-	AdminUser     string        `env:"SEED_ADMIN_USER" default:"CN=Administrator,CN=Users,DC=ad,DC=noord,DC=example"`
-	AdminPassword string        `env:"SEED_ADMIN_PASSWORD" required:"true"`
-	UserPassword  string        `env:"SEED_USER_PASSWORD" required:"true"`
+	AdminUser     string        `env:"SEED_ADMIN_USER" default:"CN=Administrator,CN=Users,DC=ad,DC=noord,DC=example" private:"true"`
+	AdminPassword string        `env:"SEED_ADMIN_PASSWORD" required:"true" secret:"true"`
+	UserPassword  string        `env:"SEED_USER_PASSWORD" required:"true" secret:"true"`
 	WaitTimeout   time.Duration `env:"SEED_WAIT_TIMEOUT" default:"90s"`
 
 	// ZammadBindPassword is svc-zammad's AD password (spec 0006). Optional
 	// here so LoadSeed callers that never touch Zammad keep working; `seed
 	// directory` and `seed helpdesk` each refuse to run without it.
-	ZammadBindPassword string `env:"SEED_ZAMMAD_BIND_PASSWORD"`
+	ZammadBindPassword string `env:"SEED_ZAMMAD_BIND_PASSWORD" secret:"true"`
 
 	// The seed app registration (spec 0005), which may create, update,
 	// delete, and restore users. All three unset means Entra is not
 	// configured and `seed entra sync` skips; partly set is an error.
-	GraphTenantID     string        `env:"SEED_GRAPH_TENANT_ID"`
-	GraphClientID     string        `env:"SEED_GRAPH_CLIENT_ID"`
-	GraphClientSecret string        `env:"SEED_GRAPH_CLIENT_SECRET"`
+	GraphTenantID     string        `env:"SEED_GRAPH_TENANT_ID" private:"true"`
+	GraphClientID     string        `env:"SEED_GRAPH_CLIENT_ID" private:"true"`
+	GraphClientSecret string        `env:"SEED_GRAPH_CLIENT_SECRET" secret:"true"`
 	GraphMaxRetries   int           `env:"SEED_GRAPH_MAX_RETRIES" default:"5"`
 	GraphTimeout      time.Duration `env:"SEED_GRAPH_TIMEOUT" default:"30s"`
 
-	EntraDomain       string `env:"SEED_ENTRA_DOMAIN"`
-	EntraDemoPassword string `env:"SEED_ENTRA_DEMO_PASSWORD"`
+	EntraDomain       string `env:"SEED_ENTRA_DOMAIN" private:"true"`
+	EntraDemoPassword string `env:"SEED_ENTRA_DEMO_PASSWORD" secret:"true"`
 	EntraDeleteLimit  int    `env:"SEED_ENTRA_DELETE_LIMIT" default:"10"`
 }
 
@@ -486,8 +562,8 @@ type SeedHelpdesk struct {
 	Zammad
 	Retention
 
-	ZammadAdminEmail    string        `env:"SEED_ZAMMAD_ADMIN_EMAIL" default:"zammad-admin@noord.example"`
-	ZammadAdminPassword string        `env:"SEED_ZAMMAD_ADMIN_PASSWORD" required:"true"`
+	ZammadAdminEmail    string        `env:"SEED_ZAMMAD_ADMIN_EMAIL" default:"zammad-admin@noord.example" private:"true"`
+	ZammadAdminPassword string        `env:"SEED_ZAMMAD_ADMIN_PASSWORD" required:"true" secret:"true"`
 	ZammadWaitTimeout   time.Duration `env:"SEED_ZAMMAD_WAIT_TIMEOUT" default:"10m"`
 }
 
@@ -819,11 +895,39 @@ func LoadSeedFiles(lookup LookupFunc) (SeedFiles, error) {
 // drift test compares against it.
 func Names() []string {
 	var names []string
-	for _, t := range []reflect.Type{reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed](), reflect.TypeFor[SeedEntraMFA](), reflect.TypeFor[SeedHelpdesk]()} {
+	for _, t := range []reflect.Type{
+		reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed](),
+		reflect.TypeFor[SeedEntraMFA](), reflect.TypeFor[SeedHelpdesk](), reflect.TypeFor[Install](),
+	} {
 		walkFields(t, func(f reflect.StructField) {
 			names = append(names, f.Tag.Get("env"))
 		})
 	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// Fields lists every setting the struct pointed to by cfg declares, sorted.
+func Fields(cfg any) []string {
+	var names []string
+	walkFields(reflect.TypeOf(cfg).Elem(), func(f reflect.StructField) {
+		names = append(names, f.Tag.Get("env"))
+	})
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// Sealed lists the secret and private settings the struct pointed to by cfg
+// declares, sorted: the keys that struct's workload reads from its sealed
+// Secret in a cluster (spec 0015, AC-7). Pass a pointer to a zero value,
+// such as &Agent{}.
+func Sealed(cfg any) []string {
+	var names []string
+	walkFields(reflect.TypeOf(cfg).Elem(), func(f reflect.StructField) {
+		if f.Tag.Get("secret") == "true" || f.Tag.Get("private") == "true" {
+			names = append(names, f.Tag.Get("env"))
+		}
+	})
 	slices.Sort(names)
 	return slices.Compact(names)
 }

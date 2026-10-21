@@ -1,0 +1,80 @@
+# The two ArgoCD Applications for k3sprox (spec 0015, AC-23). make install
+# applies this file as is; k3sprox-gitops holds a byte identical copy as
+# apps/noord.yaml, so the two owners never disagree.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: noord-k3sprox-platform
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: noord-k3sprox
+    noord.example/part: platform
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/toyinogun/AIITsupport.git
+    targetRevision: main
+    path: deploy/argocd
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../clusters/k3sprox/values.yaml
+      valuesObject:
+        part: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 5m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: noord-k3sprox
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: noord-k3sprox
+    noord.example/part: apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/toyinogun/AIITsupport.git
+    targetRevision: main
+    path: deploy/argocd
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../clusters/k3sprox/values.yaml
+      valuesObject:
+        part: apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 5m

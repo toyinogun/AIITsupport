@@ -1,0 +1,37 @@
+# Defaults for the bootstrap chart. A cluster's deploy/clusters/<name>/values.yaml
+# is layered on top by the two Applications in its bootstrap.yaml.
+
+# platform or apps; set by the bootstrap Application.
+part: ""
+
+cluster:
+  name: ""
+
+repo:
+  url: ""
+  revision: main
+
+demo:
+  enabled: true
+
+# Operators this install may add (AC-4). Off by default: k3sprox already runs
+# them. Pinned chart versions arrive with the fresh cluster path.
+platform:
+  sealedSecrets:
+    enabled: false
+    namespace: kube-system
+    name: sealed-secrets-controller
+  certManager:
+    enabled: false
+  cnpg:
+    enabled: false
+    namespace: cnpg-system
+  barmanPlugin:
+    enabled: false
+  tailscale:
+    enabled: false
+
+# Every Application this chart renders shares these.
+sync:
+  retryLimit: 10
+  maxBackoff: 5m

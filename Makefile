@@ -1,5 +1,5 @@
 # Everyday targets. The runbook points at these, not at long commands.
-# `make seal` and `make release` arrive with feature #17.
+# `make seal` and `make release` arrive with the rest of feature #17.
 
 SHELL := /bin/bash
 BINARIES := agent toolserver
@@ -16,7 +16,7 @@ ZAMMAD_VOLUMES := noord_elasticsearch-data noord_postgresql-data noord_redis-dat
 .PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
-	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset
+	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -163,11 +163,18 @@ hooks:
 ## check: everything CI runs except the image builds
 check: lint gen-check tidy-check vuln secrets test
 
-## docker: build both container images for the local platform
+## docker: build the agent, tool server, and seed images for the local platform
 docker:
 	@for b in $(BINARIES); do \
-		docker build --build-arg CMD=$$b -t aiitsupport-$$b:dev . || exit 1; \
+		docker build --target app --build-arg CMD=$$b -t aiitsupport-$$b:dev . || exit 1; \
 	done
+	docker build --target seed --build-arg CMD=seed -t aiitsupport-seed:dev .
+
+## install: install or update a cluster through ArgoCD, CLUSTER=<name> (spec 0015; exit 2 means nothing changed)
+install:
+	@test -n "$(CLUSTER)" || { echo "usage: make install CLUSTER=<name>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed  # built, not go run, so exit 2 reaches you
+	./bin/seed install --cluster "$(CLUSTER)"
 
 clean:
 	rm -rf bin

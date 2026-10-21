@@ -1,0 +1,5 @@
+apiVersion: v2
+name: noord-apps
+description: The ArgoCD side of a Noord install (spec 0015). part=platform renders the operators, part=apps renders our Applications.
+type: application
+version: 0.1.0

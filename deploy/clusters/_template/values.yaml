@@ -1,0 +1,46 @@
+# One cluster's settings (spec 0015). Committed: no secret and no private
+# value goes here; those are in secrets.env and sealed-values.yaml.
+
+cluster:
+  name: CHANGE_ME
+
+# The repo and branch ArgoCD follows (make cluster-init reads them from origin).
+repo:
+  url: CHANGE_ME
+  revision: main
+
+# The images CI pushed for one commit on the default branch (AC-19).
+image:
+  registry: ghcr.io
+  owner: CHANGE_ME
+  tag: CHANGE_ME
+
+# Noord's fictional Samba AD, Zammad, and seed data. Turn it off to point the
+# tool server at your own directory and helpdesk.
+demo:
+  enabled: true
+
+# Operators the install adds (AC-4). Keep a part off when the cluster has it.
+platform:
+  sealedSecrets:
+    enabled: true
+    namespace: kube-system
+    name: sealed-secrets-controller
+  certManager:
+    enabled: true
+  cnpg:
+    enabled: true
+    namespace: cnpg-system
+  barmanPlugin:
+    enabled: false
+  tailscale:
+    enabled: true
+
+postgres:
+  storage:
+    size: 5Gi
+
+# The CA your directory's LDAPS certificate is signed by. make install writes
+# it in demo mode.
+ca:
+  certificate: ""

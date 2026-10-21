@@ -1,0 +1,26 @@
+{{- if eq .Values.part "apps" }}
+# What our Applications may create: the three noord namespaces and, cluster
+# wide, only Namespace objects.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: noord
+  namespace: argocd
+  labels:
+    {{- include "apps.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: The Noord install on {{ .Values.cluster.name }}
+  sourceRepos:
+    - {{ .Values.repo.url }}
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: noord-agent}
+    - {server: https://kubernetes.default.svc, namespace: noord-directory}
+    - {server: https://kubernetes.default.svc, namespace: noord-client}
+  clusterResourceWhitelist:
+    - {group: "", kind: Namespace}
+---
+{{- $killSwitch := list (dict "group" "" "kind" "ConfigMap" "name" "noord-kill-switch" "namespace" "noord-agent" "jsonPointers" (list "/data")) }}
+{{ include "apps.component" (dict "root" . "component" "agent" "namespace" "noord-agent" "wave" "0" "ignoreDifferences" $killSwitch) }}
+{{- end }}

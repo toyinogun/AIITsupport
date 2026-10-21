@@ -4,3 +4,8 @@
 bin
 docs
 prd.md
+# Personal data overlays (spec 0004, 0005); never in an image (spec 0015, AC-6)
+seed/directory/overlay.local.yaml
+seed/entra/demo.local.yaml
+**/*.local.yaml
+deploy/clusters/*/secrets.env

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: noord
+description: Noord's AI IT support engineer (spec 0015). One component per ArgoCD Application.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

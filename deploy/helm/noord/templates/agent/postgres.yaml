@@ -1,0 +1,39 @@
+{{- if eq .Values.component "agent" }}
+# Our own database (spec 0003): the owner from the initdb Secret, the app
+# roles managed by the operator, so `seed migrate` finds them (AC-9).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: noord-pg
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  instances: {{ .Values.postgres.instances }}
+  imageName: {{ .Values.postgres.image }}
+  storage:
+    size: {{ .Values.postgres.storage.size }}
+    {{- with .Values.postgres.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+  bootstrap:
+    initdb:
+      database: noord
+      owner: noord_owner
+      secret:
+        name: noord-pg-owner
+  managed:
+    roles:
+      {{- range list "agent" "toolserver" "eval" }}
+      - name: noord_{{ . }}
+        ensure: present
+        login: true
+        inherit: true
+        passwordSecret:
+          name: noord-pg-{{ . }}
+      {{- end }}
+{{- end }}

@@ -1235,3 +1235,64 @@ func TestLoadToolServerKBSettings(t *testing.T) {
 		t.Errorf("candidates below the limit: %v", err)
 	}
 }
+
+// covers: AC-9 (spec 0015). The migration Job waits a bounded time.
+func TestLoadMigrate(t *testing.T) {
+	url := "postgres://noord_owner@db/noord"
+	cfg, err := LoadMigrate(envFrom(map[string]string{"MIGRATE_DATABASE_URL": url}))
+	if err != nil {
+		t.Fatalf("LoadMigrate: %v", err)
+	}
+	if cfg.DatabaseURL != url || cfg.WaitTimeout != 5*time.Minute {
+		t.Errorf("got %+v, want the URL and a 5m wait", cfg)
+	}
+	for _, bad := range []string{"5s", "31m"} {
+		_, err := LoadMigrate(envFrom(map[string]string{"MIGRATE_DATABASE_URL": url, "MIGRATE_WAIT_TIMEOUT": bad}))
+		if err == nil || !strings.Contains(err.Error(), "MIGRATE_WAIT_TIMEOUT") {
+			t.Errorf("MIGRATE_WAIT_TIMEOUT=%s: err = %v, want a range error", bad, err)
+		}
+	}
+	if _, err := LoadMigrate(envFrom(nil)); err == nil || !strings.Contains(err.Error(), "MIGRATE_DATABASE_URL") {
+		t.Errorf("no URL: err = %v, want it named", err)
+	}
+}
+
+// covers: AC-2 (spec 0015). The installer's own settings.
+func TestLoadInstall(t *testing.T) {
+	cfg, err := LoadInstall(envFrom(map[string]string{"KUBE_CONTEXT": "k3sprox"}))
+	if err != nil {
+		t.Fatalf("LoadInstall: %v", err)
+	}
+	if cfg.InstallTimeout != 30*time.Minute || cfg.BackupS3Region != "auto" {
+		t.Errorf("defaults = %v and %q, want 30m and auto", cfg.InstallTimeout, cfg.BackupS3Region)
+	}
+	if _, err := LoadInstall(envFrom(nil)); err == nil || !strings.Contains(err.Error(), "KUBE_CONTEXT") {
+		t.Errorf("no context: err = %v, want KUBE_CONTEXT named", err)
+	}
+	_, err = LoadInstall(envFrom(map[string]string{"KUBE_CONTEXT": "k3sprox", "INSTALL_TIMEOUT": "1m"}))
+	if err == nil || !strings.Contains(err.Error(), "INSTALL_TIMEOUT") {
+		t.Errorf("INSTALL_TIMEOUT=1m: err = %v, want a range error", err)
+	}
+}
+
+// covers: AC-7 (spec 0015). Sealed lists exactly the tagged fields, and the
+// agent's list holds no client system credential.
+func TestSealed(t *testing.T) {
+	if got, want := Sealed(&Migrate{}), []string{"MIGRATE_DATABASE_URL"}; !slices.Equal(got, want) {
+		t.Errorf("Sealed(Migrate) = %v, want %v", got, want)
+	}
+	agent := Sealed(&Agent{})
+	for _, want := range []string{"AGENT_DATABASE_URL", "SLACK_BOT_TOKEN", "SLACK_IT_CHANNEL", "TOOLSERVER_TOKEN"} {
+		if !slices.Contains(agent, want) {
+			t.Errorf("Sealed(Agent) misses %s: %v", want, agent)
+		}
+	}
+	for _, name := range agent {
+		if strings.HasPrefix(name, "LDAP_") || strings.HasPrefix(name, "ZAMMAD_") || strings.HasPrefix(name, "GRAPH_") {
+			t.Errorf("Sealed(Agent) holds %s, a client system setting", name)
+		}
+	}
+	if slices.Contains(Sealed(&ToolServer{}), "TOOL_CALL_TIMEOUT") {
+		t.Error("an untagged setting is in Sealed(ToolServer)")
+	}
+}

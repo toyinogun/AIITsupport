@@ -1,0 +1,81 @@
+{{- if eq .Values.component "agent" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    app.kubernetes.io/name: agent
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: {{ .Values.agent.replicas }}
+  # One Socket Mode connection at a time (spec 0008): stop the old pod first.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent
+      annotations:
+        checksum/sealed: {{ include "noord.sealedChecksum" (list . "noord-agent") }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.agent.terminationGracePeriodSeconds }}
+      {{- include "noord.podSecurity" . | nindent 6 }}
+      containers:
+        - name: agent
+          image: {{ include "noord.image" (list . "agent") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            {{- $env := dict
+              "AGENT_HTTP_ADDR" ":8080"
+              "LOG_LEVEL" .Values.logLevel
+              "TICKET_RETENTION_DAYS" .Values.ticketRetentionDays
+              "TOOLSERVER_URL" "http://toolserver.noord-agent.svc:8080/mcp" }}
+            {{- include "noord.env" (merge (deepCopy .Values.agent.env) $env) | trim | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: noord-agent
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          {{- include "noord.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            {{- include "noord.pgCAMount" . | nindent 12 }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "noord.pgCAVolume" . | nindent 8 }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app.kubernetes.io/name: agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}
