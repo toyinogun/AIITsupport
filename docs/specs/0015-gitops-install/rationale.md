@@ -146,6 +146,14 @@ Smaller calls rode along, most of them from a cross check on a different model (
 
 Full notes: `docs/.agent-cache/research/gitops-install.md` (gitignored).
 
+### Amendment after task 3 (2026-10-22)
+
+Building the helpdesk on k3sprox showed three places where the spec and the build parted:
+
+- **Zammad's init Job.** Chart 20.0.0 has no Helm hooks of its own except Helm tests (now skipped with `skipTests`). Its init Job has a fixed name (`zammad-init-1`, since ArgoCD always renders Helm revision 1), a 300 second TTL, and an immutable spec. Left as a plain Job, the TTL delete makes it drift and an image bump fails the sync, so task 3 made it an ArgoCD Sync hook. A hook starts a pod (about 2 minutes, safe to repeat) on every sync of `noord-client`, but ArgoCD syncs only when that Application changes or drifts: an unchanged `make install` triggers no sync, so AC-8 holds (checked on k3sprox: three installs after the last helpdesk change ran no init). The rerun seen during task 3 came from a drift that kept the Application OutOfSync (journal 0068). Runner up: a plain Job with no TTL and `Force=true,Replace=true`, which would rerun init only when its own spec changes; it needs `ApplyOutOfSyncOnly=true` on the Application too (otherwise every sync would delete and recreate it), so you kept the hook for fewer moving parts.
+- **The helpdesk Job's Secret.** It also holds `ZAMMAD_PUBLIC_URL`, now required: the seed sets Zammad's `fqdn` from it only on the fresh seed, so a blank one would leave Zammad's links on the Compose address for good. `ZAMMAD_URL` sits there for the non demo case, and the two Zammad passwords are marked as read by Rails, not by our loader.
+- **`seed export`** also copies `seed/directory/noord.yaml`: the seed checks the LDAP import against its user list, and the helpdesk marker hashes it.
+
 ### Cross check (2026-10-21, a different model, read only)
 
 Verdict on the first draft: conditionally sound, not buildable without invention. It found 14 decision gaps and 13 soundness issues, and you chose to apply every recommended fix. The main ones: how the chart sees sealed files (now `sealed-values.yaml`); a dozen required settings with no named source (now the *Value sourcing* and *Secrets per workload* tables, and the `private` tag); the Zammad subcharts rendering random plaintext Secrets (now `existingSecret`); seed order across two Applications and hooks rerunning on self heal (now waves and hashed Jobs); the `stage` override fighting `root` (now two Applications); NetworkPolicy holes for the Tailscale proxies, the CNPG operator, the kube API and the Barman plugin; Tailscale host and backup path collisions between two clusters (now per cluster names); the sealing key renewing under a one time backup; a restore never exercised (now AC-29); and uninstall leaving namespaces and PVCs behind. One claim was checked by hand: `main` has no branch protection today, so direct pushes work.
