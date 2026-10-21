@@ -94,15 +94,57 @@ func (c *Client) GroupByName(ctx context.Context, name string) (g GroupInfo, ok 
 // it also gives (spec 0013, AC-10). A distribution list gives no access, so
 // it is left out. One in chain search per OU.
 func (c *Client) GroupNestedInto(ctx context.Context, groupDN string, ous []string) ([]string, error) {
+	return c.securityGroupsHolding(ctx, groupDN, ous)
+}
+
+// UserGroups lists, sorted, the names of the security groups under the OUs
+// that hold the user at userDN at any depth of nesting: a search's
+// requester_is_member for every group in one read (spec 0013, AC-2).
+func (c *Client) UserGroups(ctx context.Context, userDN string, ous []string) ([]string, error) {
+	return c.securityGroupsHolding(ctx, userDN, ous)
+}
+
+func (c *Client) securityGroupsHolding(ctx context.Context, memberDN string, ous []string) ([]string, error) {
 	var names []string
 	err := c.session(ctx, func(conn *goldap.Conn) error {
 		filter := fmt.Sprintf("(&(objectClass=group)(%s:%s:=%d)(member:%s:=%s))",
-			attrGroupType, ruleBitAnd, groupTypeSecurity, ruleInChain, goldap.EscapeFilter(groupDN))
+			attrGroupType, ruleBitAnd, groupTypeSecurity, ruleInChain, goldap.EscapeFilter(memberDN))
 		for _, ou := range ous {
 			res, err := conn.SearchWithPaging(goldap.NewSearchRequest(ou+","+c.cfg.BaseDN, goldap.ScopeWholeSubtree,
 				goldap.NeverDerefAliases, 0, 0, false, filter, []string{"sAMAccountName"}, nil), groupPageSize)
 			if err != nil {
 				return fmt.Errorf("search nesting parents: %w", err)
+			}
+			for _, e := range res.Entries {
+				names = append(names, e.GetAttributeValue("sAMAccountName"))
+			}
+		}
+		return nil
+	})
+	slices.Sort(names)
+	return slices.Compact(names), err
+}
+
+// GroupsNestedUnder lists, sorted, the names of the groups under the OUs
+// that are members, at any depth of nesting, of any group in parents (DNs):
+// the fence's nesting check for many groups in one read (spec 0013, AC-2).
+// No parents reads nothing.
+func (c *Client) GroupsNestedUnder(ctx context.Context, parents, ous []string) ([]string, error) {
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	var names []string
+	err := c.session(ctx, func(conn *goldap.Conn) error {
+		filter := "(&(objectClass=group)(|"
+		for _, p := range parents {
+			filter += fmt.Sprintf("(memberOf:%s:=%s)", ruleInChain, goldap.EscapeFilter(p))
+		}
+		filter += "))"
+		for _, ou := range ous {
+			res, err := conn.SearchWithPaging(goldap.NewSearchRequest(ou+","+c.cfg.BaseDN, goldap.ScopeWholeSubtree,
+				goldap.NeverDerefAliases, 0, 0, false, filter, []string{"sAMAccountName"}, nil), groupPageSize)
+			if err != nil {
+				return fmt.Errorf("search nested groups: %w", err)
 			}
 			for _, e := range res.Entries {
 				names = append(names, e.GetAttributeValue("sAMAccountName"))

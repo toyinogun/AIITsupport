@@ -136,9 +136,7 @@ func (a *Agent) unsettled(parent context.Context) ([]ApprovalCard, error) {
 // tickCard reads one unsettled card's approval and acts on it: post a
 // pending card that never posted, settle an ended one, else wait.
 func (a *Agent) tickCard(parent context.Context, card ApprovalCard) {
-	ctx, cancel := a.detached(parent, a.cfg.ToolTimeout)
-	v, err := a.deps.Approvals.Get(ctx, card.ApprovalID)
-	cancel()
+	v, err := a.tickView(parent, card)
 	if err != nil {
 		a.tickFailed(parent, err)
 		return
@@ -153,6 +151,23 @@ func (a *Agent) tickCard(parent context.Context, card ApprovalCard) {
 	case isEnded(v.Status):
 		a.settleOnThread(card, v)
 	}
+}
+
+// tickView reads a card's approval for the tick. A group owner approval is
+// peeked, without the live directory reads (spec 0013, AC-17): the post
+// reads the full view itself, and an ended one is read in full once, for
+// the owner's name in the settle.
+func (a *Agent) tickView(parent context.Context, card ApprovalCard) (mcpclient.ApprovalView, error) {
+	ctx, cancel := a.detached(parent, a.cfg.ToolTimeout)
+	defer cancel()
+	if card.ToolName != toolGroupAccessRequest {
+		return a.deps.Approvals.Get(ctx, card.ApprovalID)
+	}
+	v, err := a.deps.Approvals.Peek(ctx, card.ApprovalID)
+	if err != nil || !isEnded(v.Status) {
+		return v, err
+	}
+	return a.deps.Approvals.Get(ctx, card.ApprovalID)
 }
 
 func isEnded(status string) bool {

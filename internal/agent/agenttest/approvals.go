@@ -31,6 +31,7 @@ type Approvals struct {
 	clicks    []Decided
 	cancels   []uuid.UUID
 	expires   int
+	peeks     int
 	since     []time.Time
 }
 
@@ -76,6 +77,24 @@ func (f *Approvals) Get(_ context.Context, id uuid.UUID) (mcpclient.ApprovalView
 		return v, nil
 	}
 	return mcpclient.ApprovalView{}, mcpclient.ErrApprovalNotFound
+}
+
+// Peek answers like Get with the live owner fields left out, and counts
+// the calls.
+func (f *Approvals) Peek(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error) {
+	v, err := f.Get(ctx, id)
+	f.mu.Lock()
+	f.peeks++
+	f.mu.Unlock()
+	v.ApproverName, v.ApproverEmail, v.NestedInto, v.OwnerUnread = "", "", nil, false
+	return v, err
+}
+
+// Peeks is how many Peek calls there were.
+func (f *Approvals) Peeks() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.peeks
 }
 
 // Since answers the views created at or after since, oldest first.

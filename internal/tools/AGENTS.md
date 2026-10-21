@@ -14,7 +14,7 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 | `schema.go` | `Field`, the argument validator (`parseArgs`), `InputSchema` for `tools/list` |
 | `refusal.go` | `Code`, the refusal table (code, outcome, stored reason, sentence), `failure`, and the LDAP, Zammad, and Graph error classification |
 | `killswitch.go` | `NewKillSwitch`, `FileSwitch` (read every call, only `read_write` allows) |
-| `fence.go` | `Fence.CheckGroup`, `FloorDeniedGroups`, `ErrGroupProtected`; `AccountFence.CheckAccount` (spec 0011: the account itself is protected by group membership) |
+| `fence.go` | `Fence.CheckGroup` (one group), `Fence.AllowedGroups` (the same check batched for `group_search`), `FloorDeniedGroups`, `ErrGroupProtected`; `AccountFence.CheckAccount` (spec 0011: the account itself is protected by group membership) |
 | `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group and the cached ticket states |
 | `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry); `ticket_update` holds the close guard (spec 0009, AC-6) |
 | `escalate.go` | `escalate` (spec 0009): the escalation reasons, `checkEscalate` (code only reasons need the `_meta` initiator `code`), the audit reads first, then tag and note or create |

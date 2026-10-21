@@ -69,6 +69,62 @@ func TestLiveGroupReads(t *testing.T) {
 	}
 }
 
+// covers: spec 0013 AC-2. The batched search reads: the groups under the
+// group OUs nested into given parents, a user's groups at any depth, and
+// many users by DN on one connection.
+func TestLiveBatchedGroupReads(t *testing.T) {
+	requireShared(t)
+	c := noordldap.NewClient(svcConfig())
+	erp, ok, err := c.GroupByName(t.Context(), "APP-ERP-Finance")
+	if err != nil || !ok {
+		t.Fatalf("APP-ERP-Finance = %v, %v", ok, err)
+	}
+	privileged, err := c.GroupsByName(t.Context(), []string{"Domain Admins"})
+	if err != nil || len(privileged) != 1 {
+		t.Fatalf("Domain Admins = %v, %v", privileged, err)
+	}
+	if got, err := c.GroupsNestedUnder(t.Context(), []string{erp.DN}, groupOUs); err != nil || !slices.Equal(got, []string{"SG-Finance"}) {
+		t.Errorf("nested under APP-ERP-Finance = %v, %v", got, err)
+	}
+	// SG-IT-Admins is nested into Domain Admins but sits outside the group OUs.
+	if got, err := c.GroupsNestedUnder(t.Context(), []string{privileged["Domain Admins"].DN}, groupOUs); err != nil || len(got) != 0 {
+		t.Errorf("nested under Domain Admins = %v, %v", got, err)
+	}
+	if got, err := c.GroupsNestedUnder(t.Context(), nil, groupOUs); err != nil || got != nil {
+		t.Errorf("no parents = %v, %v", got, err)
+	}
+
+	ilse, ok, err := c.FindUserByAccount(t.Context(), "ilse.smit")
+	if err != nil || !ok {
+		t.Fatalf("ilse = %v, %v", ok, err)
+	}
+	noor, ok, err := c.FindUserByAccount(t.Context(), "noor.elamrani")
+	if err != nil || !ok {
+		t.Fatalf("noor = %v, %v", ok, err)
+	}
+	groups, err := c.UserGroups(t.Context(), ilse.DN, groupOUs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"SG-Finance", "APP-ERP-Finance", "SHR-Finance-RW"} {
+		if !slices.Contains(groups, want) {
+			t.Errorf("ilse's groups %v lack %s", groups, want)
+		}
+	}
+	if slices.Contains(groups, "allstaff") {
+		t.Errorf("ilse's groups %v hold a distribution list", groups)
+	}
+	if groups, err := c.UserGroups(t.Context(), noor.DN, groupOUs); err != nil || slices.Contains(groups, "SG-Finance") {
+		t.Errorf("noor's groups = %v, %v; the seed takes her out of SG-Finance", groups, err)
+	}
+
+	missing := "CN=Nobody Here," + strings.SplitN(ilse.DN, ",", 2)[1]
+	users, err := c.GetUsers(t.Context(), []string{ilse.DN, missing})
+	if err != nil || len(users) != 1 || users[ilse.DN].Username != "ilse.smit" {
+		t.Errorf("GetUsers = %+v, %v", users, err)
+	}
+}
+
 // covers: spec 0013 AC-14. svc-itsupport adds a member under OU=Groups and
 // reads it back; a second add is ErrAlreadyMember; a privileged group
 // outside OU=Groups refuses the write.

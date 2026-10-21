@@ -84,7 +84,8 @@ func groupAccessRequestTool(timeout time.Duration) Tool {
 // groupSearch lists the groups the requester may ask for whose name or
 // description holds a term (spec 0013, AC-2). The filters run cheapest
 // first; a denied group, a group of another department, and a group that
-// does not exist all look the same: absent.
+// does not exist all look the same: absent, in the list and in count. The
+// directory reads are batched: five sessions however many groups match.
 func groupSearch(ctx context.Context, d Deps, in Input) (Result, error) {
 	all, err := d.Groups.ListGroups(ctx, d.Scope.GroupOUs)
 	if err != nil {
@@ -97,28 +98,31 @@ func groupSearch(ctx context.Context, d Deps, in Input) (Result, error) {
 			hits = append(hits, g)
 		}
 	}
+	hits, err = d.Fence.AllowedGroups(ctx, hits)
+	if err != nil {
+		return Result{}, err
+	}
 	slices.SortFunc(hits, func(a, b ldap.GroupInfo) int {
 		return cmp.Or(cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)), cmp.Compare(a.Name, b.Name))
 	})
 	count := len(hits)
+	shown := hits[:min(count, maxSearchResults)]
 	groups := []map[string]any{}
-	for _, g := range hits[:min(count, maxSearchResults)] {
-		if err := d.Fence.CheckGroup(ctx, g.Name); errors.Is(err, ErrGroupProtected) {
-			continue
-		} else if err != nil {
-			return Result{}, err
-		}
-		_, owned, err := groupOwner(ctx, d, g)
-		if err != nil {
-			return Result{}, err
-		}
-		member, err := d.Directory.UserInChainMemberOf(ctx, in.Account.DN, []string{g.DN})
+	if len(shown) > 0 {
+		memberOf, err := d.Groups.UserGroups(ctx, in.Account.DN, d.Scope.GroupOUs)
 		if err != nil {
 			return Result{}, directoryFailure(err)
 		}
-		groups = append(groups, map[string]any{
-			"name": g.Name, "description": g.Description, "owned": owned, "requester_is_member": member,
-		})
+		owned, err := groupsOwned(ctx, d, shown)
+		if err != nil {
+			return Result{}, err
+		}
+		for _, g := range shown {
+			member := slices.ContainsFunc(memberOf, func(n string) bool { return strings.EqualFold(n, g.Name) })
+			groups = append(groups, map[string]any{
+				"name": g.Name, "description": g.Description, "owned": owned[g.DN], "requester_is_member": member,
+			})
+		}
 	}
 	return Result{
 		Result: resultData(map[string]any{"groups": groups, "count": count, "truncated": count > maxSearchResults}),
@@ -153,13 +157,38 @@ func groupOwner(ctx context.Context, d Deps, g ldap.GroupInfo) (ldap.User, bool,
 	if err != nil {
 		return ldap.User{}, false, directoryFailure(err)
 	}
-	if !found || !u.Enabled || u.Mail == "" || u.Username == "" {
-		return ldap.User{}, false, nil
+	return u, found && validOwner(d, u), nil
+}
+
+// groupsOwned is groupOwner's ok for many groups, keyed by group DN, with
+// every owner read in one session.
+func groupsOwned(ctx context.Context, d Deps, groups []ldap.GroupInfo) (map[string]bool, error) {
+	var dns []string
+	for _, g := range groups {
+		if g.ManagedBy != "" && !slices.Contains(dns, g.ManagedBy) {
+			dns = append(dns, g.ManagedBy)
+		}
 	}
-	if under, err := ldap.UnderAny(u.DN, d.Scope.UserOUs, d.Scope.BaseDN); err != nil || !under {
-		return ldap.User{}, false, nil //nolint:nilerr // a DN that does not parse is outside every OU
+	users, err := d.Groups.GetUsers(ctx, dns)
+	if err != nil {
+		return nil, directoryFailure(err)
 	}
-	return u, true, nil
+	owned := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		u, found := users[g.ManagedBy]
+		owned[g.DN] = g.ManagedBy != "" && found && validOwner(d, u)
+	}
+	return owned, nil
+}
+
+// validOwner is the AC-6 check on a found owner: enabled, with a mail and an
+// account name, under TOOL_USER_OUS.
+func validOwner(d Deps, u ldap.User) bool {
+	if !u.Enabled || u.Mail == "" || u.Username == "" {
+		return false
+	}
+	under, err := ldap.UnderAny(u.DN, d.Scope.UserOUs, d.Scope.BaseDN)
+	return err == nil && under // a DN that does not parse is outside every OU
 }
 
 // resolution is what the directory says about a requested group.

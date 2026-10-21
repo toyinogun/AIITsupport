@@ -124,7 +124,7 @@ func (a *API) decide(w http.ResponseWriter, r *http.Request) {
 	if dec.Moved && body.Approve {
 		a.d.Execute(dctx, dec.Approval)
 	}
-	view, err := a.view(dctx, id)
+	view, err := a.view(dctx, id, true)
 	if err != nil {
 		// The move is committed: answer with what Decide saw, not a 503 the
 		// agent would read as "nothing happened". The tick settles the rest.
@@ -232,7 +232,7 @@ func (a *API) cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.logger.InfoContext(ctx, "approval_cancelled", "approval_id", id.String())
-	view, err := a.view(dctx, id)
+	view, err := a.view(dctx, id, true)
 	if err != nil {
 		a.unavailable(ctx, w)
 		return
@@ -266,7 +266,9 @@ func (a *API) get(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, err := a.view(r.Context(), id)
+	// The tick peeks (owner=skip): a posted card's status needs no live
+	// directory read every poll (spec 0013, AC-10).
+	view, err := a.view(r.Context(), id, r.URL.RawQuery != mcpclient.PeekQuery)
 	switch {
 	case errors.Is(err, audit.ErrApprovalNotFound):
 		http.NotFound(w, r)
@@ -297,21 +299,24 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, views)
 }
 
-func (a *API) view(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error) {
+// view reads one approval's view; withOwner false leaves out a group owner
+// approval's live directory fields.
+func (a *API) view(ctx context.Context, id uuid.UUID, withOwner bool) (mcpclient.ApprovalView, error) {
 	ap, err := a.recorder.Approval(ctx, id)
 	if err != nil {
 		return mcpclient.ApprovalView{}, err
 	}
-	return a.viewOf(ctx, ap)
+	return a.viewOf(ctx, ap, withOwner)
 }
 
 // viewOf builds the single approval view (spec 0012 AC-13, spec 0013
 // AC-10): executed and failed approvals carry how their execution ended, an
-// expired one whether it was a cancel, and a group owner approval its owner.
-func (a *API) viewOf(ctx context.Context, ap queries.Approval) (mcpclient.ApprovalView, error) {
+// expired one whether it was a cancel, and a group owner approval its owner
+// (unless withOwner is false, for the tick's peek).
+func (a *API) viewOf(ctx context.Context, ap queries.Approval, withOwner bool) (mcpclient.ApprovalView, error) {
 	v := a.baseView(ap)
 	if ap.ApproverKind == string(audit.ApproverGroupOwner) {
-		a.ownerFields(ctx, ap, &v)
+		a.ownerFields(ctx, ap, &v, withOwner)
 	}
 	if ap.Status == mcpclient.StatusExpired {
 		cancelled, err := a.recorder.Cancelled(ctx, ap.ID)
@@ -337,10 +342,11 @@ func (a *API) viewOf(ctx context.Context, ap queries.Approval) (mcpclient.Approv
 	return v, nil
 }
 
-// ownerFields adds a group owner approval's owner, read live, and the
-// requester's reason while the approval holds it. A failed directory read
-// leaves the owner fields empty, and the agent tries again on its next tick.
-func (a *API) ownerFields(ctx context.Context, ap queries.Approval, v *mcpclient.ApprovalView) {
+// ownerFields adds a group owner approval's owner, read live unless live
+// is false, and the requester's reason while the approval holds it. A
+// failed directory read leaves the owner fields empty and sets OwnerUnread,
+// and the agent tries again on its next tick.
+func (a *API) ownerFields(ctx context.Context, ap queries.Approval, v *mcpclient.ApprovalView, live bool) {
 	if len(ap.AllowedApprovers) == 1 {
 		v.ApproverAccount = ap.AllowedApprovers[0]
 	}
@@ -351,9 +357,13 @@ func (a *API) ownerFields(ctx context.Context, ap queries.Approval, v *mcpclient
 		_ = json.Unmarshal(ap.Arguments, &args) // our own stored JSON; a broken one shows no reason
 		v.Reason = args.Reason
 	}
+	if !live {
+		return
+	}
 	owner, err := a.d.GroupOwnerView(ctx, ap)
 	if err != nil {
 		a.logger.WarnContext(ctx, "approval_owner_read_failed", "approval_id", ap.ID.String(), "cause", tools.Cause(err))
+		v.OwnerUnread = true
 		return
 	}
 	v.ApproverName, v.ApproverEmail, v.NestedInto = owner.Name, owner.Email, owner.NestedInto

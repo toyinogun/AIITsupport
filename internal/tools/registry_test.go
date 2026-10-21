@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
+	"github.com/toyinogun/AIITsupport/internal/ldap"
+	"github.com/toyinogun/AIITsupport/internal/tools/toolstest"
 )
 
 // NewTestRegistry is the production registry plus extra test only tools. It
@@ -241,5 +243,45 @@ func TestFenceCheckGroup(t *testing.T) {
 		t.Errorf("CheckGroup with AD down = %v, want a directory failure", err)
 	} else if asFailure(err).code != CodeUnavailable {
 		t.Errorf("code = %s, want unavailable", asFailure(err).code)
+	}
+}
+
+// covers: AC-13, spec 0013 AC-2. AllowedGroups gives CheckGroup's answer for
+// many groups at once: it keeps the allowed ones in order and drops the
+// denied, nested, and outside ones; an unresolved denied name allows none,
+// and the directory down is classified.
+func TestFenceAllowedGroups(t *testing.T) {
+	h := newHarness(t)
+	f := h.d.Fence()
+	var groups []ldap.GroupInfo
+	for _, name := range []string{"SG-Finance", "Domain Admins", "T-Nested", "Outside-Group", "SHR-Finance-RW"} {
+		g, ok := h.dir.Groups[name]
+		if !ok {
+			g = ldap.Group{DN: toolstest.GroupDN(name), Name: name}
+		}
+		groups = append(groups, ldap.GroupInfo{DN: g.DN, Name: g.Name})
+	}
+	allowed, err := f.AllowedGroups(t.Context(), groups)
+	var names []string
+	for _, g := range allowed {
+		names = append(names, g.Name)
+	}
+	if err != nil || !slices.Equal(names, []string{"SG-Finance", "SHR-Finance-RW"}) {
+		t.Errorf("allowed = %v, %v", names, err)
+	}
+	for _, g := range allowed {
+		if err := f.CheckGroup(t.Context(), g.Name); err != nil {
+			t.Errorf("CheckGroup(%s) = %v, but AllowedGroups kept it", g.Name, err)
+		}
+	}
+
+	delete(h.dir.Groups, "SYNC-Entra-Users")
+	if allowed, err := f.AllowedGroups(t.Context(), groups); err != nil || len(allowed) != 0 {
+		t.Errorf("with an unresolved denied group: %v, %v", allowed, err)
+	}
+
+	h.dir.Err = errNetwork
+	if _, err := f.AllowedGroups(t.Context(), groups); err == nil || asFailure(err).code != CodeUnavailable {
+		t.Errorf("AllowedGroups with AD down = %v, want unavailable", err)
 	}
 }

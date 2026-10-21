@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
 	"github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/tools/toolstest"
+	"github.com/toyinogun/AIITsupport/internal/zammad/zammadtest"
 )
 
 // Spec 0013: group_search, group_access_request, and the approved add.
@@ -91,7 +94,8 @@ func groupNames(t *testing.T, resp Response) []string {
 // covers: spec 0013 AC-2, AC-3. A Finance search lists the finance security
 // groups of the requester's department by name or description, sorted,
 // with owned and membership; a distribution list, a denied group, and a
-// fenced group never show up, and the audit row keeps only the counts.
+// fenced group never show up (not even in count), and the audit row keeps
+// only the counts.
 func TestGroupSearchFinance(t *testing.T) {
 	h := newGroupHarness(t)
 	resp := h.search(noor(1), `["fin"]`)
@@ -102,8 +106,8 @@ func TestGroupSearchFinance(t *testing.T) {
 	if got := groupNames(t, resp); !slices.Equal(got, want) {
 		t.Errorf("groups = %v, want %v", got, want)
 	}
-	// T-Nested matched and counts, but the fence drops it from the list.
-	if resp.Data["count"] != 6 || resp.Data["truncated"] != false {
+	// T-Nested matched, but the fence drops it from the list and the count.
+	if resp.Data["count"] != 5 || resp.Data["truncated"] != false {
 		t.Errorf("count %v, truncated %v", resp.Data["count"], resp.Data["truncated"])
 	}
 	owned := map[string]bool{}
@@ -117,7 +121,7 @@ func TestGroupSearchFinance(t *testing.T) {
 		t.Errorf("owned = %v", owned)
 	}
 	o, in := h.lastOutcome(), h.lastIntent()
-	if o.ToolName != ToolGroupSearch || o.Target.Valid || string(o.Result) != `{"_omitted":1,"count":6,"truncated":false}` {
+	if o.ToolName != ToolGroupSearch || o.Target.Valid || string(o.Result) != `{"_omitted":1,"count":5,"truncated":false}` {
 		t.Errorf("outcome = %s target %q result %s", o.ToolName, o.Target.String, o.Result)
 	}
 	if strings.Contains(string(in.Arguments), "fin") {
@@ -126,7 +130,9 @@ func TestGroupSearchFinance(t *testing.T) {
 }
 
 // covers: spec 0013 AC-2. A member is marked, and more than ten matches are
-// cut to the first ten by name with truncated set.
+// cut to the first ten by name with truncated set. The directory reads do
+// not grow with the matches: a ten group search reads as often as a one
+// group search.
 func TestGroupSearchMembershipAndTruncation(t *testing.T) {
 	h := newGroupHarness(t)
 	h.dir.UserIn = map[string][]string{noorDN: {toolstest.GroupDN("SG-Finance")}}
@@ -135,7 +141,16 @@ func TestGroupSearchMembershipAndTruncation(t *testing.T) {
 		h.dir.Groups[name] = ldap.Group{DN: toolstest.GroupDN(name), Name: name}
 		h.dir.Info[name] = h.dir.Info["fin-readonly"]
 	}
+	before := h.dir.CallCount
+	if got := groupNames(t, h.search(noor(1), `["department"]`)); len(got) != 1 {
+		t.Fatalf("one group search = %v", got)
+	}
+	one := h.dir.CallCount - before
+	before = h.dir.CallCount
 	resp := h.search(noor(1), `["finance"]`)
+	if many := h.dir.CallCount - before; many != one {
+		t.Errorf("a ten group search read the directory %d times, a one group search %d", many, one)
+	}
 	groups := resp.Data["groups"].([]map[string]any)
 	if resp.Data["truncated"] != true || len(groups) > maxSearchResults {
 		t.Fatalf("truncated %v with %d groups", resp.Data["truncated"], len(groups))
@@ -629,5 +644,371 @@ func TestGroupToolSchemasAndRegistryRules(t *testing.T) {
 	}
 	if _, err := NewRegistry(0); err == nil {
 		t.Error("a zero access timeout built a registry")
+	}
+}
+
+// hookedGroups is the fake directory's group reads with a hook that runs
+// before each read; a hook error fails that read. It lets a test break or
+// pause the directory after identity has passed.
+type hookedGroups struct {
+	GroupReader
+	before func(method string) error
+}
+
+func (g hookedGroups) ListGroups(ctx context.Context, ous []string) ([]ldap.GroupInfo, error) {
+	if err := g.before("ListGroups"); err != nil {
+		return nil, err
+	}
+	return g.GroupReader.ListGroups(ctx, ous)
+}
+
+func (g hookedGroups) GroupByName(ctx context.Context, name string) (ldap.GroupInfo, bool, error) {
+	if err := g.before("GroupByName"); err != nil {
+		return ldap.GroupInfo{}, false, err
+	}
+	return g.GroupReader.GroupByName(ctx, name)
+}
+
+func (g hookedGroups) GetUser(ctx context.Context, dn string) (ldap.User, bool, error) {
+	if err := g.before("GetUser"); err != nil {
+		return ldap.User{}, false, err
+	}
+	return g.GroupReader.GetUser(ctx, dn)
+}
+
+func (g hookedGroups) GetUsers(ctx context.Context, dns []string) (map[string]ldap.User, error) {
+	if err := g.before("GetUsers"); err != nil {
+		return nil, err
+	}
+	return g.GroupReader.GetUsers(ctx, dns)
+}
+
+func (g hookedGroups) UserGroups(ctx context.Context, userDN string, ous []string) ([]string, error) {
+	if err := g.before("UserGroups"); err != nil {
+		return nil, err
+	}
+	return g.GroupReader.UserGroups(ctx, userDN, ous)
+}
+
+// failGroupRead makes one group read method fail with errNetwork.
+func (h *groupHarness) failGroupRead(method string) {
+	h.d.sys.Groups = hookedGroups{GroupReader: h.dir, before: func(m string) error {
+		if m == method {
+			return errNetwork
+		}
+		return nil
+	}}
+}
+
+// covers: spec 0013 AC-2. A term found only in a description still matches,
+// and a requester with no department sees nothing (fail closed).
+func TestGroupSearchMatchesDescriptionsAndNeedsADepartment(t *testing.T) {
+	h := newGroupHarness(t)
+	if got := groupNames(t, h.search(noor(1), `["department"]`)); !slices.Equal(got, []string{"SG-Finance"}) {
+		t.Errorf("description search = %v, want [SG-Finance]", got)
+	}
+	if got := groupNames(t, h.search(noor(1), `["READ AND WRITE"]`)); !slices.Equal(got, []string{"SHR-Finance-RW"}) {
+		t.Errorf("case insensitive description search = %v", got)
+	}
+	h.setUser("noor.elamrani", func(u *ldap.User) { u.Department = "" })
+	resp := h.search(noor(1), `["fin"]`)
+	if got := groupNames(t, resp); len(got) != 0 || resp.Data["count"] != 0 {
+		t.Errorf("no department search = %v, count %v", got, resp.Data["count"])
+	}
+}
+
+// covers: spec 0013 AC-2. A directory that fails mid search answers
+// unavailable with an audit pair, never a partial list.
+func TestGroupSearchDirectoryDown(t *testing.T) {
+	for _, method := range []string{"ListGroups", "GetUsers", "UserGroups"} {
+		t.Run(method, func(t *testing.T) {
+			h := newGroupHarness(t)
+			h.failGroupRead(method)
+			resp := h.search(noor(1), `["fin"]`)
+			wantCode(t, resp, CodeUnavailable)
+			if _, ok := resp.Data["groups"]; ok {
+				t.Errorf("a failed search returned groups: %v", resp.Data["groups"])
+			}
+			if o := h.lastOutcome(); o.ToolName != ToolGroupSearch || o.Error.String != "directory unavailable" {
+				t.Errorf("outcome %s %q", o.ToolName, o.Error.String)
+			}
+		})
+	}
+}
+
+// covers: spec 0013 AC-5. The spec 0012 ticket preamble runs for an access
+// request too: an escalated thread, a blocked privileged attempt, someone
+// else's ticket, and a closed ticket each refuse with no approval row.
+func TestGroupAccessRequestTicketPreamble(t *testing.T) {
+	cases := map[string]struct {
+		setup func(h *groupHarness) Requester
+		code  Code
+	}{
+		"already escalated": {func(h *groupHarness) Requester {
+			id := h.createTicket(noor(1))
+			h.call(ToolEscalate, escalateArgs(ReasonManualAction), withTicket(noor(1), id))
+			return withTicket(noor(1), id)
+		}, CodeAlreadyEscalated},
+		"escalate first": {func(h *groupHarness) Requester {
+			id := h.createTicket(noor(1))
+			h.blocked(noor(1))
+			return withTicket(noor(1), id)
+		}, CodeEscalateFirst},
+		"not yours": {func(h *groupHarness) Requester {
+			return withTicket(noor(1), h.createTicket(eva()))
+		}, CodeNotYours},
+		"ticket closed": {func(h *groupHarness) Requester {
+			id := h.createTicket(noor(1))
+			if resp := h.call(ToolTicketUpdate, `{"state":"closed","note":"done"}`, withTicket(noor(1), id)); resp.IsError {
+				t.Fatalf("close = %+v", resp)
+			}
+			return withTicket(noor(1), id)
+		}, CodeTicketClosed},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newGroupHarness(t)
+			r := tc.setup(h)
+			wantCode(t, h.call(ToolGroupAccessRequest, requestArgs("SG-Finance", "invoices"), r), tc.code)
+			if len(h.store.Approvals) != 0 || len(h.dir.Added()) != 0 {
+				t.Errorf("approvals %d, adds %v", len(h.store.Approvals), h.dir.Added())
+			}
+		})
+	}
+}
+
+// covers: spec 0013 AC-5. A directory error while resolving the group or
+// its owner is unavailable: no approval, no target, nothing written.
+func TestGroupAccessRequestDirectoryDown(t *testing.T) {
+	for _, method := range []string{"GroupByName", "GetUser"} {
+		t.Run(method, func(t *testing.T) {
+			h := newGroupHarness(t)
+			ticket := h.createTicket(noor(1))
+			h.failGroupRead(method)
+			resp := h.call(ToolGroupAccessRequest, requestArgs("SG-Finance", "invoices"), withTicket(noor(1), ticket))
+			wantCode(t, resp, CodeUnavailable)
+			if o := h.lastOutcome(); o.Outcome.String != "error" || o.Error.String != "directory unavailable" || o.Target.Valid {
+				t.Errorf("outcome %s %q target %q", o.Outcome.String, o.Error.String, o.Target.String)
+			}
+			if len(h.store.Approvals) != 0 {
+				t.Errorf("approvals = %d", len(h.store.Approvals))
+			}
+		})
+	}
+}
+
+// covers: spec 0013 AC-4. group is 1 to 64 characters on one line; reason
+// is 1 to 200 characters and may hold newlines. Anything else is
+// invalid_arguments naming the field, before any approval.
+func TestGroupAccessRequestArgumentBounds(t *testing.T) {
+	cases := []struct {
+		group, reason, field string
+	}{
+		{"", "invoices", "group"},
+		{strings.Repeat("g", maxGroupNameRunes+1), "invoices", "group"},
+		{"SG-\nFinance", "invoices", "group"},
+		{"SG-Finance", "", "reason"},
+		{"SG-Finance", strings.Repeat("r", maxReasonRunes+1), "reason"},
+	}
+	for _, tc := range cases {
+		h := newGroupHarness(t)
+		resp, _ := h.request(noor(1), tc.group, tc.reason)
+		wantCode(t, resp, CodeInvalidArguments)
+		if !strings.Contains(resp.Text, "(field: "+tc.field+")") {
+			t.Errorf("group %q reason %q: %s", tc.group, tc.reason, resp.Text)
+		}
+		if len(h.store.Approvals) != 0 {
+			t.Errorf("group %q reason %q made an approval", tc.group, tc.reason)
+		}
+	}
+	h := newGroupHarness(t)
+	long := strings.Repeat("é", maxReasonRunes-10) + "\nline two"
+	if resp, _ := h.request(noor(1), "SG-Finance", long); resp.Code != CodePendingApproval {
+		t.Errorf("a 200 character reason with a newline = %+v", resp)
+	}
+}
+
+// covers: spec 0013 AC-7. A ticket note that fails does not fail the
+// request: it is still pending, with ticket_noted false.
+func TestGroupAccessRequestNoteFails(t *testing.T) {
+	h := newGroupHarness(t)
+	ticket := h.createTicket(noor(1))
+	h.zammad.Intercept = func(r *http.Request) (zammadtest.Fault, bool) {
+		return zammadtest.Fault{Status: http.StatusBadGateway, Message: "down"}, r.Method != http.MethodGet
+	}
+	resp := h.call(ToolGroupAccessRequest, requestArgs("SG-Finance", "invoices"), withTicket(noor(1), ticket))
+	if resp.IsError || resp.Code != CodePendingApproval || resp.Data["ticket_noted"] != false {
+		t.Fatalf("response = %+v, want pending with ticket_noted false", resp)
+	}
+	if len(h.store.Approvals) != 1 {
+		t.Errorf("approvals = %d, want 1", len(h.store.Approvals))
+	}
+}
+
+// covers: spec 0013 AC-7. expires_in_hours rounds up: half an hour into an
+// 8 hour wait, a repeat still says 8 hours, never 7.
+func TestGroupAccessRequestHoursRoundUp(t *testing.T) {
+	h := newGroupHarness(t)
+	_, ticket := h.request(noor(1), "SG-Finance", "invoices")
+	later := h.start.Add(30 * time.Minute)
+	h.d.now = func() time.Time { return later }
+	again := h.call(ToolGroupAccessRequest, requestArgs("SG-Finance", "invoices"), withTicket(noor(1), ticket))
+	if again.Data["reused"] != true || again.Data["expires_in_hours"] != int64(8) {
+		t.Errorf("reused %v, expires_in_hours %v (%T), want 8", again.Data["reused"], again.Data["expires_in_hours"], again.Data["expires_in_hours"])
+	}
+}
+
+// covers: spec 0013 AC-14. More things the add checks again: the group was
+// nested into a denied group, the requester changed department, and the
+// requester left TOOL_USER_OUS since the request. Each fails as recheck
+// failed with no write.
+func TestGroupAccessExecuteRechecksMore(t *testing.T) {
+	for name, change := range map[string]func(h *groupHarness){
+		"nested into a denied group": func(h *groupHarness) {
+			h.dir.NestedIn = map[string][]string{"SG-Finance": {"CN=SG-IT-Admins,OU=Admin Accounts,OU=Noord," + toolstest.Base}}
+		},
+		"requester changed department": func(h *groupHarness) {
+			h.setUser("noor.elamrani", func(u *ldap.User) { u.Department = "Sales" })
+		},
+		"requester left the user OUs": func(h *groupHarness) {
+			h.setUser("noor.elamrani", func(u *ldap.User) { u.DN = "CN=Noor El Amrani,OU=Elsewhere," + toolstest.Base })
+		},
+		"owner left the user OUs": func(h *groupHarness) {
+			h.setUser("ilse.smit", func(u *ldap.User) { u.DN = "CN=Ilse Smit,OU=Elsewhere," + toolstest.Base })
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newGroupHarness(t)
+			a, _ := h.approve()
+			change(h)
+			if got := h.d.Execute(t.Context(), a); got != audit.OutcomeDeniedPolicy {
+				t.Fatalf("Execute = %s", got)
+			}
+			if o := h.lastOutcome(); o.Error.String != "recheck failed" || len(h.dir.Added()) != 0 {
+				t.Errorf("reason %q, adds %v", o.Error.String, h.dir.Added())
+			}
+		})
+	}
+}
+
+// covers: spec 0013 AC-14. The kill switch is read again just before the
+// write: paused during the recheck, the add never runs.
+func TestGroupAccessExecutePausedDuringRecheck(t *testing.T) {
+	h := newGroupHarness(t)
+	a, _ := h.approve()
+	h.d.sys.Groups = hookedGroups{GroupReader: h.dir, before: func(m string) error {
+		if m == "GroupByName" {
+			h.ks.set("read_only\n") // paused while the group is read again
+		}
+		return nil
+	}}
+	if got := h.d.Execute(t.Context(), a); got != audit.OutcomeReadOnly || len(h.dir.Added()) != 0 {
+		t.Errorf("Execute = %s, adds %v", got, h.dir.Added())
+	}
+}
+
+// covers: spec 0013 AC-14. A directory write that fails is an error, the
+// ticket stays open, and nothing is retried.
+func TestGroupAccessExecuteWriteFails(t *testing.T) {
+	h := newGroupHarness(t)
+	a, ticket := h.approve()
+	h.dir.WriterErr = errNetwork
+	if got := h.d.Execute(t.Context(), a); got != audit.OutcomeError {
+		t.Fatalf("Execute = %s", got)
+	}
+	if o := h.lastOutcome(); o.Error.String != "directory unavailable" || h.status(a) != "failed" {
+		t.Errorf("reason %q, status %s", o.Error.String, h.status(a))
+	}
+	if tk, _ := h.zammad.Ticket(ticket); tk["state"] == "closed" {
+		t.Error("a failed add closed the ticket")
+	}
+}
+
+// covers: spec 0013 AC-14. When Zammad will not close the ticket, the add
+// still succeeds with ticket_closed false.
+func TestGroupAccessExecuteCloseFails(t *testing.T) {
+	h := newGroupHarness(t)
+	a, _ := h.approve()
+	h.zammad.Intercept = func(r *http.Request) (zammadtest.Fault, bool) {
+		return zammadtest.Fault{Status: http.StatusBadGateway, Message: "down"}, r.Method == http.MethodPut
+	}
+	if got := h.d.Execute(t.Context(), a); got != audit.OutcomeOK {
+		t.Fatalf("Execute = %s", got)
+	}
+	if o := h.lastOutcome(); string(o.Result) != `{"added":true,"already_member":false,"ticket_closed":false}` {
+		t.Errorf("result = %s", o.Result)
+	}
+	if got := h.dir.Members[toolstest.GroupDN("SG-Finance")]; !slices.Equal(got, []string{noorDN}) {
+		t.Errorf("members = %v", got)
+	}
+}
+
+// covers: spec 0013 AC-10. The view leaves the mail empty for an approver
+// outside TOOL_USER_OUS, shows no nesting for a group that is gone, and
+// reads nothing for an approval without exactly one approver.
+func TestGroupOwnerViewEdges(t *testing.T) {
+	h := newGroupHarness(t)
+	h.request(noor(1), "SG-Finance", "invoices")
+	a, _ := h.store.Approval(h.store.All()[len(h.store.All())-1].ApprovalID.UUID)
+
+	h.setUser("ilse.smit", func(u *ldap.User) { u.DN = "CN=Ilse Smit,OU=Elsewhere," + toolstest.Base })
+	if v, err := h.d.GroupOwnerView(t.Context(), a); err != nil || v.Email != "" || v.Name != "Ilse Smit" {
+		t.Errorf("approver outside the OUs = %+v, %v", v, err)
+	}
+
+	delete(h.dir.Groups, "SG-Finance")
+	if v, err := h.d.GroupOwnerView(t.Context(), a); err != nil || len(v.NestedInto) != 0 {
+		t.Errorf("group gone = %+v, %v", v, err)
+	}
+
+	two := a
+	two.AllowedApprovers = []string{"ilse.smit", "thomas.meijer"}
+	before := h.dir.CallCount
+	if v, err := h.d.GroupOwnerView(t.Context(), two); err != nil || v.Name != "" || v.Email != "" || h.dir.CallCount != before {
+		t.Errorf("two approvers = %+v, %v, reads %d", v, err, h.dir.CallCount-before)
+	}
+
+	h.dir.Err = errNetwork
+	if _, err := h.d.GroupOwnerView(t.Context(), a); err == nil {
+		t.Error("a directory error gave a view")
+	}
+}
+
+// covers: spec 0013 AC-4. The reason is trimmed and every run of
+// whitespace, newlines included, folds to one space.
+func TestCleanReason(t *testing.T) {
+	for in, want := range map[string]string{
+		"invoices":                  "invoices",
+		"  I book\n\n invoices \t ": "I book invoices",
+		"line one\r\nline two":      "line one line two",
+		" \n\t ":                    "",
+		"één  twee":                 "één twee",
+	} {
+		if got := cleanReason(in); got != want {
+			t.Errorf("cleanReason(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// covers: spec 0013 AC-14. The owner check compares DNs parsed and case
+// insensitively; an empty or broken DN never matches.
+func TestSameDN(t *testing.T) {
+	ilseDN := toolstest.UserDN("Ilse Smit", "Finance")
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{ilseDN, ilseDN, true},
+		{ilseDN, strings.ToUpper(ilseDN), true},
+		{ilseDN, strings.ReplaceAll(ilseDN, ",", ", "), true},
+		{ilseDN, toolstest.UserDN("Thomas Meijer", "Finance"), false},
+		{"", "", false},
+		{ilseDN, "", false},
+		{"not a dn", "not a dn", false},
+	}
+	for _, tc := range cases {
+		if got := sameDN(tc.a, tc.b); got != tc.want {
+			t.Errorf("sameDN(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
 	}
 }

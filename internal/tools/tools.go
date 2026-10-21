@@ -115,6 +115,9 @@ type Directory interface {
 	GroupsByName(ctx context.Context, names []string) (map[string]ldap.Group, error)
 	InChainMemberOf(ctx context.Context, name string, parents []string) (bool, error)
 	UserInChainMemberOf(ctx context.Context, dn string, parents []string) (bool, error)
+	// GroupsNestedUnder names the groups under the OUs nested at any depth
+	// into any of parents (DNs), in one read (spec 0013, AC-2).
+	GroupsNestedUnder(ctx context.Context, parents, ous []string) ([]string, error)
 }
 
 // DirectoryWriter is the directory's writes as svc-itsupport: the unlock and
@@ -134,6 +137,11 @@ type GroupReader interface {
 	GroupNestedInto(ctx context.Context, groupDN string, ous []string) ([]string, error)
 	GroupHasMember(ctx context.Context, groupDN, userDN string) (bool, error)
 	GetUser(ctx context.Context, dn string) (ldap.User, bool, error)
+	// GetUsers reads many users by DN in one session, keyed by the DN given.
+	GetUsers(ctx context.Context, dns []string) (map[string]ldap.User, error)
+	// UserGroups names the security groups under the OUs that hold the user
+	// at any depth, in one read.
+	UserGroups(ctx context.Context, userDN string, ous []string) ([]string, error)
 }
 
 // HelpdeskAPI is the part of the Zammad client the tools use. *zammad.Client

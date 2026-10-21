@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,11 @@ const toolGroupAccessRequest = "group_access_request"
 // maxCardReasonRunes cuts the requester's reason on the card (AC-12).
 const maxCardReasonRunes = 200
 
+// maxCardNestedGroups is how many groups the card's "Also gives" line names
+// before it says how many more (AC-12), so the line stays well inside
+// Slack's 3000 character section limit.
+const maxCardNestedGroups = 10
+
 // amsterdam is the zone the owner's card shows the expiry in (AC-12); the
 // agent binary embeds the zone database (time/tzdata), so it loads in a
 // bare container. UTC is the fallback should it ever fail.
@@ -39,7 +45,7 @@ func ownerCard(v mcpclient.ApprovalView) Card {
 	f := factsFromView(v)
 	lines := []string{accessCardHeader, f.requester(), accessCardGroup + slackEscape(v.Target)}
 	if len(v.NestedInto) > 0 {
-		lines = append(lines, accessCardAlsoGives+slackEscape(strings.Join(v.NestedInto, ", ")))
+		lines = append(lines, accessCardAlsoGives+slackEscape(nestedLine(v.NestedInto)))
 	}
 	lines = append(lines,
 		accessCardReason+slackEscape(cutRunes(v.Reason, maxCardReasonRunes)),
@@ -53,6 +59,14 @@ func ownerCard(v mcpclient.ApprovalView) Card {
 		ApprovalID: v.ID.String(),
 		Confirm:    "Add " + v.RequesterAccount + " to " + v.Target + "?",
 	}
+}
+
+// nestedLine joins the first maxCardNestedGroups names and counts the rest.
+func nestedLine(names []string) string {
+	if len(names) <= maxCardNestedGroups {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:maxCardNestedGroups], ", ") + " and " + strconv.Itoa(len(names)-maxCardNestedGroups) + " more"
 }
 
 // accessOutcomeCard replaces the owner's card once the request ended
@@ -80,11 +94,11 @@ func accessOutcomeLine(v mcpclient.ApprovalView) string {
 }
 
 // postOwnerCard posts a group owner card as a DM to the owner (AC-10): the
-// first post, the tick's repost, and an adopted card alike. It claims an
-// attempt first, reads the view, finds the owner in Slack by email, and
-// posts, or cancels the request when the owner cannot be reached. A Slack
-// or directory hiccup only uses up the attempt; after three, the next call
-// cancels.
+// first post, the tick's repost, and an adopted card alike. It reads the
+// view, claims an attempt, finds the owner in Slack by email, and posts, or
+// cancels the request when the owner cannot be reached. A failed read of
+// the view or of the owner is tried again next tick and uses up no attempt;
+// a Slack hiccup uses up the attempt, and after three the next call cancels.
 func (a *Agent) postOwnerCard(parent context.Context, card ApprovalCard) {
 	if card.CardTS != "" {
 		return
@@ -95,13 +109,6 @@ func (a *Agent) postOwnerCard(parent context.Context, card ApprovalCard) {
 	}
 	ctx, cancel := a.detached(parent, a.cfg.ToolTimeout)
 	defer cancel()
-	ok, err := a.deps.Store.RecordCardPostAttempt(ctx, card.ApprovalID, maxCardPosts, 2*a.cfg.ApprovalPollInterval)
-	if err != nil || !ok {
-		if err != nil {
-			a.cardPostFailed(card.ApprovalID, err)
-		}
-		return
-	}
 	v, err := a.deps.Approvals.Get(ctx, card.ApprovalID)
 	switch {
 	case err != nil:
@@ -109,12 +116,18 @@ func (a *Agent) postOwnerCard(parent context.Context, card ApprovalCard) {
 		return
 	case v.Status != mcpclient.StatusPending:
 		return // ended meanwhile: the tick settles it
-	case v.ApproverEmail == "" && v.ApproverName == "":
-		// The tool server could not read the owner: tried again next tick.
+	case v.OwnerUnread:
 		a.cardPostFailed(card.ApprovalID, errOwnerUnread)
 		return
 	case v.ApproverEmail == "":
 		a.cancelOwnerCard(parent, card) // the owner lost their mail or was disabled
+		return
+	}
+	ok, err := a.deps.Store.RecordCardPostAttempt(ctx, card.ApprovalID, maxCardPosts, 2*a.cfg.ApprovalPollInterval)
+	if err != nil || !ok {
+		if err != nil {
+			a.cardPostFailed(card.ApprovalID, err)
+		}
 		return
 	}
 	owner, err := a.deps.Slack.LookupByEmail(ctx, v.ApproverEmail)
@@ -136,15 +149,20 @@ func (a *Agent) postOwnerCard(parent context.Context, card ApprovalCard) {
 		a.cardPostFailed(card.ApprovalID, err)
 		return
 	}
-	if err := a.deps.Store.SetCardPosted(ctx, card.ApprovalID, ts, channel, owner.ID); err != nil {
+	// A fresh context, as postCard: the reads above may have used up ctx,
+	// and a card that went out must be stored or the tick posts it again.
+	sctx, scancel := a.detached(parent, a.cfg.ToolTimeout)
+	defer scancel()
+	if err := a.deps.Store.SetCardPosted(sctx, card.ApprovalID, ts, channel, owner.ID); err != nil {
 		a.cardPostFailed(card.ApprovalID, err)
 		return
 	}
 	a.deps.Logger.Info("approval_card_posted", "approval_id", card.ApprovalID.String())
 }
 
-// errOwnerUnread is the cause logged when the view carried no owner.
-var errOwnerUnread = errors.New("agent: the approval view has no owner fields")
+// errOwnerUnread is the cause logged when the tool server could not read
+// the owner.
+var errOwnerUnread = errors.New("agent: the tool server could not read the group owner")
 
 func (a *Agent) cardPostFailed(id uuid.UUID, err error) {
 	a.deps.Logger.Warn("approval_card_post_failed", "approval_id", id.String(), "cause", cause(err))

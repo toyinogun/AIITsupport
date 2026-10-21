@@ -2,8 +2,10 @@ package agent_test
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -246,7 +248,8 @@ func TestAccessOwnerNotInSlackCancels(t *testing.T) {
 }
 
 // covers: spec 0013 AC-10. A deleted, bot, or unconfirmed owner account
-// cancels; so does an owner the directory shows without mail.
+// cancels; so does an owner the directory shows without mail, or no longer
+// has at all (a read that worked and found nothing).
 func TestAccessOwnerUnreachableCases(t *testing.T) {
 	for name, change := range map[string]func(h *harness){
 		"deleted": func(h *harness) {
@@ -264,6 +267,11 @@ func TestAccessOwnerUnreachableCases(t *testing.T) {
 			v.ApproverEmail = ""
 			h.appr.Views[approvalID] = v
 		},
+		"gone from the directory": func(h *harness) {
+			v := accessView(mcpclient.StatusPending)
+			v.ApproverEmail, v.ApproverName = "", ""
+			h.appr.Views[approvalID] = v
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := accessRequested(t, change)
@@ -275,21 +283,24 @@ func TestAccessOwnerUnreachableCases(t *testing.T) {
 }
 
 // covers: spec 0013 AC-10. A Slack hiccup or an unread owner never cancels:
-// the attempt is used up, approval_card_post_failed is logged, and the card
-// waits for the tick.
+// approval_card_post_failed is logged and the card waits for the tick. Only
+// the Slack hiccup uses up an attempt.
 func TestAccessLookupHiccupWaits(t *testing.T) {
-	for name, change := range map[string]func(h *harness){
-		"rate limited": func(h *harness) { h.users.LookupErr = errors.New("slack_rate_limited") },
-		"owner unread": func(h *harness) {
+	for name, tc := range map[string]struct {
+		change   func(h *harness)
+		attempts int
+	}{
+		"rate limited": {func(h *harness) { h.users.LookupErr = errors.New("slack_rate_limited") }, 1},
+		"owner unread": {func(h *harness) {
 			v := accessView(mcpclient.StatusPending)
-			v.ApproverEmail, v.ApproverName = "", ""
+			v.ApproverEmail, v.ApproverName, v.NestedInto, v.OwnerUnread = "", "", nil, true
 			h.appr.Views[approvalID] = v
-		},
+		}, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := accessRequested(t, change)
+			h := accessRequested(t, tc.change)
 			cards := h.store.Cards()
-			if len(h.appr.Cancels()) != 0 || len(h.poster.Cards()) != 0 || len(cards) != 1 || cards[0].PostAttempts != 1 {
+			if len(h.appr.Cancels()) != 0 || len(h.poster.Cards()) != 0 || len(cards) != 1 || cards[0].PostAttempts != tc.attempts {
 				t.Errorf("cancels %v, posts %v, cards %+v", h.appr.Cancels(), h.poster.Cards(), cards)
 			}
 			if !strings.Contains(h.logs.String(), "approval_card_post_failed") {
@@ -357,5 +368,196 @@ func TestTickAdoptsAnAccessRequest(t *testing.T) {
 	}
 	if posted := h.poster.Cards(); len(posted) != 1 || posted[0].Channel != ilseSlack {
 		t.Errorf("posts = %+v", posted)
+	}
+}
+
+// covers: spec 0013 AC-12. Without nesting the card has no "Also gives"
+// line, a long reason is cut to 200 characters, and a ticket with no link
+// shows its id.
+func TestAccessCardOptionalLines(t *testing.T) {
+	long := strings.Repeat("r", 250)
+	h := accessRequested(t, func(h *harness) {
+		v := accessView(mcpclient.StatusPending)
+		v.NestedInto, v.Reason, v.TicketURL = nil, long, ""
+		h.appr.Views[approvalID] = v
+	})
+	posted := h.poster.Cards()
+	if len(posted) != 1 {
+		t.Fatalf("card posts = %+v", posted)
+	}
+	lines := posted[0].Card.Lines
+	for _, l := range lines {
+		if strings.HasPrefix(l, "Also gives") {
+			t.Errorf("a card with no nesting has %q", l)
+		}
+	}
+	if !slices.Contains(lines, "Requester says (unverified): "+long[:200]) {
+		t.Errorf("reason not cut to 200: %q", lines)
+	}
+	if !slices.Contains(lines, "Ticket: id 42") {
+		t.Errorf("no ticket id line: %q", lines)
+	}
+}
+
+// covers: spec 0013 AC-16. With no display name from the directory, the
+// user's text names the owner by account.
+func TestAccessOwnerNameFallsBackToAccount(t *testing.T) {
+	h := accessRequested(t, nil)
+	v := accessView(mcpclient.StatusDenied)
+	v.ApproverName = ""
+	h.appr.Decisions[approvalID] = mcpclient.DecisionResponse{Moved: true, Approval: v}
+	h.ownerClick(ilseSlack, false)
+	h.wantPosts(agent.TextAck, answerWith(accessAnswer, agent.FooterOpen),
+		"ilse.smit declined your request for SG-Finance. If you think you need it, talk to them directly.")
+}
+
+// covers: spec 0013 AC-15. A deny whose code close is refused still
+// settles: the close failure is logged, the conversation is resolved, and
+// the user hears the outcome.
+func TestAccessDenyCloseRefusedStillSettles(t *testing.T) {
+	h := accessRequested(t, nil)
+	h.tools.Set("ticket_update", agenttest.Respond(agenttest.Refused("unavailable", "The helpdesk is down.")))
+	h.appr.Decisions[approvalID] = mcpclient.DecisionResponse{Moved: true, Approval: accessView(mcpclient.StatusDenied)}
+	h.ownerClick(ilseSlack, false)
+
+	if !strings.Contains(h.logs.String(), "agent_ticket_close_failed") {
+		t.Error("no agent_ticket_close_failed log")
+	}
+	h.wantStatus(agent.StatusResolved)
+	h.wantPosts(agent.TextAck, answerWith(accessAnswer, agent.FooterOpen),
+		"Ilse Smit declined your request for SG-Finance. If you think you need it, talk to them directly.")
+	if slices.Contains(h.tools.Names(), "escalate") {
+		t.Errorf("a refused close escalated: %v", h.tools.Names())
+	}
+}
+
+// covers: spec 0013 AC-10. Three Slack hiccups use up the post attempts;
+// the next tick cancels and settles as owner unreachable.
+func TestAccessCancelsAfterThreeFailedPosts(t *testing.T) {
+	var mu sync.Mutex
+	clock := now
+	advance := func(d time.Duration) { mu.Lock(); defer mu.Unlock(); clock = clock.Add(d) }
+	h := accessRequested(t, func(h *harness) {
+		h.store.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+		h.users.LookupErr = errors.New("slack_rate_limited")
+	})
+	for range 2 {
+		advance(61 * time.Second)
+		h.a.Tick()
+		h.a.Wait()
+	}
+	if cards := h.store.Cards(); cards[0].PostAttempts != 3 || len(h.appr.Cancels()) != 0 {
+		t.Fatalf("attempts %d, cancels %v", cards[0].PostAttempts, h.appr.Cancels())
+	}
+	advance(61 * time.Second)
+	h.a.Tick()
+	h.a.Wait()
+	if c := h.appr.Cancels(); len(c) != 1 || c[0] != approvalID {
+		t.Fatalf("cancels = %v, want one after the third attempt", c)
+	}
+	if esc := h.lastEscalation(); esc.Args["reason"] != "no_group_owner" {
+		t.Errorf("escalate = %+v", esc.Args)
+	}
+	h.wantStatus(agent.StatusEscalated)
+	if len(h.poster.Cards()) != 0 {
+		t.Errorf("cards posted: %+v", h.poster.Cards())
+	}
+}
+
+// covers: spec 0013 AC-13. When Slack cannot say who clicked, the owner
+// hears to try again and nothing goes to the tool server.
+func TestAccessClickWhileSlackIsDown(t *testing.T) {
+	h := accessRequested(t, nil)
+	h.users.Err = errors.New("slack_down")
+	h.ownerClick(ilseSlack, true)
+	if eph := h.poster.Ephemerals(); len(eph) != 1 || eph[0].Text != agent.TextApprovalUnavailable || len(h.appr.Clicks()) != 0 {
+		t.Errorf("ephemerals %+v, clicks %+v", eph, h.appr.Clicks())
+	}
+}
+
+// covers: spec 0013 AC-10. An owner the tool server cannot read, tick after
+// tick, never uses up the post attempts and never cancels; once the read
+// works, the card posts.
+func TestAccessOwnerUnreadNeverCancels(t *testing.T) {
+	var mu sync.Mutex
+	clock := now
+	advance := func(d time.Duration) { mu.Lock(); defer mu.Unlock(); clock = clock.Add(d) }
+	unread := accessView(mcpclient.StatusPending)
+	unread.ApproverEmail, unread.ApproverName, unread.NestedInto, unread.OwnerUnread = "", "", nil, true
+	h := accessRequested(t, func(h *harness) {
+		h.store.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+		h.appr.Views[approvalID] = unread
+	})
+	for range 5 {
+		advance(61 * time.Second)
+		h.a.Tick()
+		h.a.Wait()
+	}
+	if cards := h.store.Cards(); cards[0].PostAttempts != 0 || len(h.appr.Cancels()) != 0 || len(h.poster.Cards()) != 0 {
+		t.Fatalf("attempts %d, cancels %v, posts %v", cards[0].PostAttempts, h.appr.Cancels(), h.poster.Cards())
+	}
+	h.appr.SetView(accessView(mcpclient.StatusPending))
+	advance(61 * time.Second)
+	h.a.Tick()
+	h.a.Wait()
+	if cards := h.store.Cards(); cards[0].CardTS == "" || cards[0].PostAttempts != 1 || len(h.poster.Cards()) != 1 {
+		t.Errorf("cards %+v, posts %v", cards, h.poster.Cards())
+	}
+	h.wantStatus(agent.StatusOpen)
+}
+
+// covers: spec 0013 AC-10. When storing a posted card fails, the failure is
+// logged, the row stays unposted, and the attempt counts; nothing cancels.
+func TestAccessCardStoreFailsAfterPost(t *testing.T) {
+	h := accessRequested(t, func(h *harness) { h.store.FailOn("SetCardPosted") })
+	cards := h.store.Cards()
+	if len(h.poster.Cards()) != 1 || len(cards) != 1 || cards[0].CardTS != "" || cards[0].PostAttempts != 1 {
+		t.Fatalf("posts %v, cards %+v", h.poster.Cards(), cards)
+	}
+	if !strings.Contains(h.logs.String(), "approval_card_post_failed") {
+		t.Error("no approval_card_post_failed log")
+	}
+	if len(h.appr.Cancels()) != 0 {
+		t.Errorf("cancels = %v", h.appr.Cancels())
+	}
+	h.wantStatus(agent.StatusOpen)
+}
+
+// covers: spec 0013 AC-17. The tick peeks a posted owner card's approval
+// (no live directory read) while it is pending, and reads it in full once
+// it ended, so the settle still names the owner.
+func TestTickPeeksPostedOwnerCards(t *testing.T) {
+	h := accessRequested(t, nil)
+	h.a.Tick()
+	h.a.Wait()
+	if h.appr.Peeks() != 1 || len(h.poster.Cards()) != 1 {
+		t.Fatalf("peeks %d, posts %v", h.appr.Peeks(), h.poster.Cards())
+	}
+	h.appr.SetView(accessView(mcpclient.StatusDenied))
+	h.a.Tick()
+	h.a.Wait()
+	h.wantPosts(agent.TextAck, answerWith(accessAnswer, agent.FooterOpen),
+		"Ilse Smit declined your request for SG-Finance. If you think you need it, talk to them directly.")
+}
+
+// covers: spec 0013 AC-12. A group nested into many groups names the first
+// ten on the card and counts the rest.
+func TestAccessCardCapsAlsoGives(t *testing.T) {
+	var nested []string
+	for i := range 25 {
+		nested = append(nested, fmt.Sprintf("SG-Nested-%02d", i))
+	}
+	h := accessRequested(t, func(h *harness) {
+		v := accessView(mcpclient.StatusPending)
+		v.NestedInto = nested
+		h.appr.Views[approvalID] = v
+	})
+	posted := h.poster.Cards()
+	if len(posted) != 1 {
+		t.Fatalf("card posts = %+v", posted)
+	}
+	want := "Also gives: " + strings.Join(nested[:10], ", ") + " and 15 more"
+	if !slices.Contains(posted[0].Card.Lines, want) {
+		t.Errorf("lines = %q, want %q", posted[0].Card.Lines, want)
 	}
 }

@@ -20,6 +20,8 @@ import (
 const (
 	ApprovalsPath = "/approvals"
 	ExpirePath    = "/approvals/expire"
+	// PeekQuery asks GET /approvals/{id} to skip the live directory reads.
+	PeekQuery = "owner=skip"
 )
 
 // Refusal tokens in a DecisionResponse's Reason (spec 0012, API surface).
@@ -71,14 +73,16 @@ type ApprovalView struct {
 	// cancelled because the owner could not be reached in Slack.
 	CancelReason string `json:"cancel_reason,omitempty"`
 	// For a group owner approval: the owner's account, and their name and
-	// mail read live (both empty when that read failed or the owner is
-	// disabled), the groups an add also gives, and the requester's reason
-	// while the approval still holds it.
+	// mail read live (mail empty when the owner is disabled or has none),
+	// the groups an add also gives, and the requester's reason while the
+	// approval still holds it. OwnerUnread is true when that live read
+	// failed, so the owner fields are empty for that reason alone.
 	ApproverAccount string   `json:"approver_account,omitempty"`
 	ApproverName    string   `json:"approver_name,omitempty"`
 	ApproverEmail   string   `json:"approver_email,omitempty"`
 	NestedInto      []string `json:"nested_into,omitempty"`
 	Reason          string   `json:"reason,omitempty"`
+	OwnerUnread     bool     `json:"owner_unread,omitempty"`
 }
 
 // ApprovalExecution is how an executed or failed approval ended: the outcome,
@@ -174,6 +178,15 @@ func (c *ApprovalClient) Cancel(ctx context.Context, id uuid.UUID) (ApprovalView
 func (c *ApprovalClient) Get(ctx context.Context, id uuid.UUID) (ApprovalView, error) {
 	var out ApprovalView
 	err := c.do(ctx, http.MethodGet, ApprovalsPath+"/"+id.String(), nil, &out)
+	return out, err
+}
+
+// Peek reads one approval without a group owner approval's live directory
+// fields (owner name and mail, nesting, OwnerUnread): what the tick needs
+// to see whether a posted card's approval ended.
+func (c *ApprovalClient) Peek(ctx context.Context, id uuid.UUID) (ApprovalView, error) {
+	var out ApprovalView
+	err := c.do(ctx, http.MethodGet, ApprovalsPath+"/"+id.String()+"?"+PeekQuery, nil, &out)
 	return out, err
 }
 

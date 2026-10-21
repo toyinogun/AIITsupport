@@ -8,7 +8,7 @@ The tool server's approval routes (spec 0012, AC-10 to AC-13), mounted on the MC
 
 | File | Owns |
 |---|---|
-| `approvalapi.go` | `Handler`, `Options`, and the four routes: `POST /approvals/{id}/decision` (`Recorder.Decide`, then `Dispatcher.Execute` on a moved approve), `GET /approvals/{id}` (the view, with `execution` once executed or failed), `GET /approvals?since=` (views without `execution`, up to 100), `POST /approvals/expire` (`Recorder.Expire`, then `Recorder.Abandon`) |
+| `approvalapi.go` | `Handler`, `Options`, and the four routes: `POST /approvals/{id}/decision` (`Recorder.Decide`, then `Dispatcher.Execute` on a moved approve), `GET /approvals/{id}` (the view, with `execution` once executed or failed; `?owner=skip` is the tick's peek, without the live owner reads), `GET /approvals?since=` (views without `execution`, up to 100), `POST /approvals/expire` (`Recorder.Expire`, then `Recorder.Abandon`) |
 | `approvalapi_test.go` | the routes against the in memory store and a fake Graph |
 | `../mcpclient/approvals.go` | the agent's side: `ApprovalsPath`, `ExpirePath`, the status and reason constants, `ApprovalView`, `DecisionResponse` |
 

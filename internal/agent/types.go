@@ -111,6 +111,9 @@ type Approvals interface {
 	// reached (spec 0013, AC-11).
 	Cancel(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error)
 	Get(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error)
+	// Peek reads one approval without a group owner approval's live
+	// directory fields (spec 0013, AC-17): the tick's status check.
+	Peek(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error)
 	// Since lists the approvals created at or after since (the tick's adopt).
 	Since(ctx context.Context, since time.Time) ([]mcpclient.ApprovalView, error)
 	// Expire ends overdue pending approvals and abandons stuck approved ones.

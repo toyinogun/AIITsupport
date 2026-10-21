@@ -38,6 +38,7 @@ type env struct {
 	d      *tools.Dispatcher
 	store  *toolstest.MemStore
 	graph  *graphtest.Fake
+	dir    *toolstest.Directory
 	evaID  string
 	client *mcpclient.ApprovalClient
 	srv    *httptest.Server
@@ -69,6 +70,7 @@ func newEnv(t *testing.T) *env {
 	e.graph.SetPhones(e.evaID, []graphtest.Phone{{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+1 2025550114", PhoneType: "mobile"}})
 
 	dir := toolstest.NewDirectory()
+	e.dir = dir
 	reg, err := tools.NewRegistry(8*time.Hour, tools.WithMFAClear([]string{approver, "U01EVA0001"}, 30*time.Minute))
 	if err != nil {
 		t.Fatal(err)

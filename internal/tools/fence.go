@@ -23,8 +23,8 @@ var FloorDeniedGroups = []string{
 // assistant may change.
 var ErrGroupProtected = errors.New("group is protected")
 
-// Fence guards group targets (spec 0007, AC-13). #9 has no tool that takes a
-// group; #15's group tools call CheckGroup.
+// Fence guards group targets (spec 0007, AC-13). #15's group tools call
+// CheckGroup for one group, and group_search AllowedGroups for many.
 type Fence struct {
 	dir      Directory
 	groupOUs []string
@@ -136,4 +136,52 @@ func (f *Fence) CheckGroup(ctx context.Context, name string) error {
 		return ErrGroupProtected
 	}
 	return nil
+}
+
+// AllowedGroups is CheckGroup for many groups at once (spec 0013, AC-2): it
+// returns, in their order, the groups a tool may change, with two directory
+// reads however many groups there are. A configured denied name that does
+// not resolve allows none. Directory errors come back classified.
+func (f *Fence) AllowedGroups(ctx context.Context, groups []ldap.GroupInfo) ([]ldap.GroupInfo, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	denied := append(slices.Clone(FloorDeniedGroups), f.denied...)
+	found, err := f.dir.GroupsByName(ctx, denied)
+	if err != nil {
+		return nil, directoryFailure(err)
+	}
+	resolved := make(map[string]ldap.Group, len(found))
+	for _, g := range found {
+		resolved[strings.ToLower(g.Name)] = g
+	}
+	for _, d := range f.denied {
+		if _, ok := resolved[strings.ToLower(d)]; !ok {
+			f.logger.ErrorContext(ctx, "denied_group_unresolved")
+			return nil, nil
+		}
+	}
+	parents := make([]string, 0, len(resolved))
+	for _, g := range resolved {
+		parents = append(parents, g.DN)
+	}
+	slices.Sort(parents)
+	nested, err := f.dir.GroupsNestedUnder(ctx, parents, f.groupOUs)
+	if err != nil {
+		return nil, directoryFailure(err)
+	}
+	isNested := func(name string) bool {
+		return slices.ContainsFunc(nested, func(n string) bool { return strings.EqualFold(n, name) })
+	}
+	var allowed []ldap.GroupInfo
+	for _, g := range groups {
+		if f.DeniedName(g.Name) || isNested(g.Name) {
+			continue
+		}
+		if under, err := ldap.UnderAny(g.DN, f.groupOUs, f.base); err != nil || !under {
+			continue
+		}
+		allowed = append(allowed, g)
+	}
+	return allowed, nil
 }

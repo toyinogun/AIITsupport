@@ -55,6 +55,28 @@ func TestGroupOwnerView(t *testing.T) {
 	}
 }
 
+// covers: spec 0013 AC-10, AC-17. A peek leaves out the live owner fields
+// and reads nothing from the directory; a failed live read answers with the
+// owner fields empty and owner_unread set, and the reason still there.
+func TestGroupOwnerViewPeekAndUnread(t *testing.T) {
+	e := newEnv(t)
+	id := e.accessRequest()
+	before := e.dir.CallCount
+	v, err := e.client.Peek(t.Context(), id)
+	if err != nil || v.Status != mcpclient.StatusPending || v.Target != "SG-Finance" || v.ApproverAccount != "ilse.smit" ||
+		v.ApproverName != "" || v.ApproverEmail != "" || v.NestedInto != nil || v.OwnerUnread {
+		t.Errorf("peek = %+v, %v", v, err)
+	}
+	if e.dir.CallCount != before {
+		t.Errorf("a peek read the directory %d times", e.dir.CallCount-before)
+	}
+	e.dir.Err = errors.New("ldap down")
+	v, err = e.client.Get(t.Context(), id)
+	if err != nil || !v.OwnerUnread || v.ApproverName != "" || v.ApproverEmail != "" || v.Reason != "I book invoices" {
+		t.Errorf("view with the directory down = %+v, %v", v, err)
+	}
+}
+
 // covers: spec 0013 AC-13, AC-14. The owner's click with their email
 // approves and runs the add before the answer.
 func TestGroupOwnerApproveExecutes(t *testing.T) {

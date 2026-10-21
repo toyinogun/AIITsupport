@@ -746,6 +746,85 @@ func (f *Directory) GetUser(_ context.Context, dn string) (ldap.User, bool, erro
 	return ldap.User{}, false, nil
 }
 
+// GetUsers finds users by DN, ignoring case, keyed by the DN given, or
+// fails with Err.
+func (f *Directory) GetUsers(_ context.Context, dns []string) (map[string]ldap.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	out := map[string]ldap.User{}
+	for _, dn := range dns {
+		for _, u := range f.Users {
+			if strings.EqualFold(u.DN, dn) {
+				out[dn] = u
+			}
+		}
+	}
+	return out, nil
+}
+
+// UserGroups names the groups under the OUs that UserIn lists for the user
+// at userDN, sorted, or fails with Err.
+func (f *Directory) UserGroups(_ context.Context, userDN string, ous []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	var out []string
+	for dn, in := range f.UserIn {
+		if !strings.EqualFold(dn, userDN) {
+			continue
+		}
+		for _, gdn := range in {
+			out = append(out, f.namesUnder(gdn, ous)...)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
+// GroupsNestedUnder names the groups under the OUs whose NestedIn lists any
+// of parents, sorted, or fails with Err.
+func (f *Directory) GroupsNestedUnder(_ context.Context, parents, ous []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	var out []string
+	for name, in := range f.NestedIn {
+		g, ok := f.Groups[name]
+		if !ok || !slices.ContainsFunc(in, func(p string) bool {
+			return slices.ContainsFunc(parents, func(want string) bool { return strings.EqualFold(p, want) })
+		}) {
+			continue
+		}
+		if under, err := ldap.UnderAny(g.DN, ous, Base); err == nil && under {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// namesUnder names the group at dn when it sits under the OUs.
+func (f *Directory) namesUnder(dn string, ous []string) []string {
+	for n, g := range f.Groups {
+		if strings.EqualFold(g.DN, dn) {
+			if under, err := ldap.UnderAny(g.DN, ous, Base); err == nil && under {
+				return []string{n}
+			}
+		}
+	}
+	return nil
+}
+
 // Cleared lists the DNs ClearLockout wrote, in order.
 func (f *Directory) Cleared() []string {
 	f.mu.Lock()
