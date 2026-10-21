@@ -87,5 +87,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0063](0063-cnpg-managed-roles-keep-argocd-out-of-sync.md) | 2026-10-21 | CNPG managed roles keep the Cluster OutOfSync in ArgoCD | #17 One command GitOps install | ~15 min | post |
 | [0064](0064-a-stray-reset-password-crashed-the-tool-server.md) | 2026-10-21 | A stray reset password crashed the tool server on the first install | #17 One command GitOps install | ~5 min | no |
 | [0065](0065-gitleaks-flags-sealed-ciphertext.md) | 2026-10-21 | gitleaks flags the sealed ciphertext the installer commits | #17 One command GitOps install | ~15 min | post |
+| [0066](0066-the-sealed-allowlist-missed-dotted-keys.md) | 2026-10-21 | The sealed ciphertext allowlist missed dotted key names | #17 One command GitOps install | ~10 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

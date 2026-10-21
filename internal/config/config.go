@@ -150,10 +150,8 @@ type ToolServer struct {
 	TicketCreateLimit int           `env:"TICKET_CREATE_LIMIT" default:"5"`
 	TicketMaxPending  time.Duration `env:"TICKET_MAX_PENDING" default:"720h"`
 
-	// Escalation (feature #11, spec 0009). ZammadPublicURL is Zammad's
-	// browser URL for ticket links, optional; the window bounds the blocked
-	// privileged attempt count.
-	ZammadPublicURL  string        `env:"ZAMMAD_PUBLIC_URL" private:"true"`
+	// Escalation (feature #11, spec 0009): the window bounds the blocked
+	// privileged attempt count. Ticket links use Zammad's ZammadPublicURL.
 	PrivilegedWindow time.Duration `env:"PRIVILEGED_ATTEMPT_WINDOW" default:"24h"`
 
 	KB
@@ -416,8 +414,12 @@ type Graph struct {
 // Zammad is the helpdesk's REST API as the noord-assistant user (spec 0006).
 // The tool server holds it; cmd/seed holds it too, to install the token.
 type Zammad struct {
-	ZammadURL          string        `env:"ZAMMAD_URL" private:"true"`
-	ZammadToken        string        `env:"ZAMMAD_TOKEN" secret:"true"`
+	ZammadURL   string `env:"ZAMMAD_URL" private:"true"`
+	ZammadToken string `env:"ZAMMAD_TOKEN" secret:"true"`
+	// ZammadPublicURL is Zammad's browser URL, optional: the tool server's
+	// ticket and article links (spec 0009), and the fqdn seed helpdesk sets
+	// (spec 0015).
+	ZammadPublicURL    string        `env:"ZAMMAD_PUBLIC_URL" private:"true"`
 	ZammadDefaultGroup string        `env:"ZAMMAD_DEFAULT_GROUP"`
 	ZammadTimeout      time.Duration `env:"ZAMMAD_TIMEOUT" default:"15s"`
 }
@@ -483,6 +485,12 @@ type Install struct {
 	PGAgentPassword      string `env:"PG_AGENT_PASSWORD" secret:"true"`
 	PGToolServerPassword string `env:"PG_TOOLSERVER_PASSWORD" secret:"true"`
 	PGEvalPassword       string `env:"PG_EVAL_PASSWORD" secret:"true"`
+
+	// The demo Zammad's own Postgres and Redis (deploy only, generated):
+	// the chart reads them from noord-zammad, the helpdesk Job from its
+	// own Secret (AC-6, AC-11).
+	ZammadPostgresPassword string `env:"ZAMMAD_POSTGRES_PASSWORD" secret:"true"`
+	ZammadRedisPassword    string `env:"ZAMMAD_REDIS_PASSWORD" secret:"true"`
 }
 
 // The range INSTALL_TIMEOUT must fall in.
@@ -511,18 +519,12 @@ func LoadInstall(lookup LookupFunc) (Install, error) {
 // password never reaches the agent or the tool server.
 type Seed struct {
 	SeedFiles
+	SeedLDAP
 
-	LDAPURL       string        `env:"SEED_LDAP_URL" default:"ldaps://localhost:55636"`
-	CACert        string        `env:"SEED_CA_CERT" default:".dev/certs/ca.pem"`
 	AdminUser     string        `env:"SEED_ADMIN_USER" default:"CN=Administrator,CN=Users,DC=ad,DC=noord,DC=example" private:"true"`
 	AdminPassword string        `env:"SEED_ADMIN_PASSWORD" required:"true" secret:"true"`
 	UserPassword  string        `env:"SEED_USER_PASSWORD" required:"true" secret:"true"`
 	WaitTimeout   time.Duration `env:"SEED_WAIT_TIMEOUT" default:"90s"`
-
-	// ZammadBindPassword is svc-zammad's AD password (spec 0006). Optional
-	// here so LoadSeed callers that never touch Zammad keep working; `seed
-	// directory` and `seed helpdesk` each refuse to run without it.
-	ZammadBindPassword string `env:"SEED_ZAMMAD_BIND_PASSWORD" secret:"true"`
 
 	// The seed app registration (spec 0005), which may create, update,
 	// delete, and restore users. All three unset means Entra is not
@@ -544,6 +546,19 @@ func (s Seed) EntraConfigured() bool {
 	return s.GraphTenantID != "" || s.GraphClientID != "" || s.GraphClientSecret != ""
 }
 
+// SeedLDAP is where the seeded directory answers and svc-zammad's password:
+// the part of Seed that seed helpdesk also reads, so the helpdesk Job never
+// holds the domain Administrator password (spec 0015).
+type SeedLDAP struct {
+	LDAPURL string `env:"SEED_LDAP_URL" default:"ldaps://localhost:55636"`
+	CACert  string `env:"SEED_CA_CERT" default:".dev/certs/ca.pem"`
+
+	// ZammadBindPassword is svc-zammad's AD password (spec 0006). Optional
+	// here so LoadSeed callers that never touch Zammad keep working; `seed
+	// directory` and `seed helpdesk` each refuse to run without it.
+	ZammadBindPassword string `env:"SEED_ZAMMAD_BIND_PASSWORD" secret:"true"`
+}
+
 // SeedFiles locates the seed file, the optional overlay, and the optional
 // Entra demo file. `seed validate` reads only these, so it runs with no
 // passwords and no network.
@@ -554,18 +569,32 @@ type SeedFiles struct {
 	HelpdeskDir   string `env:"SEED_HELPDESK_DIR" default:"seed/helpdesk"`
 }
 
-// SeedHelpdesk is what `seed helpdesk` reads (spec 0006): the directory seed
-// settings for the svc-zammad bind check, the Zammad API settings for the
-// token it installs, and the local Zammad admin only cmd/seed uses.
+// SeedHelpdesk is what `seed helpdesk` reads (spec 0006): the seed files,
+// the directory address for the svc-zammad bind check, the Zammad API
+// settings for the token it installs, and the local Zammad admin only
+// cmd/seed uses. It holds no directory admin password (spec 0015).
 type SeedHelpdesk struct {
-	Seed
+	SeedFiles
+	SeedLDAP
 	Zammad
 	Retention
 
 	ZammadAdminEmail    string        `env:"SEED_ZAMMAD_ADMIN_EMAIL" default:"zammad-admin@noord.example" private:"true"`
 	ZammadAdminPassword string        `env:"SEED_ZAMMAD_ADMIN_PASSWORD" required:"true" secret:"true"`
 	ZammadWaitTimeout   time.Duration `env:"SEED_ZAMMAD_WAIT_TIMEOUT" default:"10m"`
+	// ZammadLDAPHost is the LDAPS host Zammad's LDAP source uses: samba in
+	// Compose, the Samba Service FQDN in the cluster (spec 0015, AC-11).
+	ZammadLDAPHost string `env:"SEED_ZAMMAD_LDAP_HOST" default:"samba"`
+	// ZammadRunner picks how the Rails steps run: docker compose exec, or
+	// in process inside a Zammad image (the cluster's helpdesk Job).
+	ZammadRunner string `env:"SEED_ZAMMAD_RUNNER" default:"compose" oneof:"compose|local"`
 }
+
+// errZammadPublicURL is the one ZAMMAD_PUBLIC_URL rule both loaders apply.
+var errZammadPublicURL = errors.New("ZAMMAD_PUBLIC_URL must be an absolute http or https URL with a host and no credentials, query, or fragment")
+
+// ZammadRunnerLocal runs the Rails steps in process (spec 0015, AC-11).
+const ZammadRunnerLocal = "local"
 
 // SlackConfigured reports whether the Slack tokens are set. LoadAgent has
 // already refused exactly one of them.
@@ -723,7 +752,7 @@ func checkToolLayer(cfg ToolServer) error {
 		errs = append(errs, errors.New("PRIVILEGED_ATTEMPT_WINDOW must be at least 1h"))
 	}
 	if cfg.ZammadPublicURL != "" && !isPublicURL(cfg.ZammadPublicURL) {
-		errs = append(errs, errors.New("ZAMMAD_PUBLIC_URL must be an absolute http or https URL with a host and no credentials, query, or fragment"))
+		errs = append(errs, errZammadPublicURL)
 	}
 	if len(cfg.ToolGroupOUs) == 0 {
 		errs = append(errs, errors.New("TOOL_GROUP_OUS must name at least one OU"))
@@ -810,7 +839,7 @@ func checkSeedEntra(cfg Seed) error {
 func LoadSeedHelpdesk(lookup LookupFunc) (SeedHelpdesk, error) {
 	var cfg SeedHelpdesk
 	err := load(&cfg, lookup)
-	err = errors.Join(err, checkSeedEntra(cfg.Seed), checkZammadToken(cfg.ZammadToken), checkRetention(cfg.Retention))
+	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkRetention(cfg.Retention))
 	errs := missing(map[string]string{
 		"SEED_ZAMMAD_BIND_PASSWORD": cfg.ZammadBindPassword,
 		"ZAMMAD_URL":                cfg.ZammadURL,
@@ -823,10 +852,19 @@ func LoadSeedHelpdesk(lookup LookupFunc) (SeedHelpdesk, error) {
 	if cfg.ZammadTimeout <= 0 {
 		errs = append(errs, errors.New("ZAMMAD_TIMEOUT must be positive"))
 	}
+	if cfg.ZammadPublicURL != "" && !isPublicURL(cfg.ZammadPublicURL) {
+		errs = append(errs, errZammadPublicURL)
+	}
+	// The fqdn is set once, on the fresh seed: in the cluster a blank URL
+	// would leave Zammad's links on the Compose address for good.
+	if cfg.ZammadRunner == ZammadRunnerLocal && cfg.ZammadPublicURL == "" {
+		errs = append(errs, errors.New("ZAMMAD_PUBLIC_URL is required with SEED_ZAMMAD_RUNNER=local"))
+	}
 	err = errors.Join(err, errors.Join(errs...))
 	if err != nil {
 		return SeedHelpdesk{}, fmt.Errorf("seed config: %w", err)
 	}
+	cfg.ZammadPublicURL = strings.TrimRight(cfg.ZammadPublicURL, "/")
 	return cfg, nil
 }
 

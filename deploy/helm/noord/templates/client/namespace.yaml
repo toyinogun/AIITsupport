@@ -1,0 +1,15 @@
+{{- if eq .Values.component "client" }}
+# Baseline, not restricted: the Zammad chart's pods and its databases run
+# with writable root filesystems (AC-12).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: noord-client
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+{{- end }}

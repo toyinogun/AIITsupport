@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -37,10 +38,12 @@ func runHelpdesk(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 
-	if err := waitHealthy(ctx, cfg.ZammadURL, cfg.ZammadWaitTimeout); err != nil {
+	// svc-zammad first: in the cluster the directory may still be coming up
+	// (spec 0015, AC-10), and Zammad's LDAP import needs it.
+	if err := waitZammadBind(ctx, cfg); err != nil {
 		return err
 	}
-	if err := checkZammadBind(cfg); err != nil {
+	if err := waitHealthy(ctx, cfg.ZammadURL, cfg.ZammadWaitTimeout); err != nil {
 		return err
 	}
 	res, err := seeder.Run(ctx)
@@ -88,10 +91,19 @@ func newSeeder(cfg config.SeedHelpdesk) (helpdesk.Seeder, error) {
 	if err != nil {
 		return helpdesk.Seeder{}, err
 	}
+	var runner helpdesk.Runner = helpdesk.ComposeRunner{Dir: wd, Limit: cfg.ZammadWaitTimeout}
+	if cfg.ZammadRunner == config.ZammadRunnerLocal {
+		railsDir, err := filepath.Abs(filepath.Join(cfg.HelpdeskDir, "rails"))
+		if err != nil {
+			return helpdesk.Seeder{}, fmt.Errorf("rails directory: %w", err)
+		}
+		runner = helpdesk.LocalRunner{RailsDir: railsDir, Limit: cfg.ZammadWaitTimeout}
+	}
 	return helpdesk.Seeder{
-		Runner: helpdesk.ComposeRunner{Dir: wd, Limit: cfg.ZammadWaitTimeout},
+		Runner: runner,
 		Admin:  admin, Assistant: assistant, Content: content, Model: m, Marker: marker,
 		Group: cfg.ZammadDefaultGroup, RetentionDays: cfg.TicketRetentionDays,
+		LDAPHost: cfg.ZammadLDAPHost, PublicURL: cfg.ZammadPublicURL,
 		Secrets: helpdesk.Secrets{
 			AdminEmail: cfg.ZammadAdminEmail, AdminPassword: cfg.ZammadAdminPassword,
 			BindPassword: cfg.ZammadBindPassword, AssistantToken: cfg.ZammadToken,
@@ -124,19 +136,33 @@ func waitHealthy(ctx context.Context, url string, wait time.Duration) error {
 	}
 }
 
-// checkZammadBind binds as svc-zammad, so a directory older than spec 0006
-// (no svc-zammad) fails before Zammad is touched.
-func checkZammadBind(cfg config.SeedHelpdesk) error {
+// errZammadBind is a wrong svc-zammad password: waiting never fixes it.
+var errZammadBind = errors.New("svc-zammad cannot bind with SEED_ZAMMAD_BIND_PASSWORD (a directory older than the helpdesk, or a changed password); run make directory-reset")
+
+// waitZammadBind binds as svc-zammad until it works or
+// SEED_ZAMMAD_WAIT_TIMEOUT passes, so a directory older than spec 0006 (no
+// svc-zammad) fails before Zammad is touched and one still starting is
+// waited for. Wrong credentials fail at once.
+func waitZammadBind(ctx context.Context, cfg config.SeedHelpdesk) error {
 	pool, err := noordldap.LoadCA(cfg.CACert)
 	if err != nil {
 		return err
 	}
-	conn, err := noordldap.Dialer{URL: cfg.LDAPURL, RootCAs: pool}.Bind(helpdesk.ZammadBindDN, cfg.ZammadBindPassword)
-	if err != nil {
-		if ldap.IsErrorWithCode(errors.Unwrap(err), ldap.LDAPResultInvalidCredentials) || ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
-			return errors.New("svc-zammad cannot bind with SEED_ZAMMAD_BIND_PASSWORD (a directory older than the helpdesk, or a changed password); run make directory-reset")
+	ctx, cancel := context.WithTimeout(ctx, cfg.ZammadWaitTimeout)
+	defer cancel()
+	d := noordldap.Dialer{URL: cfg.LDAPURL, RootCAs: pool}
+	for {
+		conn, err := d.Bind(helpdesk.ZammadBindDN, cfg.ZammadBindPassword)
+		if err == nil {
+			return conn.Close()
 		}
-		return fmt.Errorf("check svc-zammad: %w", err)
+		if ldap.IsErrorWithCode(errors.Unwrap(err), ldap.LDAPResultInvalidCredentials) || ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
+			return errZammadBind
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("check svc-zammad within %s (SEED_ZAMMAD_WAIT_TIMEOUT): %w", cfg.ZammadWaitTimeout, err)
+		case <-time.After(healthPoll):
+		}
 	}
-	return conn.Close()
 }

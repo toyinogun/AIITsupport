@@ -11,6 +11,7 @@
 //	seed entra sync [--only U]           make Entra match SYNC-Entra-Users (spec 0005)
 //	seed entra mfa [--clear] <user>      list or clear a user's phone methods (tool server app)
 //	seed helpdesk                        fill a fresh Zammad from seed/helpdesk/ (spec 0006)
+//	seed export <dir>                    copy the seed executable and the helpdesk tree to dir (spec 0015)
 //	seed migrate                         wait for the database, then apply the migrations (spec 0015)
 //	seed install --cluster C             install or update a cluster through ArgoCD (spec 0015)
 package main
@@ -38,6 +39,7 @@ const usage = `usage:
   seed entra sync [--only <username>]
   seed entra mfa [--clear] <username>
   seed helpdesk
+  seed export <dir>
   seed migrate
   seed install --cluster <name>`
 
@@ -74,6 +76,8 @@ func run(args []string, out io.Writer) error {
 		return runEntra(ctx, rest, out)
 	case "helpdesk":
 		return runHelpdesk(ctx, rest, out)
+	case "export":
+		return runExport(rest, out)
 	case "migrate":
 		return runMigrate(ctx, rest, out)
 	case "install":

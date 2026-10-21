@@ -4,3 +4,11 @@ description: Noord's AI IT support engineer (spec 0015). One component per ArgoC
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+# The demo helpdesk (spec 0015, AC-10). Vendored in charts/ (helm dependency
+# update) so ArgoCD never fetches it or its OCI subcharts; bump the version,
+# rerun the update, and commit Chart.lock with the new archive.
+dependencies:
+  - name: zammad
+    version: 20.0.0
+    repository: https://zammad.github.io/zammad-helm
+    condition: zammad.enabled

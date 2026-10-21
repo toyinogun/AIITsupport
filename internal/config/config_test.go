@@ -814,8 +814,6 @@ func TestZammadTokenFormat(t *testing.T) {
 
 func minimalSeedHelpdeskEnv() map[string]string {
 	return map[string]string{
-		"SEED_ADMIN_PASSWORD":        "admin-test",
-		"SEED_USER_PASSWORD":         "user-test",
 		"SEED_ZAMMAD_BIND_PASSWORD":  "bind-test",
 		"SEED_ZAMMAD_ADMIN_PASSWORD": "zammad-admin-test",
 		"ZAMMAD_URL":                 "http://127.0.0.1:58080",
@@ -831,15 +829,53 @@ func TestLoadSeedHelpdesk(t *testing.T) {
 			t.Fatalf("LoadSeedHelpdesk: %v", err)
 		}
 		if cfg.ZammadAdminEmail != "zammad-admin@noord.example" || cfg.ZammadWaitTimeout != 10*time.Minute ||
-			cfg.ZammadTimeout != 15*time.Second || cfg.HelpdeskDir != "seed/helpdesk" {
+			cfg.ZammadTimeout != 15*time.Second || cfg.HelpdeskDir != "seed/helpdesk" ||
+			cfg.ZammadLDAPHost != "samba" || cfg.ZammadRunner != "compose" {
 			t.Errorf("unexpected defaults: %+v", cfg)
 		}
 	})
+	// covers: AC-5, AC-11 (spec 0015). The helpdesk Job's Secret holds no
+	// domain Administrator or seed user password, so seed helpdesk must not
+	// need them.
+	t.Run("needs no directory admin password", func(t *testing.T) {
+		for _, name := range Sealed(&SeedHelpdesk{}) {
+			if name == "SEED_ADMIN_PASSWORD" || name == "SEED_USER_PASSWORD" || strings.HasPrefix(name, "SEED_GRAPH_") {
+				t.Errorf("SeedHelpdesk reads %s", name)
+			}
+		}
+	})
+	t.Run("reads ZAMMAD_PUBLIC_URL for the fqdn", func(t *testing.T) {
+		env := minimalSeedHelpdeskEnv()
+		env["ZAMMAD_PUBLIC_URL"] = "https://helpdesk.example.ts.net/"
+		cfg, err := LoadSeedHelpdesk(envFrom(env))
+		if err != nil || cfg.ZammadPublicURL != "https://helpdesk.example.ts.net" {
+			t.Errorf("ZammadPublicURL = %q, err = %v", cfg.ZammadPublicURL, err)
+		}
+		env["ZAMMAD_PUBLIC_URL"] = "helpdesk.example"
+		if _, err := LoadSeedHelpdesk(envFrom(env)); err == nil || !strings.Contains(err.Error(), "ZAMMAD_PUBLIC_URL") {
+			t.Errorf("got %v, want a ZAMMAD_PUBLIC_URL error", err)
+		}
+	})
+	t.Run("the local runner needs ZAMMAD_PUBLIC_URL", func(t *testing.T) {
+		env := minimalSeedHelpdeskEnv()
+		env["SEED_ZAMMAD_RUNNER"] = "local"
+		if _, err := LoadSeedHelpdesk(envFrom(env)); err == nil || !strings.Contains(err.Error(), "ZAMMAD_PUBLIC_URL") {
+			t.Errorf("got %v, want a ZAMMAD_PUBLIC_URL error", err)
+		}
+		env["ZAMMAD_PUBLIC_URL"] = "https://helpdesk.example.ts.net"
+		if _, err := LoadSeedHelpdesk(envFrom(env)); err != nil {
+			t.Errorf("with the URL: %v", err)
+		}
+	})
+	t.Run("rejects an unknown runner", func(t *testing.T) {
+		env := minimalSeedHelpdeskEnv()
+		env["SEED_ZAMMAD_RUNNER"] = "ssh"
+		if _, err := LoadSeedHelpdesk(envFrom(env)); err == nil || !strings.Contains(err.Error(), "SEED_ZAMMAD_RUNNER") {
+			t.Errorf("got %v, want a SEED_ZAMMAD_RUNNER error", err)
+		}
+	})
 	t.Run("reports every missing setting", func(t *testing.T) {
-		_, err := LoadSeedHelpdesk(envFrom(map[string]string{
-			"SEED_ADMIN_PASSWORD": "admin-test",
-			"SEED_USER_PASSWORD":  "user-test",
-		}))
+		_, err := LoadSeedHelpdesk(envFrom(map[string]string{}))
 		if err == nil {
 			t.Fatal("LoadSeedHelpdesk accepted missing settings")
 		}

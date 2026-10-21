@@ -92,3 +92,97 @@ directory:
     resources:
       requests: {cpu: 50m, memory: 64Mi}
       limits: {cpu: 500m, memory: 256Mi}
+
+# The demo helpdesk (component client, AC-10, AC-11): our Elasticsearch, the
+# helpdesk seed Job, and the tailnet host of Zammad's web UI.
+helpdesk:
+  # The UI's tailnet host; empty means noord-<cluster>-helpdesk (AC-15).
+  tailscaleHost: ""
+  elasticsearch:
+    image: elasticsearch:9.5.5
+    heap: 1g
+    storage:
+      size: 5Gi
+    storageClass: ""   # empty: the cluster's default StorageClass
+    resources:
+      requests: {cpu: 250m, memory: 1536Mi}
+      limits: {cpu: "2", memory: 2Gi}
+  seed:
+    waitTimeout: 15m
+    # A failed step leaves Zammad half seeded, so a retry only finds
+    # needs_reset; the seed waits for Samba and Zammad itself.
+    backoffLimit: 0
+    # Zammad's Rails sizes: the seed runs Rails in process.
+    resources:
+      requests: {cpu: 500m, memory: 1Gi}
+      limits: {cpu: "2", memory: 2Gi}
+    exportResources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+
+# The Zammad chart 20.0.0 (charts/), rendered only by the client Application,
+# which sets enabled. Its own Postgres, Redis, and Memcached read their
+# passwords from noord-zammad; ECK Elasticsearch and RustFS stay off.
+zammad:
+  enabled: false
+  # Names the web Service zammad-nginx (the tool server's ZAMMAD_URL).
+  fullnameOverride: zammad
+  image:
+    tag: 7.2.2-0012   # the chart's appVersion, pinned here so the seed Job runs the same image
+  # Zammad after its databases (wave 0), before the seed Job (wave 2).
+  commonAnnotations:
+    argocd.argoproj.io/sync-wave: "1"
+  secrets:
+    postgresql:
+      useExisting: true
+      secretName: noord-zammad
+      secretKey: postgres-password
+    redis:
+      useExisting: true
+      secretName: noord-zammad
+      secretKey: redis-password
+  zammadConfig:
+    elasticsearch:
+      enabled: false
+      host: elasticsearch
+      port: 9200
+      schema: http
+      initialisation: true
+    rustfs:
+      enabled: false
+    postgresql:
+      pass: ""
+    redis:
+      pass: ""
+    initContainers:
+      # A privileged root chmod of an emptyDir; baseline refuses it and
+      # fsGroup already makes the tmp dir writable (AC-12).
+      volumePermissions:
+        enabled: false
+    # Zammad's init runs as an ArgoCD hook on every sync: its name never
+    # changes under ArgoCD, so as a plain Job a TTL delete would make it
+    # drift and an image bump would hit its immutable spec.
+    initJob:
+      annotations:
+        argocd.argoproj.io/hook: Sync
+        argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # The demo CA for Zammad's LDAPS (the scheduler's LDAP sync included).
+    customVolumes:
+      - name: noord-ca
+        configMap:
+          name: noord-ca
+          items:
+            - {key: ca.crt, path: ca.pem}
+    customVolumeMounts:
+      - name: noord-ca
+        mountPath: /opt/noord-seed
+        readOnly: true
+  postgres:
+    auth:
+      existingSecret: noord-zammad
+      secretKeys:
+        adminPasswordKey: postgres-password
+  redis:
+    auth:
+      existingSecret: noord-zammad
+      existingSecretPasswordKey: redis-password

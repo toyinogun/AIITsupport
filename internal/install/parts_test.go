@@ -78,6 +78,7 @@ func tracerEnv(t *testing.T) *EnvFile {
 		"LDAP_BIND_PASSWORD=pw",
 		"ZAMMAD_URL=https://zammad.example",
 		"ZAMMAD_TOKEN=" + strings.Repeat("z", 40),
+		"ZAMMAD_PUBLIC_URL=https://noord-k3sprox-helpdesk.example.ts.net",
 		"SLACK_BOT_TOKEN=",
 		`SEED_ADMIN_USER="CN=Administrator,CN=Users,DC=ad,DC=noord,DC=example"`,
 	}, "\n")))

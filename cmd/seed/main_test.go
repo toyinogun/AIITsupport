@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -16,6 +18,8 @@ func TestRunUsageErrors(t *testing.T) {
 		{"lock", "a.b", "c.d"},
 		{"validate", "extra"},
 		{"helpdesk", "extra"},
+		{"export"},
+		{"export", "a", "b"},
 	}
 	for _, args := range cases {
 		err := run(args, &bytes.Buffer{})
@@ -42,6 +46,44 @@ func TestRunValidate(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output = %q, want %q", out.String(), want)
 		}
+	}
+}
+
+// covers: AC-11 (spec 0015). export copies the executable, the user list,
+// and the helpdesk tree where the Zammad Job runs them.
+func TestRunExport(t *testing.T) {
+	t.Setenv("SEED_FILE", "../../seed/directory/noord.yaml")
+	t.Setenv("SEED_HELPDESK_DIR", "../../seed/helpdesk")
+	dir := t.TempDir()
+	var out bytes.Buffer
+	if err := run([]string{"export", dir}, &out); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(dir, exportBinary))
+	if err != nil || info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("the exported seed is not executable: %v, %v", info, err)
+	}
+	for _, rel := range []string{exportSeedFile, exportHelpdeskDir + "/rails/bootstrap.rb", exportHelpdeskDir + "/tickets.yaml"} {
+		want, _ := os.ReadFile(filepath.Join("../../seed", strings.TrimPrefix(rel, "data/seed/")))
+		got, err := os.ReadFile(filepath.Join(dir, rel)) //nolint:gosec // G304: the test's own dir
+		if err != nil || !bytes.Equal(got, want) {
+			t.Errorf("%s differs from the repo copy (err %v)", rel, err)
+		}
+	}
+	if !strings.Contains(out.String(), "exported seed, noord.yaml and") {
+		t.Errorf("output = %q", out.String())
+	}
+}
+
+func TestRunExportUnwritable(t *testing.T) {
+	t.Setenv("SEED_FILE", "../../seed/directory/noord.yaml")
+	t.Setenv("SEED_HELPDESK_DIR", "../../seed/helpdesk")
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"export", filepath.Join(file, "dir")}, &bytes.Buffer{}); err == nil {
+		t.Error("export into a path under a file succeeded")
 	}
 }
 

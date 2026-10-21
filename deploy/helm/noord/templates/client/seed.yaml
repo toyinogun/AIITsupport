@@ -1,0 +1,100 @@
+{{- /* The helpdesk seed Job's spec, rendered once: its hash names the Job
+(AC-10), so any change to what it runs (an image, a value, the Zammad chart's
+environment, seedRun) makes a new Job, and a self heal never does. A plain
+Job, not a sync hook. The seed image tag covers the seed files. */}}
+{{- define "noord.seedHelpdeskSpec" -}}
+{{- $seed := .Values.helpdesk.seed }}
+{{- $z := .Values.zammad }}
+spec:
+  backoffLimit: {{ $seed.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seed-helpdesk
+      annotations:
+        # make resume bumps it, so the hash changes and the seed runs again.
+        noord.example/seed-run: {{ .Values.seedRun | quote }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      # The Zammad image's user, as in the chart's Rails pods.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Our seed executable and the helpdesk tree, copied in without a shell.
+      initContainers:
+        - name: export
+          image: {{ include "noord.image" (list . "seed") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["export", "/shared"]
+          resources:
+            {{- toYaml $seed.exportResources | nindent 12 }}
+          {{- include "noord.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - {name: shared, mountPath: /shared}
+      containers:
+        - name: seed
+          image: {{ printf "%s:%s" $z.image.repository $z.image.tag | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/shared/seed", "helpdesk"]
+          # The marker hashes paths relative to here (spec 0006).
+          workingDir: /
+          env:
+            {{- include "noord.zammadRailsEnv" . | nindent 12 }}
+            {{- include "noord.env" (dict
+              "SEED_ZAMMAD_RUNNER" "local"
+              "SEED_ZAMMAD_LDAP_HOST" "samba.noord-directory.svc.cluster.local"
+              "SEED_LDAP_URL" "ldaps://samba.noord-directory.svc.cluster.local:636"
+              "SEED_CA_CERT" "/opt/noord-seed/ca.pem"
+              "SEED_FILE" "/shared/data/seed/directory/noord.yaml"
+              "SEED_OVERLAY_FILE" "/shared/data/seed/directory/overlay.local.yaml"
+              "SEED_HELPDESK_DIR" "/shared/data/seed/helpdesk"
+              "SEED_ZAMMAD_WAIT_TIMEOUT" $seed.waitTimeout
+              "ZAMMAD_URL" "http://zammad-nginx.noord-client.svc:8080"
+              "ZAMMAD_DEFAULT_GROUP" .Values.toolserver.zammadDefaultGroup
+              "TICKET_RETENTION_DAYS" .Values.ticketRetentionDays) | trim | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: noord-seed-helpdesk
+          resources:
+            {{- toYaml $seed.resources | nindent 12 }}
+          {{- include "noord.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - {name: shared, mountPath: /shared, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: tmp, mountPath: /opt/zammad/tmp}
+            - {name: ca, mountPath: /opt/noord-seed, readOnly: true}
+      volumes:
+        - {name: shared, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+        - name: ca
+          configMap:
+            name: noord-ca
+            items:
+              - {key: ca.crt, path: ca.pem}
+{{- end -}}
+
+{{- if eq .Values.component "client" }}
+{{- if not .Values.zammad.enabled }}
+{{- fail "the client part needs zammad.enabled=true (the noord-client Application sets it)" }}
+{{- end }}
+{{- $spec := include "noord.seedHelpdeskSpec" . }}
+{{- /* The spec, plus what it reads but does not show: the Secret's sealed
+block, and the CA (part of the helpdesk marker). */}}
+{{- $hash := list $spec (index .Values.sealed "noord-seed-helpdesk") .Values.ca.certificate | toYaml | sha256sum | trunc 10 }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-helpdesk-{{ $hash }}
+  namespace: noord-client
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    app.kubernetes.io/name: seed-helpdesk
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+{{ $spec }}
+{{- end }}

@@ -21,7 +21,9 @@ import (
 const (
 	componentDirectory = "directory"
 	directoryNamespace = "noord-directory"
-	overlaysSecret     = "noord-seed-overlays" //nolint:gosec // a Secret name, not a credential
+	// componentClient is the demo helpdesk: Zammad and its seed (AC-10).
+	componentClient = "client"
+	overlaysSecret  = "noord-seed-overlays" //nolint:gosec // a Secret name, not a credential
 	// renewBefore is how close to expiry the Samba server certificate is
 	// made again.
 	renewBefore = 60 * 24 * time.Hour
@@ -35,10 +37,10 @@ var overlayFiles = []struct{ path, key string }{
 }
 
 // components are the parts this install renders: the agent stack, plus the
-// demo directory. The helpdesk part arrives with build plan task 3.
+// demo directory and helpdesk.
 func components(demo bool) []string {
 	if demo {
-		return []string{componentAgent, componentDirectory}
+		return []string{componentAgent, componentDirectory, componentClient}
 	}
 	return []string{componentAgent}
 }

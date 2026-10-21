@@ -108,3 +108,19 @@ securityContext:
   value: {{ $v | toString | quote }}
 {{ end -}}
 {{- end -}}
+
+{{/*
+zammadRailsEnv: the database, Redis, and Memcached environment of the Zammad
+chart's Rails pods, from its own zammad.env template and the same values,
+with the two passwords read from the helpdesk Job's own Secret (AC-11). A
+test compares its names with the rendered railsserver container's.
+*/}}
+{{- define "noord.zammadRailsEnv" -}}
+{{- $own := dict "secrets" (dict
+  "postgresql" (dict "useExisting" true "secretName" "noord-seed-helpdesk" "secretKey" "ZAMMAD_POSTGRES_PASSWORD")
+  "redis" (dict "useExisting" true "secretName" "noord-seed-helpdesk" "secretKey" "ZAMMAD_REDIS_PASSWORD")) -}}
+{{- $values := merge $own (deepCopy .Values.zammad) -}}
+{{- $ctx := dict "Values" $values "Release" .Release -}}
+{{- include "zammad.env" $ctx }}
+{{ include "zammad.env.failOnPendingMigrations" $ctx -}}
+{{- end -}}
