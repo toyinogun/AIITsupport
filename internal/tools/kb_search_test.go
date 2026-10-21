@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/toyinogun/AIITsupport/internal/zammad"
 	"github.com/toyinogun/AIITsupport/internal/zammad/zammadtest"
 )
 
@@ -248,6 +250,93 @@ func TestKBSearchRanking(t *testing.T) {
 	got = resultIDs(t, h.call(ToolKBSearch, `{"query":"vpn"}`, eva()))
 	if want := []int{wireguard.ID, securelink.ID, policy.ID}; !slices.Equal(got, want) {
 		t.Errorf("vpn: ids = %v, want %v", got, want)
+	}
+}
+
+// covers: spec 0014 AC-3. A hit in another locale never reaches the model
+// and is never read.
+func TestKBSearchDropsOtherLocales(t *testing.T) {
+	h := newHarness(t)
+	dutch := kbAnswer("VPN thuis", "<p>vpn</p>", "2026-05-01")
+	dutch.Locale = "nl-nl"
+	h.zammad.AddKBAnswer(dutch)
+	english := h.zammad.AddKBAnswer(kbAnswer("VPN from home", "<p>vpn</p>", "2026-04-01"))
+
+	resp := h.call(ToolKBSearch, `{"query":"vpn"}`, eva())
+	if got := resultIDs(t, resp); !slices.Equal(got, []int{english.ID}) {
+		t.Errorf("ids = %v, want only the en-us answer %d", got, english.ID)
+	}
+	if n := answersRead(h); n != 1 {
+		t.Errorf("answers read = %d, want 1", n)
+	}
+}
+
+// covers: spec 0014 AC-3. Candidates are the first n distinct en-us answer
+// hits in Zammad's order: a second hit for the same answer and a hit in
+// another locale take no slot.
+func TestKBCandidateHits(t *testing.T) {
+	hits := []zammad.KBHit{
+		{TranslationID: 11, AnswerID: 1, Locale: "en-us"},
+		{TranslationID: 12, AnswerID: 1, Locale: "en-us"}, // the same answer again
+		{TranslationID: 21, AnswerID: 2, Locale: "nl-nl"},
+		{TranslationID: 31, AnswerID: 3, Locale: "en-us"},
+		{TranslationID: 41, AnswerID: 4, Locale: "en-us"},
+	}
+	got := kbCandidateHits(hits, 2)
+	if want := []zammad.KBHit{hits[0], hits[3]}; !slices.Equal(got, want) {
+		t.Errorf("candidates = %+v, want %+v", got, want)
+	}
+	if got := kbCandidateHits(hits, 10); len(got) != 3 {
+		t.Errorf("with room for all: %d candidates, want 3", len(got))
+	}
+}
+
+// covers: spec 0014 AC-3. When the score and the full updated_at tie, the
+// candidate Zammad listed first ranks first, whatever order they arrive in.
+func TestKBRankTieKeepsZammadOrder(t *testing.T) {
+	same := kbDay("2026-04-01")
+	cand := func(id, order int) kbCandidate {
+		return kbCandidate{read: kbRead{tr: zammad.AnswerTranslation{AnswerID: id, UpdatedAt: same}, ok: true}, score: 3, order: order}
+	}
+	ranked := kbRank([]kbCandidate{cand(30, 2), cand(10, 0), cand(40, 3), cand(20, 1)}, 3)
+	var ids []int
+	for _, c := range ranked {
+		ids = append(ids, c.read.tr.AnswerID)
+	}
+	if want := []int{10, 20, 30}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+}
+
+// bodilessAnswers is a Zammad that answers GetAnswer with the translation
+// but never its content.
+type bodilessAnswers struct {
+	HelpdeskAPI
+	contentIDs []int
+}
+
+func (b *bodilessAnswers) GetAnswer(_ context.Context, _, answerID int, contentIDs ...int) (zammad.Answer, error) {
+	b.contentIDs = append(b.contentIDs, contentIDs...)
+	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
+	return zammad.Answer{ID: answerID, Assets: map[string]json.RawMessage{
+		"KnowledgeBaseAnswer": raw(`{"7":{"id":7,"category_id":3,"published_at":"2020-01-01T00:00:00Z"}}`),
+		"KnowledgeBaseAnswerTranslation": raw(`{"70":{"id":70,"title":"VPN","kb_locale_id":1,"answer_id":7,` +
+			`"content_id":700,"updated_at":"2026-04-01T07:00:00Z"}}`),
+	}}, nil
+}
+
+// covers: spec 0014 AC-12. An answer that sends no body, even when asked
+// for its translation's own content, fails the read (Zammad changed shape)
+// instead of reaching the model empty.
+func TestKBAnswerWithoutBody(t *testing.T) {
+	api := &bodilessAnswers{}
+	h := NewHelpdesk(api, "IT Support", "")
+	_, _, err := h.answerTranslation(t.Context(), zammadtest.KBID, zammad.KBHit{TranslationID: 70, AnswerID: 7, Locale: "en-us"})
+	if err == nil {
+		t.Fatal("answerTranslation accepted an answer with no body")
+	}
+	if want := []int{70, 700}; !slices.Equal(api.contentIDs, want) {
+		t.Errorf("content ids asked = %v, want the translation id, then its content_id %v", api.contentIDs, want)
 	}
 }
 

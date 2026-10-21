@@ -214,6 +214,55 @@ func TestKBAnswerNotLostAfterClose(t *testing.T) {
 		h.send(dm("Ev1", vpnQuestion))
 		h.wantPosts(agent.TextAck, agent.TextResolvedNoSummary)
 	})
+	// twoSearches searches twice, closes, then fails; the second search's
+	// result comes from second.
+	twoSearches := func(t *testing.T, second mcpclient.Result) *harness {
+		tools := agenttest.NewTools(janUser, false)
+		tools.Set("kb_search", func(_ context.Context, c agenttest.ToolCall) (mcpclient.Result, error) {
+			if c.Args["query"] == "vpn" {
+				return kbFound(kbArticle(14, "Connect to the VPN (WireGuard)", "2026-04-20", false, "x", wireguardURL)), nil
+			}
+			return second, nil
+		})
+		model := agenttest.NewModel(
+			agenttest.CallTool("t1", "ticket_create", map[string]any{"title": "VPN from home", "body": vpnQuestion}),
+			agenttest.CallTool("t2", "kb_search", map[string]any{"query": "vpn"}),
+			agenttest.CallTool("t3", "kb_search", map[string]any{"query": "remote access"}),
+			agenttest.CallTool("t4", "ticket_update", map[string]any{"state": "closed", "note": "Answered from the KB."}),
+			fails,
+		)
+		h := newHarness(t, model, withTools(tools))
+		h.send(dm("Ev1", vpnQuestion))
+		h.wantStatus(agent.StatusResolved)
+		return h
+	}
+	t.Run("the last search wins", func(t *testing.T) {
+		policyURL := "http://127.0.0.1:58080/help/en-us/3/15"
+		h := twoSearches(t, kbFound(kbArticle(15, "Working from home", "2025-08-25", false, "x", policyURL)))
+		h.wantPosts(agent.TextAck, agent.TextKBAnswerFallback+"<"+policyURL+"|Working from home>")
+	})
+	t.Run("a failed search is not the last ok one", func(t *testing.T) {
+		h := twoSearches(t, agenttest.Refused("unavailable", "The helpdesk could not be reached."))
+		h.wantPosts(agent.TextAck, agent.TextKBAnswerFallback+"<"+wireguardURL+"|Connect to the VPN (WireGuard)>")
+	})
+	t.Run("an empty last search gives no link", func(t *testing.T) {
+		h := twoSearches(t, kbFound())
+		h.wantPosts(agent.TextAck, agent.TextResolvedNoSummary)
+	})
+	t.Run("unreadable history", func(t *testing.T) {
+		var h *harness
+		failAfterClose := func(_ context.Context, _ anthropic.MessageNewParams) (*anthropic.Message, error) {
+			h.store.FailOn("ListMessages")
+			return nil, errors.New("model down")
+		}
+		h = newHarness(t, kbScript(failAfterClose), withTools(vpnTools()))
+		h.send(dm("Ev1", vpnQuestion))
+		h.wantStatus(agent.StatusResolved)
+		h.wantPosts(agent.TextAck, agent.TextResolvedNoSummary)
+		if lines := logLines(t, h.logs.String(), "agent_history_read_failed"); len(lines) == 0 {
+			t.Error("no agent_history_read_failed line")
+		}
+	})
 	t.Run("token budget", func(t *testing.T) {
 		// Each scripted call counts 1800 toward the budget (3600 raw, its
 		// 2000 cache reads at a tenth, spec 0014 AC-18): the budget runs out

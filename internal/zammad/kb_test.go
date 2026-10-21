@@ -3,6 +3,7 @@ package zammad_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -43,6 +44,66 @@ func TestKBInitFails(t *testing.T) {
 	}
 	if _, err := tokenClient(t, f).KBInit(t.Context()); zammad.Status(err) != http.StatusServiceUnavailable {
 		t.Errorf("err = %v, want 503", err)
+	}
+}
+
+// rawZammad is a Zammad that answers every request with body, for response
+// shapes the fake never sends.
+func rawZammad(t *testing.T, body string) *zammad.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := zammad.New(zammad.Options{BaseURL: srv.URL, Auth: zammad.TokenAuth(zammadtest.Token), Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("zammad.New: %v", err)
+	}
+	return c
+}
+
+// covers: spec 0014 AC-3, AC-12. The init read takes the one active
+// knowledge base and skips an inactive one; none active, or two, is an
+// unexpected shape and fails.
+func TestKBInitShapes(t *testing.T) {
+	kb := func(id int, active bool) string {
+		return `"` + strconv.Itoa(id) + `":{"id":` + strconv.Itoa(id) + `,"active":` + strconv.FormatBool(active) + `}`
+	}
+	cats := `"KnowledgeBaseCategoryTranslation":{"9":{"title":"Printers","kb_locale_id":1,"category_id":5}}`
+
+	meta, err := rawZammad(t, `{"KnowledgeBase":{`+kb(1, false)+`,`+kb(2, true)+`},`+cats+`}`).KBInit(t.Context())
+	if err != nil || meta.ID != 2 || meta.Categories[5][1] != "Printers" {
+		t.Errorf("one active of two: meta %+v, err %v", meta, err)
+	}
+	for name, kbs := range map[string]string{
+		"none active": kb(1, false),
+		"no kb":       ``,
+		"two active":  kb(1, true) + `,` + kb(2, true),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := rawZammad(t, `{"KnowledgeBase":{`+kbs+`},`+cats+`}`).KBInit(t.Context()); err == nil {
+				t.Error("KBInit accepted it")
+			}
+		})
+	}
+}
+
+// covers: spec 0014 AC-12. A hit whose translation id or answer id is not a
+// positive number fails the search, like a portal path that does not parse.
+func TestSearchKBUnexpectedID(t *testing.T) {
+	for name, detail := range map[string]string{
+		"translation id 0": `{"id":0,"type":"KnowledgeBase::Answer::Translation","url":"/help/en-us/3/14"}`,
+		"answer id 0":      `{"id":70,"type":"KnowledgeBase::Answer::Translation","url":"/help/en-us/3/0"}`,
+		"answer id too big": `{"id":70,"type":"KnowledgeBase::Answer::Translation","url":"/help/en-us/3/` +
+			`99999999999999999999"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := rawZammad(t, `{"result":[],"details":[`+detail+`]}`).SearchKB(t.Context(), zammadtest.KBID, "en-us", "vpn", 20)
+			if err == nil {
+				t.Error("SearchKB accepted the hit")
+			}
+		})
 	}
 }
 
