@@ -76,5 +76,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0052](0052-govulncheck-flags-go-1-27-2.md) | 2026-10-21 | govulncheck flagged the Go 1.27.2 standard library partway through a feature build | #4 Coding standards & tooling | ~15 min | no |
 | [0053](0053-elasticsearch-disk-watermark-stalled-zammad-init.md) | 2026-10-21 | A full Docker disk stalled the Zammad reset at the Elasticsearch watermark | #15 Access requests via group owner | ~12 min | post |
 | [0054](0054-pgrep-wait-loop-matched-itself.md) | 2026-10-21 | A pgrep wait loop matched itself, so the binaries never started | #15 Access requests via group owner | ~5 min | no |
+| [0055](0055-rate-limits-outlived-the-reset-during-live-verify.md) | 2026-10-21 | The per person rate limits outlived the reset and blocked the live verify | #15 Access requests via group owner | ~15 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

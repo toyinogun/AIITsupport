@@ -252,7 +252,7 @@ spec [0012](../specs/0012-mfa-reregistration-approval/index.md) · code in `inte
   - [x] Refusals and escalation: the full precheck order, `one_per_thread` and the pending limits, `protected` in the privileged window, `no_group_owner`, one live unowned run (AC-5, AC-19, AC-22, AC-23)
   - [x] The other endings: the cancel route and `cancel_reason`, owner unreachable, deny with the code close, expiry and failure, the tick for both tools, the close guard, one live leaver owner run (AC-10, AC-11, AC-15 to AC-18, AC-23)
   - [x] Proof: the logging allow list, the canary on the access path, amendment notes in specs 0003, 0004, 0007, 0009, 0012 (AC-3, AC-8, AC-19, AC-21)
-- [ ] Verify it: `/check verify access requests`
+- [x] Verify it: `/check verify access requests`
 - [ ] Test it: `/test access requests`
 - [ ] Review it (fresh model): `/check review access requests`
 - [ ] Document it: `/document access requests`
