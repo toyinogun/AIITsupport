@@ -39,7 +39,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 12 | PII redaction & retention | Slice 2 | done |
 | 13 | Password reset links | Slice 3 | done |
 | 14 | MFA re-registration with approval | Slice 4 | done |
-| 15 | Access requests via group owner | Slice 5 | in-progress |
+| 15 | Access requests via group owner | Slice 5 | done |
 | 16 | Knowledge base answers | Slice 6 | planned |
 | 17 | One command GitOps install | Production | planned |
 | 18 | Observability & ops dashboard | Production | planned |
@@ -243,7 +243,7 @@ spec [0012](../specs/0012-mfa-reregistration-approval/index.md) · code in `inte
 
 ## Slice 5: Access requests via group owner
 
-### 15. Access requests via group owner · in-progress · GA
+### 15. Access requests via group owner · done · GA
 "Can I get access to X" routed to the right owner. The agent resolves messy group names, finds the owner, asks them to approve, and escalates when nobody owns the group.
 **Done when:** a request for "finance" resolves to the right group (or asks which one), the owner gets the approval card, unowned groups escalate to IT, and privileged groups are never offered.
 - [x] Design it (spec): `/architect access requests`
@@ -255,7 +255,7 @@ spec [0012](../specs/0012-mfa-reregistration-approval/index.md) · code in `inte
 - [x] Verify it: `/check verify access requests`
 - [x] Test it: `/test access requests`
 - [x] Review it (fresh model): `/check review access requests`
-- [ ] Document it: `/document access requests`
+- [x] Document it: `/document access requests`
 spec [0013](../specs/0013-access-requests-group-owner/index.md) · code in `internal/tools` (`group_access.go`, `dispatcher.go`, `execute.go`), `internal/ldap` (`groups.go`), `internal/audit` (`approvals.go`), `internal/approvalapi`, `internal/mcpclient` (`approvals.go`), `internal/agent` (`access.go`, `approvals.go`, `tick.go`, `prompt/system.md`), `internal/slack`, `internal/seed/directory`, `seed/directory/noord.yaml`, `internal/config`, `cmd/toolserver`, `cmd/agent`, `db/migrations/00006_access_requests.sql`
 
 ## Slice 6: Knowledge base answers
