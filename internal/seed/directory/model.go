@@ -92,6 +92,9 @@ type Group struct {
 	Members     []string
 	Description string
 	NestedInto  []string // built in groups; privileged only
+	// Departments tag a requestable group for the access request (spec
+	// 0013, AC-3), written to the group's info attribute.
+	Departments []string
 }
 
 // User returns the user with the given username.
@@ -160,6 +163,7 @@ type fileGroup struct {
 	Members     []string `yaml:"members"`
 	Description *string  `yaml:"description"`
 	NestedInto  []string `yaml:"nested_into"`
+	Departments []string `yaml:"departments"`
 }
 
 type overlayFile struct {
@@ -275,6 +279,7 @@ func build(f file, ov overlayFile) (Model, []error) {
 			Members:     fg.Members,
 			Description: deref(fg.Description),
 			NestedInto:  fg.NestedInto,
+			Departments: fg.Departments,
 		})
 	}
 

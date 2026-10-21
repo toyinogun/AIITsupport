@@ -38,6 +38,7 @@ type env struct {
 	d      *tools.Dispatcher
 	store  *toolstest.MemStore
 	graph  *graphtest.Fake
+	dir    *toolstest.Directory
 	evaID  string
 	client *mcpclient.ApprovalClient
 	srv    *httptest.Server
@@ -55,6 +56,7 @@ func newEnv(t *testing.T) *env {
 	}
 	z := zammadtest.New(t)
 	z.AddUser("eva.peters")
+	z.AddUser("noor.elamrani")
 	zc, err := zammad.New(zammad.Options{BaseURL: z.URL(), Auth: zammad.TokenAuth(zammadtest.Token), Timeout: 2 * time.Second})
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +70,8 @@ func newEnv(t *testing.T) *env {
 	e.graph.SetPhones(e.evaID, []graphtest.Phone{{ID: graphtest.PhoneID("mobile"), PhoneNumber: "+1 2025550114", PhoneType: "mobile"}})
 
 	dir := toolstest.NewDirectory()
-	reg, err := tools.NewRegistry(tools.WithMFAClear([]string{approver, "U01EVA0001"}, 30*time.Minute))
+	e.dir = dir
+	reg, err := tools.NewRegistry(8*time.Hour, tools.WithMFAClear([]string{approver, "U01EVA0001"}, 30*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,15 +83,16 @@ func newEnv(t *testing.T) *env {
 		BaseDN: toolstest.Base, UserOUs: []string{"OU=Users,OU=Noord"}, GroupOUs: []string{"OU=Groups,OU=Noord"},
 		CallTimeout: 5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour, TicketCreateLimit: 5,
 		TicketMaxPending: time.Hour, PrivilegedWindow: 24 * time.Hour,
+		ExecuteTimeout: 5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
 	}, tools.Systems{
-		Directory: dir, Writer: dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", "http://zammad.test"),
+		Directory: dir, Groups: dir, Reader: dir, Writer: dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", "http://zammad.test"),
 		Recorder: rec, KillSwitch: tools.NewKillSwitch(ks, true),
-		MFA: &tools.MFASystem{Graph: gc, Reader: dir, DeniedGroups: []string{"SG-IT-Admins"}, ExecuteTimeout: 5 * time.Second},
+		MFA: &tools.MFASystem{Graph: gc, Reader: dir, DeniedGroups: []string{"SG-IT-Admins"}},
 	}, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := approvalapi.Handler(e.d, rec, approvalapi.Options{Token: token, MaxRequestBytes: 4096, ExecuteGrace: 5 * time.Minute, Logger: logger})
+	h, err := approvalapi.Handler(e.d, rec, approvalapi.Options{Token: token, MaxRequestBytes: 4096, Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +139,7 @@ func TestApproveExecutes(t *testing.T) {
 		v.TicketURL == "" || !strings.HasPrefix(v.TicketURL, "http://zammad.test/#ticket/zoom/") {
 		t.Fatalf("pending view = %+v, %v", v, err)
 	}
-	res, err := e.client.Decide(t.Context(), id, approver, true)
+	res, err := e.client.Decide(t.Context(), id, approver, "", true)
 	if err != nil || !res.Moved || res.Approval.Status != mcpclient.StatusExecuted || res.Approval.DecidedBy != approver {
 		t.Fatalf("decide = %+v, %v", res, err)
 	}
@@ -159,16 +163,16 @@ func TestRefusedClicks(t *testing.T) {
 	e := newEnv(t)
 	id := e.request()
 	for clicker, want := range map[string]string{"U01EVA0001": mcpclient.ReasonSelf, other: mcpclient.ReasonNotAllowed} {
-		res, err := e.client.Decide(t.Context(), id, clicker, true)
+		res, err := e.client.Decide(t.Context(), id, clicker, "", true)
 		if err != nil || res.Moved || res.Reason != want || res.Approval.Status != mcpclient.StatusPending {
 			t.Errorf("%s approve = %+v, %v; want %s", clicker, res, err, want)
 		}
 	}
-	res, err := e.client.Decide(t.Context(), id, "U01EVA0001", false)
+	res, err := e.client.Decide(t.Context(), id, "U01EVA0001", "", false)
 	if err != nil || !res.Moved || res.Approval.Status != mcpclient.StatusDenied {
 		t.Fatalf("own deny = %+v, %v", res, err)
 	}
-	res, err = e.client.Decide(t.Context(), id, approver, true)
+	res, err = e.client.Decide(t.Context(), id, approver, "", true)
 	if err != nil || res.Moved || res.Reason != mcpclient.ReasonDecided {
 		t.Errorf("late approve = %+v, %v", res, err)
 	}
@@ -184,7 +188,7 @@ func TestRouteErrors(t *testing.T) {
 	if _, err := e.client.Get(t.Context(), uuid.New()); !errors.Is(err, mcpclient.ErrApprovalNotFound) {
 		t.Errorf("get unknown: %v", err)
 	}
-	if _, err := e.client.Decide(t.Context(), uuid.New(), approver, true); !errors.Is(err, mcpclient.ErrApprovalNotFound) {
+	if _, err := e.client.Decide(t.Context(), uuid.New(), approver, "", true); !errors.Is(err, mcpclient.ErrApprovalNotFound) {
 		t.Errorf("decide unknown: %v", err)
 	}
 	id := e.request()
@@ -242,6 +246,7 @@ func TestExpireAndAbandon(t *testing.T) {
 	stuck := e.request()
 	a, _ := e.store.Approval(stuck)
 	a.Status, a.DecidedBy = "approved", pgtype.Text{String: approver, Valid: true}
+	a.DeciderSlackID = a.DecidedBy
 	a.DecidedAt = pgtype.Timestamptz{Time: time.Now().Add(-10 * time.Minute), Valid: true}
 	e.store.SetApproval(a)
 	overdue, err := e.store.CreateApproval(t.Context(), queries.CreateApprovalParams{
@@ -290,7 +295,7 @@ func TestLateClickIsRefusedExpired(t *testing.T) {
 	a.ExpiresAt = time.Now().Add(-time.Minute)
 	e.store.SetApproval(a)
 
-	res, err := e.client.Decide(t.Context(), id, approver, true)
+	res, err := e.client.Decide(t.Context(), id, approver, "", true)
 	if err != nil || res.Moved || res.Reason != mcpclient.ReasonExpired {
 		t.Fatalf("late approve = %+v, %v; want refused %s", res, err, mcpclient.ReasonExpired)
 	}
@@ -336,7 +341,7 @@ func TestApproveFinishesWhenTheClientLeaves(t *testing.T) {
 		return graphtest.Fault{}, false
 	}
 
-	if _, err := e.client.Decide(ctx, id, approver, true); err == nil {
+	if _, err := e.client.Decide(ctx, id, approver, "", true); err == nil {
 		t.Fatal("decide answered although the client went away")
 	}
 	deadline := time.Now().Add(3 * time.Second)

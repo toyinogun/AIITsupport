@@ -31,20 +31,23 @@ type Approval struct {
 	ExecutedAt       pgtype.Timestamptz
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
+	Target           pgtype.Text
+	DeciderSlackID   pgtype.Text
 }
 
 type ApprovalCard struct {
-	ApprovalID     uuid.UUID
-	ConversationID int64
-	ToolName       string
-	SlackChannelID string
-	CardTs         pgtype.Text
-	PostAttempts   int32
-	LastPostAt     pgtype.Timestamptz
-	ExpiresAt      time.Time
-	CreatedAt      time.Time
-	SettledAt      pgtype.Timestamptz
-	Outcome        pgtype.Text
+	ApprovalID      uuid.UUID
+	ConversationID  int64
+	ToolName        string
+	SlackChannelID  pgtype.Text
+	CardTs          pgtype.Text
+	PostAttempts    int32
+	LastPostAt      pgtype.Timestamptz
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	SettledAt       pgtype.Timestamptz
+	Outcome         pgtype.Text
+	ApproverSlackID pgtype.Text
 }
 
 type AuditLog struct {

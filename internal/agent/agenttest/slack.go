@@ -4,9 +4,11 @@
 package agenttest
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/toyinogun/AIITsupport/internal/agent"
@@ -20,12 +22,15 @@ func Staff(email string) agent.SlackUser {
 	return agent.SlackUser{TeamID: Team, IsEmailConfirmed: true, Email: email}
 }
 
-// Users is a fake users.info.
+// Users is a fake users.info and users.lookupByEmail.
 type Users struct {
 	mu    sync.Mutex
 	users map[string]agent.SlackUser
 	Err   error // returned by every call when set
-	calls int
+	// LookupErr fails LookupByEmail only.
+	LookupErr error
+	calls     int
+	lookups   int
 }
 
 // NewUsers returns a fake with the given users by Slack id.
@@ -52,7 +57,33 @@ func (u *Users) UserInfo(_ context.Context, id string) (agent.SlackUser, error) 
 	if !ok {
 		return agent.SlackUser{}, errors.New("user_not_found")
 	}
+	user.ID = id
 	return user, nil
+}
+
+// LookupByEmail finds the user whose email matches, ignoring case, or
+// answers agent.ErrSlackUserNotFound.
+func (u *Users) LookupByEmail(_ context.Context, email string) (agent.SlackUser, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.lookups++
+	if err := cmp.Or(u.LookupErr, u.Err); err != nil {
+		return agent.SlackUser{}, err
+	}
+	for id, user := range u.users {
+		if strings.EqualFold(user.Email, email) {
+			user.ID = id
+			return user, nil
+		}
+	}
+	return agent.SlackUser{}, agent.ErrSlackUserNotFound
+}
+
+// Lookups is how many users.lookupByEmail calls were made.
+func (u *Users) Lookups() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.lookups
 }
 
 // Calls is how many users.info calls were made.
@@ -109,17 +140,24 @@ type CardPost struct {
 // Ephemeral is one chat.postEphemeral.
 type Ephemeral struct{ Channel, User, Text string }
 
-// PostCard records the card and returns a ts, or fails with CardErr.
-func (p *Poster) PostCard(_ context.Context, channel string, c agent.Card) (string, error) {
+// PostCard records the card and returns where it landed and a ts, or fails
+// with CardErr. A user id lands in that person's DM, DMChannel(id).
+func (p *Poster) PostCard(_ context.Context, channel string, c agent.Card) (string, string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.CardErr != nil {
-		return "", p.CardErr
+		return "", "", p.CardErr
 	}
 	ts := "1792400100." + strconv.Itoa(100000+len(p.cards))
 	p.cards = append(p.cards, CardPost{Channel: channel, TS: ts, Card: c})
-	return ts, nil
+	if strings.HasPrefix(channel, "U") || strings.HasPrefix(channel, "W") {
+		return DMChannel(channel), ts, nil
+	}
+	return channel, ts, nil
 }
+
+// DMChannel is the fake DM channel id of a Slack user.
+func DMChannel(userID string) string { return "D" + userID[1:] }
 
 // UpdateCard records the update, or fails with CardErr.
 func (p *Poster) UpdateCard(_ context.Context, channel, ts string, c agent.Card) error {

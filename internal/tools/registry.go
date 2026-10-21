@@ -18,6 +18,9 @@ const (
 	TargetNone      Target = iota // a blocked tool
 	TargetRequester               // the requester's own account
 	TargetTicket                  // the ticket named in _meta
+	// TargetGroup is the group's canonical name, set only once the precheck
+	// resolved it (spec 0013, AC-4); a refusal before that has no target.
+	TargetGroup
 )
 
 // Tool is one registry entry: everything the dispatcher needs to run a call.
@@ -35,13 +38,15 @@ type Tool struct {
 	// TicketLimited puts the tool under TICKET_CREATE_LIMIT. Every
 	// AccountHandler tool is under TOOL_WRITE_LIMIT whatever this says.
 	TicketLimited bool
-	// Approval builds the approval request for a medium tool; required for
-	// tier medium. now is the dispatcher's clock.
-	Approval func(ctx context.Context, c audit.Call, now time.Time) (audit.ApprovalRequest, error)
+	// Approval builds the approval request for a medium tool from what its
+	// precheck found; required for tier medium. now is the dispatcher's clock.
+	Approval func(ctx context.Context, c audit.Call, pre Prechecked, now time.Time) (audit.ApprovalRequest, error)
 	// Precheck runs before a medium tool is deferred (spec 0012, AC-3): it
 	// refuses, reuses a pending approval, or says what the approval card and
-	// the pending result show. Required for tier medium.
-	Precheck func(ctx context.Context, d MFADeps, in Input) (Prechecked, error)
+	// the pending result show. A medium tool has exactly one: Precheck with
+	// an MFAHandler, or GroupPrecheck with a GroupHandler (spec 0013, AC-4).
+	Precheck      func(ctx context.Context, d MFADeps, in Input) (Prechecked, error)
+	GroupPrecheck func(ctx context.Context, d GroupDeps, in Input) (Prechecked, error)
 	// PendingResult lists the result keys the pending_approval outcome keeps.
 	PendingResult []string
 	// Handler is nil exactly for a blocked tool, which never runs.
@@ -49,10 +54,11 @@ type Tool struct {
 }
 
 // accountChange reports whether the tool changes a directory account: exactly
-// when its handler takes AccountDeps, or issues a reset link (ResetDeps).
+// when its handler takes AccountDeps, issues a reset link (ResetDeps), or
+// runs after an approval (MFADeps, GroupDeps).
 func (t *Tool) accountChange() bool {
 	switch t.Handler.(type) {
-	case AccountHandler, ResetHandler, MFAHandler:
+	case AccountHandler, ResetHandler, MFAHandler, GroupHandler:
 		return true
 	}
 	return false
@@ -79,9 +85,14 @@ func WithMFAClear(approvers []string, timeout time.Duration) RegistryOption {
 	return func(tools *[]Tool) { *tools = append(*tools, mfaClearTool(approvers, timeout)) }
 }
 
-// NewRegistry builds the production registry.
-func NewRegistry(opts ...RegistryOption) (*Registry, error) {
-	tools := productionTools()
+// NewRegistry builds the production registry. accessTimeout is
+// ACCESS_APPROVAL_TIMEOUT: group_search and group_access_request need only
+// LDAP, Zammad, and Postgres, so they are always registered (spec 0013, AC-4).
+func NewRegistry(accessTimeout time.Duration, opts ...RegistryOption) (*Registry, error) {
+	if accessTimeout <= 0 {
+		return nil, errors.New("build tool registry: the access approval timeout must be positive")
+	}
+	tools := append(productionTools(), groupSearchTool(), groupAccessRequestTool(accessTimeout))
 	for _, opt := range opts {
 		opt(&tools)
 	}
@@ -125,16 +136,24 @@ func (t *Tool) validate() []error {
 	default:
 		bad("unknown tier %q", t.Tier)
 	}
+	_, mfa := t.Handler.(MFAHandler)
+	_, group := t.Handler.(GroupHandler)
 	if t.Tier == audit.TierMedium {
-		if t.Approval == nil || t.Precheck == nil {
-			bad("a medium tool needs an Approval hook and a Precheck")
+		if t.Approval == nil {
+			bad("a medium tool needs an Approval hook")
 		}
-		if _, ok := t.Handler.(MFAHandler); !ok {
-			bad("a medium tool's handler must be an MFAHandler")
+		switch {
+		case mfa && t.Precheck != nil && t.GroupPrecheck == nil:
+		case group && t.GroupPrecheck != nil && t.Precheck == nil:
+		default:
+			bad("a medium tool needs a Precheck with an MFAHandler, or a GroupPrecheck with a GroupHandler")
 		}
 	}
-	if _, ok := t.Handler.(MFAHandler); ok && t.Tier != audit.TierMedium {
-		bad("an MFAHandler runs only behind an approval (tier medium)")
+	if (mfa || group) && t.Tier != audit.TierMedium {
+		bad("an MFAHandler or GroupHandler runs only behind an approval (tier medium)")
+	}
+	if t.Tier != audit.TierMedium && (t.Precheck != nil || t.GroupPrecheck != nil || t.Approval != nil) {
+		bad("only a medium tool has a precheck or an Approval hook")
 	}
 	for _, key := range t.Store {
 		i := slices.IndexFunc(t.Fields, func(f Field) bool { return f.Name == key })
@@ -171,6 +190,8 @@ const (
 	ToolEscalate               = "escalate"
 	ToolPasswordResetLink      = "password_reset_link"
 	ToolMFAClear               = "mfa_clear"
+	ToolGroupSearch            = "group_search"
+	ToolGroupAccessRequest     = "group_access_request"
 )
 
 // Argument bounds and values, part of the schema the model sees.
@@ -255,8 +276,9 @@ func productionTools() []Tool {
 			Fields: []Field{
 				{
 					Name: "reason", Required: true, MinRunes: 1, Enum: escalationReasons,
-					Description: "Why IT should look at this. Use privileged_request, other_person, security_concern, or " +
-						"manual_action (a fix the assistant cannot make itself); the other values are reserved for the assistant's own code.",
+					Description: "Why IT should look at this. Use privileged_request, other_person, security_concern, " +
+						"manual_action (a fix the assistant cannot make itself), or no_group_owner (an access request no group owner " +
+						"can decide); the other values are reserved for the assistant's own code.",
 				},
 				{
 					Name: "title", Required: true, MinRunes: 1, MaxRunes: maxTitleRunes, NoNewline: true, FreeText: true,

@@ -10,7 +10,8 @@ import (
 	"unicode/utf8"
 )
 
-// Field is one string argument. Bounds are counted in runes. The bounds and
+// Field is one string argument, or, with List, a list of strings (spec
+// 0013). Bounds are counted in runes, per item for a list. The bounds and
 // enums are code constants, not settings: they are part of the contract the
 // model sees, so they change through code review.
 type Field struct {
@@ -26,7 +27,14 @@ type Field struct {
 	// FreeText marks text the model writes (a title, a note). It goes only to
 	// Zammad; the registry refuses to store it in the audit log.
 	FreeText bool
+	// List makes the field a JSON array of MinItems to MaxItems strings.
+	// Each item is trimmed, then held to the string rules above.
+	List               bool
+	MinItems, MaxItems int
 }
+
+// Lists are a call's list arguments after validation, items trimmed.
+type Lists map[string][]string
 
 // CheckEnv is what a tool's Check rules may read.
 type CheckEnv struct {
@@ -42,41 +50,70 @@ type invalid struct{ field string }
 // parseArgs checks raw against the tool's fields and Check rules. The
 // returned field name is safe to show: it comes from the schema, never from
 // the request.
-func (t *Tool) parseArgs(raw []byte, env CheckEnv) (Args, *invalid) {
-	args := Args{}
+func (t *Tool) parseArgs(raw []byte, env CheckEnv) (Args, Lists, *invalid) {
+	args, lists := Args{}, Lists{}
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
 		raw = []byte("{}")
 	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
-		return nil, &invalid{}
+		return nil, nil, &invalid{}
 	}
 	for key := range obj {
 		if !slices.ContainsFunc(t.Fields, func(f Field) bool { return f.Name == key }) {
-			return nil, &invalid{}
+			return nil, nil, &invalid{}
 		}
 	}
 	for _, f := range t.Fields {
 		value, present := obj[f.Name]
 		if !present {
 			if f.Required {
-				return nil, &invalid{field: f.Name}
+				return nil, nil, &invalid{field: f.Name}
 			}
 			continue
 		}
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, nil, &invalid{field: f.Name}
+		}
+		if f.List {
+			items, ok := f.acceptsList(value)
+			if !ok {
+				return nil, nil, &invalid{field: f.Name}
+			}
+			lists[f.Name] = items
+			continue
+		}
 		var s string
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &s) != nil || !f.accepts(s) {
-			return nil, &invalid{field: f.Name}
+		if json.Unmarshal(value, &s) != nil || !f.accepts(s) {
+			return nil, nil, &invalid{field: f.Name}
 		}
 		args[f.Name] = s
 	}
 	if t.Check != nil {
 		if field, ok := t.Check(args, env); !ok {
-			return nil, &invalid{field: field}
+			return nil, nil, &invalid{field: field}
 		}
 	}
-	return args, nil
+	return args, lists, nil
+}
+
+// acceptsList decodes a list field: an array of MinItems to MaxItems
+// strings, each one trimmed and then accepted by the string rules.
+func (f Field) acceptsList(value json.RawMessage) ([]string, bool) {
+	var items []string
+	if json.Unmarshal(value, &items) != nil || len(items) < f.MinItems || len(items) > f.MaxItems {
+		return nil, false
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if !f.accepts(item) {
+			return nil, false
+		}
+		out = append(out, item)
+	}
+	return out, true
 }
 
 func (f Field) accepts(s string) bool {
@@ -108,9 +145,6 @@ func (t *Tool) InputSchema() map[string]any {
 	var required []string
 	for _, f := range t.Fields {
 		p := map[string]any{"type": "string"}
-		if f.Description != "" {
-			p["description"] = f.Description
-		}
 		if f.MinRunes > 0 {
 			p["minLength"] = f.MinRunes
 		}
@@ -119,6 +153,12 @@ func (t *Tool) InputSchema() map[string]any {
 		}
 		if len(f.Enum) > 0 {
 			p["enum"] = slices.Clone(f.Enum)
+		}
+		if f.List {
+			p = map[string]any{"type": "array", "items": p, "minItems": f.MinItems, "maxItems": f.MaxItems}
+		}
+		if f.Description != "" {
+			p["description"] = f.Description
 		}
 		props[f.Name] = p
 		if f.Required {

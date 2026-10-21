@@ -62,6 +62,15 @@ var itHeadlines = map[string]string{
 	escalateApprovalFailed:    ":construction: *MFA reset did not finish*",
 	escalateApprovalCancelled: ":leftwards_arrow_with_hook: *MFA reset cancelled by the requester*",
 	codeNotMatched:            ":grey_question: *Slack user not matched to a Noord account*",
+	// spec 0013
+	escalateNoGroupOwner: ":bust_in_silhouette: *Access request with no group owner to decide*",
+}
+
+// accessHeadlines replace the approval reasons' MFA headlines when an access
+// request ends that way (spec 0013, AC-15).
+var accessHeadlines = map[string]string{
+	escalateApprovalExpired: ":hourglass: *Access request not decided in time*",
+	escalateApprovalFailed:  ":construction: *Access request did not finish*",
 }
 
 const (
@@ -187,8 +196,43 @@ const (
 	MFACancelledSummary    = "The requester cancelled the MFA reset request."
 )
 
+// Access request texts (spec 0013, AC-16). Values are escaped by the caller.
+const (
+	accessTicketOpen = "Your ticket stays open for IT."
+	// TextAccessEndedContactIT is the user's text when an access request
+	// ended and owed IT an escalation, but the requester could no longer be
+	// matched to escalate it.
+	TextAccessEndedContactIT = "Your access request has ended, but I couldn't hand it to IT. Please contact IT directly."
+)
+
+// AccessGrantedText is access_granted for group.
+func AccessGrantedText(group string) string {
+	return "You now have access to " + group + ". Sign out and back in (or restart your computer) so shares and apps pick it up."
+}
+
+// The access request escalation and the deny close (spec 0013, AC-15).
+const (
+	AccessEscalationTitle         = "Access request needs IT"
+	AccessOwnerUnreachableSummary = "The group owner could not be reached in Slack."
+	AccessExpiredSummary          = "The group owner did not decide the access request before it expired."
+	AccessFailedSummaryPrefix     = "The approved access request did not finish: "
+	AccessDeniedNote              = "Access request denied by the group owner."
+)
+
+// The group owner's card (spec 0013, AC-12).
+const (
+	accessCardHeader    = "Access request"
+	accessCardGroup     = "Group: "
+	accessCardAlsoGives = "Also gives: "
+	accessCardReason    = "Requester says (unverified): "
+	accessCardAmsterdam = " Amsterdam time"
+	accessCardConfirm   = "You own this group in the directory. Approve only if this person needs it."
+	accessCardFallback  = "Access request for "
+)
+
 // The approval card's fixed lines (spec 0012, AC-7).
 const (
+	cardConfirmMFA      = "Clear this person's MFA methods?"
 	cardHeader          = "MFA reset request"
 	cardRequester       = "Requester: "
 	cardTicket          = "Ticket: "

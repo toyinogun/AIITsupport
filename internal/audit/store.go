@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
@@ -28,9 +29,14 @@ type Queries interface {
 	MarkApprovalFailed(ctx context.Context, id uuid.UUID) (queries.Approval, error)
 	ExecutionOutcomeForApproval(ctx context.Context, arg queries.ExecutionOutcomeForApprovalParams) (queries.ExecutionOutcomeForApprovalRow, error)
 	CountRecentOutcomes(ctx context.Context, arg queries.CountRecentOutcomesParams) (int64, error)
+	CountRecentReasons(ctx context.Context, arg queries.CountRecentReasonsParams) (int64, error)
 	ThreadHasOutcome(ctx context.Context, arg queries.ThreadHasOutcomeParams) (bool, error)
 	ThreadTicketID(ctx context.Context, arg queries.ThreadTicketIDParams) (int64, error)
-	ThreadHasOpenApproval(ctx context.Context, arg queries.ThreadHasOpenApprovalParams) (bool, error)
+	ThreadOpenApprovalTool(ctx context.Context, arg queries.ThreadOpenApprovalToolParams) (string, error)
+	CountPendingApprovals(ctx context.Context, arg queries.CountPendingApprovalsParams) (int64, error)
+	ThreadPendingTarget(ctx context.Context, arg queries.ThreadPendingTargetParams) (pgtype.Text, error)
+	CancelApproval(ctx context.Context, id uuid.UUID) (queries.Approval, error)
+	CancelReasonForApproval(ctx context.Context, approvalID uuid.NullUUID) (bool, error)
 }
 
 // Store is Queries plus a way to run several of them in one transaction.

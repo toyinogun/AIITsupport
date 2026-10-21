@@ -2,6 +2,7 @@ package agenttest
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -418,15 +419,18 @@ func (s *Store) RecordCardPostAttempt(ctx context.Context, id uuid.UUID, maxAtte
 	return true, nil
 }
 
-// SetCardTS stores the card's ts once.
-func (s *Store) SetCardTS(ctx context.Context, id uuid.UUID, ts string) error {
+// SetCardPosted stores the card's ts once and fills an empty channel and
+// owner Slack id, like the SQL.
+func (s *Store) SetCardPosted(ctx context.Context, id uuid.UUID, ts, channel, approverSlackID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.check(ctx, "SetCardTS"); err != nil {
+	if err := s.check(ctx, "SetCardPosted"); err != nil {
 		return err
 	}
 	if c := s.card(id); c != nil && c.CardTS == "" {
 		c.CardTS = ts
+		c.ChannelID = cmp.Or(c.ChannelID, channel)
+		c.ApproverSlackID = cmp.Or(c.ApproverSlackID, approverSlackID)
 	}
 	return nil
 }

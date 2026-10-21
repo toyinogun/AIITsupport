@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const adoptApprovalCard = `-- name: AdoptApprovalCard :execrows
@@ -23,7 +24,7 @@ ON CONFLICT (approval_id) DO NOTHING
 type AdoptApprovalCardParams struct {
 	ApprovalID      uuid.UUID
 	ToolName        string
-	CardChannelID   string
+	CardChannelID   pgtype.Text
 	ExpiresAt       time.Time
 	ThreadChannelID string
 	ThreadTs        string
@@ -74,7 +75,7 @@ func (q *Queries) ApprovalCardIDsAmong(ctx context.Context, approvalIds []uuid.U
 }
 
 const getApprovalCard = `-- name: GetApprovalCard :one
-SELECT approval_id, conversation_id, tool_name, slack_channel_id, card_ts, post_attempts, last_post_at, expires_at, created_at, settled_at, outcome FROM approval_cards WHERE approval_id = $1
+SELECT approval_id, conversation_id, tool_name, slack_channel_id, card_ts, post_attempts, last_post_at, expires_at, created_at, settled_at, outcome, approver_slack_id FROM approval_cards WHERE approval_id = $1
 `
 
 func (q *Queries) GetApprovalCard(ctx context.Context, approvalID uuid.UUID) (ApprovalCard, error) {
@@ -92,6 +93,7 @@ func (q *Queries) GetApprovalCard(ctx context.Context, approvalID uuid.UUID) (Ap
 		&i.CreatedAt,
 		&i.SettledAt,
 		&i.Outcome,
+		&i.ApproverSlackID,
 	)
 	return i, err
 }
@@ -107,7 +109,7 @@ type InsertApprovalCardParams struct {
 	ApprovalID     uuid.UUID
 	ConversationID int64
 	ToolName       string
-	SlackChannelID string
+	SlackChannelID pgtype.Text
 	ExpiresAt      time.Time
 }
 
@@ -115,6 +117,7 @@ type InsertApprovalCardParams struct {
 // guarded UPDATE: zero rows back means another worker or tick got there first.
 // InsertApprovalCard returns 1 exactly when this caller created the row and
 // so owes the first post.
+// A group owner card has no channel until its first DM post (spec 0013).
 func (q *Queries) InsertApprovalCard(ctx context.Context, arg InsertApprovalCardParams) (int64, error) {
 	result, err := q.db.Exec(ctx, insertApprovalCard,
 		arg.ApprovalID,
@@ -130,7 +133,7 @@ func (q *Queries) InsertApprovalCard(ctx context.Context, arg InsertApprovalCard
 }
 
 const listUnsettledApprovalCards = `-- name: ListUnsettledApprovalCards :many
-SELECT approval_id, conversation_id, tool_name, slack_channel_id, card_ts, post_attempts, last_post_at, expires_at, created_at, settled_at, outcome FROM approval_cards
+SELECT approval_id, conversation_id, tool_name, slack_channel_id, card_ts, post_attempts, last_post_at, expires_at, created_at, settled_at, outcome, approver_slack_id FROM approval_cards
 WHERE settled_at IS NULL
 ORDER BY created_at
 LIMIT $1
@@ -157,6 +160,7 @@ func (q *Queries) ListUnsettledApprovalCards(ctx context.Context, maxRows int32)
 			&i.CreatedAt,
 			&i.SettledAt,
 			&i.Outcome,
+			&i.ApproverSlackID,
 		); err != nil {
 			return nil, err
 		}
@@ -193,18 +197,31 @@ func (q *Queries) RecordCardPostAttempt(ctx context.Context, arg RecordCardPostA
 	return result.RowsAffected(), nil
 }
 
-const setApprovalCardTS = `-- name: SetApprovalCardTS :execrows
-UPDATE approval_cards SET card_ts = $1::text
-WHERE approval_id = $2 AND card_ts IS NULL
+const setApprovalCardPosted = `-- name: SetApprovalCardPosted :execrows
+UPDATE approval_cards
+SET card_ts = $1::text,
+    slack_channel_id = coalesce(slack_channel_id, $2::text),
+    approver_slack_id = coalesce(approver_slack_id, $3::text)
+WHERE approval_id = $4 AND card_ts IS NULL
 `
 
-type SetApprovalCardTSParams struct {
-	CardTs     string
-	ApprovalID uuid.UUID
+type SetApprovalCardPostedParams struct {
+	CardTs          string
+	SlackChannelID  string
+	ApproverSlackID pgtype.Text
+	ApprovalID      uuid.UUID
 }
 
-func (q *Queries) SetApprovalCardTS(ctx context.Context, arg SetApprovalCardTSParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setApprovalCardTS, arg.CardTs, arg.ApprovalID)
+// SetApprovalCardPosted stores the first successful post: its ts and, for a
+// group owner card, the DM channel and the owner's Slack id (spec 0013,
+// AC-10). A value already set is kept.
+func (q *Queries) SetApprovalCardPosted(ctx context.Context, arg SetApprovalCardPostedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setApprovalCardPosted,
+		arg.CardTs,
+		arg.SlackChannelID,
+		arg.ApproverSlackID,
+		arg.ApprovalID,
+	)
 	if err != nil {
 		return 0, err
 	}

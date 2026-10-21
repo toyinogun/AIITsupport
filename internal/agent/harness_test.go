@@ -75,6 +75,7 @@ func testConfig(t *testing.T) agent.Config {
 		PostTimeout: time.Second, ShutdownGrace: 2 * time.Second,
 		ITChannel:             itChannel,
 		ApprovalDecideTimeout: time.Second, ApprovalPollInterval: 30 * time.Second, ApprovalTimeout: 30 * time.Minute,
+		AccessApprovalTimeout: 8 * time.Hour,
 	}
 }
 

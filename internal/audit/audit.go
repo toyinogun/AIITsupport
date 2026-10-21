@@ -320,7 +320,9 @@ func (r *Recorder) outcomeParams(callID uuid.UUID, c Call, res Result, actionErr
 		Outcome: string(outcome),
 		Error:   text(capRunes(reason, maxErrorRunes)),
 	}
-	if c.Tier != TierRead && actionErr == nil {
+	// A read call keeps a result only when it lists keys to keep (spec 0013:
+	// group_search's count and truncated).
+	if (c.Tier != TierRead || len(c.StoreResult) > 0) && actionErr == nil {
 		result, err := encodeKept(res.Data, c.StoreResult, r.cfg.MaxPayloadBytes)
 		if err != nil {
 			result = unencodableMarker()

@@ -21,9 +21,13 @@ import (
 const (
 	// tickLimit is how many unsettled cards one tick reads.
 	tickLimit = 100
-	// adoptSlack widens the adopt window past APPROVAL_TIMEOUT.
+	// adoptSlack widens the adopt window past the longer approval timeout.
 	adoptSlack = time.Hour
 )
+
+// adoptedTools are the tools whose pending results the tick adopts (spec
+// 0012 AC-14, spec 0013 AC-17).
+var adoptedTools = []string{toolMFAClear, toolGroupAccessRequest}
 
 // goTick starts one tick unless the agent is stopping or a tick still runs.
 func (a *Agent) goTick() {
@@ -86,13 +90,15 @@ func (a *Agent) tickFailed(ctx context.Context, err error) {
 // conversation that owns its thread (AC-14): a pending result the agent never
 // stored still gets its card and its outcome. Only tools the agent builds a
 // card for are adopted, and one read skips those that have a card already.
+// The window is the longer of the two approval timeouts plus an hour (spec
+// 0013, AC-17); an adopted group owner card has no channel until it posts.
 func (a *Agent) adopt(ctx context.Context) error {
-	since := a.deps.Now().Add(-(a.cfg.ApprovalTimeout + adoptSlack))
+	since := a.deps.Now().Add(-(max(a.cfg.ApprovalTimeout, a.cfg.AccessApprovalTimeout) + adoptSlack))
 	views, err := a.deps.Approvals.Since(ctx, since)
 	if err != nil {
 		return err
 	}
-	views = slices.DeleteFunc(views, func(v mcpclient.ApprovalView) bool { return v.ToolName != toolMFAClear })
+	views = slices.DeleteFunc(views, func(v mcpclient.ApprovalView) bool { return !slices.Contains(adoptedTools, v.ToolName) })
 	ids := make([]uuid.UUID, 0, len(views))
 	for _, v := range views {
 		ids = append(ids, v.ID)
@@ -106,7 +112,10 @@ func (a *Agent) adopt(ctx context.Context) error {
 		if have[v.ID] {
 			continue
 		}
-		card := ApprovalCard{ApprovalID: v.ID, ToolName: v.ToolName, ChannelID: a.cfg.ITChannel, ExpiresAt: v.ExpiresAt}
+		card := ApprovalCard{ApprovalID: v.ID, ToolName: v.ToolName, ExpiresAt: v.ExpiresAt}
+		if v.ToolName == toolMFAClear {
+			card.ChannelID = a.cfg.ITChannel
+		}
 		created, err := a.deps.Store.AdoptApprovalCard(ctx, card, v.SlackChannelID, v.SlackThreadTS)
 		switch {
 		case err != nil:
@@ -127,20 +136,38 @@ func (a *Agent) unsettled(parent context.Context) ([]ApprovalCard, error) {
 // tickCard reads one unsettled card's approval and acts on it: post a
 // pending card that never posted, settle an ended one, else wait.
 func (a *Agent) tickCard(parent context.Context, card ApprovalCard) {
-	ctx, cancel := a.detached(parent, a.cfg.ToolTimeout)
-	v, err := a.deps.Approvals.Get(ctx, card.ApprovalID)
-	cancel()
+	v, err := a.tickView(parent, card)
 	if err != nil {
 		a.tickFailed(parent, err)
 		return
 	}
 	switch {
+	case v.Status == mcpclient.StatusPending && card.CardTS == "" && card.ToolName == toolGroupAccessRequest:
+		// Lookup, then post or cancel: never to the IT channel (spec 0013, AC-17).
+		a.postOwnerCard(parent, card)
 	case v.Status == mcpclient.StatusPending && card.CardTS == "" && card.PostAttempts < maxCardPosts:
 		// The claim inside postCard spaces and caps the posts (AC-14).
 		a.postCard(parent, card.ApprovalID, requestCard(factsFromView(v), "", card.ApprovalID))
 	case isEnded(v.Status):
 		a.settleOnThread(card, v)
 	}
+}
+
+// tickView reads a card's approval for the tick. A group owner approval is
+// peeked, without the live directory reads (spec 0013, AC-17): the post
+// reads the full view itself, and an ended one is read in full once, for
+// the owner's name in the settle.
+func (a *Agent) tickView(parent context.Context, card ApprovalCard) (mcpclient.ApprovalView, error) {
+	ctx, cancel := a.detached(parent, a.cfg.ToolTimeout)
+	defer cancel()
+	if card.ToolName != toolGroupAccessRequest {
+		return a.deps.Approvals.Get(ctx, card.ApprovalID)
+	}
+	v, err := a.deps.Approvals.Peek(ctx, card.ApprovalID)
+	if err != nil || !isEnded(v.Status) {
+		return v, err
+	}
+	return a.deps.Approvals.Get(ctx, card.ApprovalID)
 }
 
 func isEnded(status string) bool {

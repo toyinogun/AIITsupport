@@ -50,9 +50,12 @@ type Config struct {
 	// ApprovalPollInterval is the approval tick (APPROVAL_POLL_INTERVAL);
 	// card reposts are spaced by twice it (spec 0012, AC-14).
 	ApprovalPollInterval time.Duration
-	// ApprovalTimeout is APPROVAL_TIMEOUT, shared with the tool server: the
-	// tick adopts approvals created within it plus an hour (AC-14).
-	ApprovalTimeout time.Duration
+	// ApprovalTimeout is APPROVAL_TIMEOUT and AccessApprovalTimeout is
+	// ACCESS_APPROVAL_TIMEOUT, both shared with the tool server: the tick
+	// adopts approvals created within the longer one plus an hour (spec 0012
+	// AC-14, spec 0013 AC-17).
+	ApprovalTimeout       time.Duration
+	AccessApprovalTimeout time.Duration
 }
 
 func (c Config) check() error {
@@ -64,7 +67,7 @@ func (c Config) check() error {
 		errs = append(errs, errors.New("agent: every limit must be at least 1"))
 	}
 	if c.MessageTimeout <= 0 || c.ToolTimeout <= 0 || c.PostTimeout <= 0 || c.ShutdownGrace <= 0 ||
-		c.ApprovalDecideTimeout <= 0 || c.ApprovalPollInterval <= 0 || c.ApprovalTimeout <= 0 {
+		c.ApprovalDecideTimeout <= 0 || c.ApprovalPollInterval <= 0 || c.ApprovalTimeout <= 0 || c.AccessApprovalTimeout <= 0 {
 		errs = append(errs, errors.New("agent: every timeout must be positive"))
 	}
 	return errors.Join(errs...)

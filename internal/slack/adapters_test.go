@@ -109,7 +109,7 @@ func TestUserInfoMapsTheGateFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := agent.SlackUser{TeamID: "T0NOORD", IsRestricted: true, IsEmailConfirmed: true, Email: "jan@example.com"}
+	want := agent.SlackUser{ID: "U0JAN", TeamID: "T0NOORD", IsRestricted: true, IsEmailConfirmed: true, Email: "jan@example.com"}
 	if u != want {
 		t.Errorf("user = %+v, want %+v", u, want)
 	}

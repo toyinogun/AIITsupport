@@ -29,6 +29,20 @@ type Prechecked struct {
 	Data map[string]any
 	// Note is the internal ticket note added after the approval commits.
 	Note func(expiresAt time.Time) string
+	// Target is the canonical group name once the group precheck resolved
+	// it, refusal or not; the audit target of a TargetGroup tool (spec 0013).
+	Target string
+	// Args replace the call's arguments from here on, when set: the cleaned
+	// reason and the canonical group that Defer stores (spec 0013, AC-4).
+	Args Args
+	// Owner is the group owner the approval goes to (spec 0013, AC-7).
+	Owner Owner
+}
+
+// Owner is a group's owner as the access request found it in AD.
+type Owner struct {
+	Account     string // sAMAccountName, the approver
+	DisplayName string
 }
 
 func mfaClearTool(approvers []string, timeout time.Duration) Tool {
@@ -43,7 +57,7 @@ func mfaClearTool(approvers []string, timeout time.Duration) Tool {
 		Target:        TargetRequester,
 		StoreResult:   []string{"cleared_authenticator", "cleared_phone", "ticket_closed"},
 		PendingResult: []string{"expires_at", "method_count", "reused"},
-		Approval: func(_ context.Context, _ audit.Call, now time.Time) (audit.ApprovalRequest, error) {
+		Approval: func(_ context.Context, _ audit.Call, _ Prechecked, now time.Time) (audit.ApprovalRequest, error) {
 			return audit.ApprovalRequest{Kind: audit.ApproverIT, Approvers: slices.Clone(snapshot), ExpiresAt: now.Add(timeout)}, nil
 		},
 		Precheck: mfaPrecheck,
@@ -62,7 +76,7 @@ func mfaPrecheck(ctx context.Context, d MFADeps, in Input) (Prechecked, error) {
 		return precheckRefusal(r, err)
 	}
 	// Read now, before any Zammad call; refused in its place in the order below.
-	pending, ok, err := d.Approvals.PendingApproval(ctx, in.Account.Username, ToolMFAClear)
+	pending, ok, err := d.Approvals.PendingApproval(ctx, in.Account.Username, ToolMFAClear, "")
 	if err != nil {
 		return Prechecked{}, failed(err)
 	}

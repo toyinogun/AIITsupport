@@ -95,7 +95,8 @@ func (s *MemStore) CreateApproval(ctx context.Context, p queries.CreateApprovalP
 		return queries.Approval{}, err
 	}
 	if p.RequesterAccount.Valid && slices.ContainsFunc(s.rowsApproval, func(a queries.Approval) bool {
-		return a.Status == "pending" && a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName
+		return a.Status == "pending" && a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName &&
+			a.Target.String == p.Target.String
 	}) {
 		// approvals_one_pending_idx, as Postgres reports it.
 		return queries.Approval{}, &pgconn.PgError{Code: "23505", ConstraintName: "approvals_one_pending_idx"}
@@ -106,7 +107,7 @@ func (s *MemStore) CreateApproval(ctx context.Context, p queries.CreateApprovalP
 		RequesterSlackID: p.RequesterSlackID, RequesterAccount: p.RequesterAccount,
 		SlackChannelID: p.SlackChannelID, SlackThreadTs: p.SlackThreadTs, ZammadTicketID: p.ZammadTicketID,
 		ApproverKind: p.ApproverKind, AllowedApprovers: slices.Clone(p.AllowedApprovers),
-		Status: "pending", ExpiresAt: p.ExpiresAt, CreatedAt: time.Now(),
+		Status: "pending", ExpiresAt: p.ExpiresAt, CreatedAt: time.Now(), Target: p.Target,
 	}
 	s.rowsApproval = append(s.rowsApproval, a)
 	return a, nil
@@ -144,13 +145,13 @@ func (s *MemStore) GetApproval(_ context.Context, id uuid.UUID) (queries.Approva
 	return queries.Approval{}, pgx.ErrNoRows
 }
 
-// ApproveApproval is the guarded approve, like the SQL.
+// ApproveApproval is the guarded, kind aware approve, like the SQL.
 func (s *MemStore) ApproveApproval(_ context.Context, p queries.ApproveApprovalParams) (queries.Approval, error) {
 	return s.move(p.ID, func(a *queries.Approval) bool {
-		if !slices.Contains(a.AllowedApprovers, p.Clicker) || p.Clicker == a.RequesterSlackID {
+		if !slices.Contains(a.AllowedApprovers, p.Decider) || audit.IsRequester(*a, p.Decider) {
 			return false
 		}
-		a.Status, a.DecidedBy, a.DecidedAt = "approved", text(p.Clicker), now()
+		a.Status, a.DecidedBy, a.DeciderSlackID, a.DecidedAt = "approved", text(p.Decider), text(p.DeciderSlackID), now()
 		return true
 	})
 }
@@ -158,12 +159,67 @@ func (s *MemStore) ApproveApproval(_ context.Context, p queries.ApproveApprovalP
 // DenyApproval is the guarded deny, like the SQL.
 func (s *MemStore) DenyApproval(_ context.Context, p queries.DenyApprovalParams) (queries.Approval, error) {
 	return s.move(p.ID, func(a *queries.Approval) bool {
-		if !slices.Contains(a.AllowedApprovers, p.Clicker) {
+		if !slices.Contains(a.AllowedApprovers, p.Decider) {
 			return false
 		}
-		a.Status, a.DecidedBy, a.DecidedAt, a.Arguments = "denied", text(p.Clicker), now(), nil
+		a.Status, a.DecidedBy, a.DeciderSlackID, a.DecidedAt, a.Arguments = "denied", text(p.Decider), text(p.DeciderSlackID), now(), nil
 		return true
 	})
+}
+
+// CancelApproval expires a pending group owner approval, like the SQL.
+func (s *MemStore) CancelApproval(_ context.Context, id uuid.UUID) (queries.Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.approvalIndex(id)
+	if i < 0 || s.rowsApproval[i].Status != "pending" || s.rowsApproval[i].ApproverKind != "group_owner" {
+		return queries.Approval{}, pgx.ErrNoRows
+	}
+	a := s.rowsApproval[i]
+	a.Status, a.Arguments = "expired", nil
+	s.rowsApproval[i] = a
+	return a, nil
+}
+
+// CancelReasonForApproval answers like the SQL does.
+func (s *MemStore) CancelReasonForApproval(_ context.Context, id uuid.NullUUID) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.rows, func(r queries.AuditLog) bool {
+		return r.Kind == "outcome" && r.ApprovalID == id && r.ToolName == audit.ToolApprovalCancel && r.Outcome.String == "expired"
+	}), nil
+}
+
+// CountPendingApprovals counts like the SQL does.
+func (s *MemStore) CountPendingApprovals(ctx context.Context, p queries.CountPendingApprovalsParams) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := cmp.Or(ctx.Err(), s.ApprovalErr); err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, a := range s.rowsApproval {
+		if a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName && a.Status == "pending" && a.ExpiresAt.After(time.Now()) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// ThreadPendingTarget answers like the SQL does.
+func (s *MemStore) ThreadPendingTarget(ctx context.Context, p queries.ThreadPendingTargetParams) (pgtype.Text, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := cmp.Or(ctx.Err(), s.ApprovalErr); err != nil {
+		return pgtype.Text{}, err
+	}
+	for _, a := range slices.Backward(s.rowsApproval) {
+		if a.SlackChannelID == p.SlackChannelID && a.SlackThreadTs == p.SlackThreadTs && a.ToolName == p.ToolName &&
+			a.Status == "pending" && a.ExpiresAt.After(time.Now()) {
+			return a.Target, nil
+		}
+	}
+	return pgtype.Text{}, pgx.ErrNoRows
 }
 
 // move applies a decision to a pending, unexpired approval.
@@ -204,7 +260,7 @@ func (s *MemStore) ExpireDueApprovalsFor(_ context.Context, p queries.ExpireDueA
 	defer s.mu.Unlock()
 	var out []queries.Approval
 	for i, a := range s.rowsApproval {
-		if a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName &&
+		if a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName && a.Target.String == p.Target.String &&
 			a.Status == "pending" && !a.ExpiresAt.After(time.Now()) {
 			a.Status, a.Arguments = "expired", nil
 			s.rowsApproval[i] = a
@@ -231,20 +287,20 @@ func (s *MemStore) AbandonStuckApprovals(_ context.Context, p queries.AbandonStu
 	return out, nil
 }
 
-// ThreadHasOpenApproval answers like the SQL does.
-func (s *MemStore) ThreadHasOpenApproval(ctx context.Context, p queries.ThreadHasOpenApprovalParams) (bool, error) {
+// ThreadOpenApprovalTool answers like the SQL does.
+func (s *MemStore) ThreadOpenApprovalTool(ctx context.Context, p queries.ThreadOpenApprovalToolParams) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := cmp.Or(ctx.Err(), s.ApprovalErr); err != nil {
-		return false, err
+		return "", err
 	}
-	for _, a := range s.rowsApproval {
-		if a.SlackChannelID == p.SlackChannelID && a.SlackThreadTs == p.SlackThreadTs && a.ToolName == p.ToolName &&
+	for _, a := range slices.Backward(s.rowsApproval) {
+		if a.SlackChannelID == p.SlackChannelID && a.SlackThreadTs == p.SlackThreadTs && a.RiskTier == "medium" &&
 			(a.Status == "pending" || a.Status == "approved") {
-			return true, nil
+			return a.ToolName, nil
 		}
 	}
-	return false, nil
+	return "", pgx.ErrNoRows
 }
 
 // FindPendingApproval answers like the SQL does.
@@ -258,7 +314,8 @@ func (s *MemStore) FindPendingApproval(ctx context.Context, p queries.FindPendin
 		return queries.Approval{}, pgx.ErrNoRows
 	}
 	for _, a := range slices.Backward(s.rowsApproval) {
-		if a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName && a.Status == "pending" && a.ExpiresAt.After(time.Now()) {
+		if a.RequesterAccount == p.RequesterAccount && a.ToolName == p.ToolName && a.Target.String == p.Target.String &&
+			a.Status == "pending" && a.ExpiresAt.After(time.Now()) {
 			return a, nil
 		}
 	}
@@ -328,6 +385,23 @@ func (s *MemStore) CountRecentOutcomes(ctx context.Context, p queries.CountRecen
 	var n int64
 	for _, r := range s.rows {
 		if r.Kind == "outcome" && r.Outcome == p.Outcome && r.ToolName == p.ToolName &&
+			r.RequesterSlackID == p.RequesterSlackID && r.OccurredAt.After(p.Since) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// CountRecentReasons counts like the SQL does, or fails with CountErr.
+func (s *MemStore) CountRecentReasons(ctx context.Context, p queries.CountRecentReasonsParams) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := cmp.Or(ctx.Err(), s.CountErr); err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, r := range s.rows {
+		if r.Kind == "outcome" && r.Outcome == p.Outcome && r.Error.String == p.Error && r.ToolName == p.ToolName &&
 			r.RequesterSlackID == p.RequesterSlackID && r.OccurredAt.After(p.Since) {
 			n++
 		}
@@ -405,6 +479,15 @@ type Directory struct {
 	clears    []string
 	KeepLock  bool // ClearLockout succeeds but the lock stays (not confirmed)
 	WriterErr error
+	// Info holds a group's access request details by name (spec 0013); DN
+	// and Name come from Groups.
+	Info map[string]ldap.GroupInfo
+	// Members is group DN -> direct member DNs, what AddMember writes.
+	Members map[string][]string
+	// DropAdds makes AddMember succeed without the member showing up (add
+	// not confirmed).
+	DropAdds bool
+	adds     []string
 	// Stall makes FindUsersByMail wait for its context to end, then fail
 	// with the context's error, as a hung directory connection does.
 	Stall bool
@@ -533,6 +616,215 @@ func (f *Directory) ClearLockout(_ context.Context, dn string) error {
 	return nil
 }
 
+// AddMember adds a direct member, or fails with WriterErr; a member already
+// there is ldap.ErrAlreadyMember. The user then counts as in the group at
+// any depth.
+func (f *Directory) AddMember(_ context.Context, groupDN, userDN string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.WriterErr != nil {
+		return f.WriterErr
+	}
+	if slices.ContainsFunc(f.Members[groupDN], func(m string) bool { return strings.EqualFold(m, userDN) }) {
+		return ldap.ErrAlreadyMember
+	}
+	f.adds = append(f.adds, groupDN)
+	if f.DropAdds {
+		return nil
+	}
+	if f.Members == nil {
+		f.Members = map[string][]string{}
+	}
+	if f.UserIn == nil {
+		f.UserIn = map[string][]string{}
+	}
+	f.Members[groupDN] = append(f.Members[groupDN], userDN)
+	f.UserIn[userDN] = append(f.UserIn[userDN], groupDN)
+	return nil
+}
+
+// Added lists the group DNs AddMember wrote to, in order.
+func (f *Directory) Added() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.adds...)
+}
+
+// GroupHasMember reports a direct member, or fails with Err.
+func (f *Directory) GroupHasMember(_ context.Context, groupDN, userDN string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return false, f.Err
+	}
+	return slices.ContainsFunc(f.Members[groupDN], func(m string) bool { return strings.EqualFold(m, userDN) }), nil
+}
+
+// groupInfo is a group with its Info details.
+func (f *Directory) groupInfo(g ldap.Group) ldap.GroupInfo {
+	info := f.Info[g.Name]
+	info.DN, info.Name = g.DN, g.Name
+	return info
+}
+
+// ListGroups lists the groups under the OUs (relative to Base), or fails with Err.
+func (f *Directory) ListGroups(_ context.Context, ous []string) ([]ldap.GroupInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	var out []ldap.GroupInfo
+	for _, g := range f.Groups {
+		if under, err := ldap.UnderAny(g.DN, ous, Base); err == nil && under {
+			out = append(out, f.groupInfo(g))
+		}
+	}
+	return out, nil
+}
+
+// GroupByName finds one group ignoring case, or fails with Err.
+func (f *Directory) GroupByName(_ context.Context, name string) (ldap.GroupInfo, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return ldap.GroupInfo{}, false, f.Err
+	}
+	for n, g := range f.Groups {
+		if strings.EqualFold(n, name) {
+			return f.groupInfo(g), true, nil
+		}
+	}
+	return ldap.GroupInfo{}, false, nil
+}
+
+// GroupNestedInto names the groups under the OUs that NestedIn lists for
+// the group at groupDN, sorted, or fails with Err.
+func (f *Directory) GroupNestedInto(_ context.Context, groupDN string, ous []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	var name string
+	for n, g := range f.Groups {
+		if strings.EqualFold(g.DN, groupDN) {
+			name = n
+		}
+	}
+	var out []string
+	for _, parent := range f.NestedIn[name] {
+		for n, g := range f.Groups {
+			if strings.EqualFold(g.DN, parent) {
+				if under, err := ldap.UnderAny(g.DN, ous, Base); err == nil && under {
+					out = append(out, n)
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// GetUser finds a user by DN, ignoring case, or fails with Err.
+func (f *Directory) GetUser(_ context.Context, dn string) (ldap.User, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return ldap.User{}, false, f.Err
+	}
+	for _, u := range f.Users {
+		if strings.EqualFold(u.DN, dn) {
+			return u, true, nil
+		}
+	}
+	return ldap.User{}, false, nil
+}
+
+// GetUsers finds users by DN, ignoring case, keyed by the DN given, or
+// fails with Err.
+func (f *Directory) GetUsers(_ context.Context, dns []string) (map[string]ldap.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	out := map[string]ldap.User{}
+	for _, dn := range dns {
+		for _, u := range f.Users {
+			if strings.EqualFold(u.DN, dn) {
+				out[dn] = u
+			}
+		}
+	}
+	return out, nil
+}
+
+// UserGroups names the groups under the OUs that UserIn lists for the user
+// at userDN, sorted, or fails with Err.
+func (f *Directory) UserGroups(_ context.Context, userDN string, ous []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	var out []string
+	for dn, in := range f.UserIn {
+		if !strings.EqualFold(dn, userDN) {
+			continue
+		}
+		for _, gdn := range in {
+			out = append(out, f.namesUnder(gdn, ous)...)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
+// GroupsNestedUnder names the groups under the OUs whose NestedIn lists any
+// of parents, sorted, or fails with Err.
+func (f *Directory) GroupsNestedUnder(_ context.Context, parents, ous []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	var out []string
+	for name, in := range f.NestedIn {
+		g, ok := f.Groups[name]
+		if !ok || !slices.ContainsFunc(in, func(p string) bool {
+			return slices.ContainsFunc(parents, func(want string) bool { return strings.EqualFold(p, want) })
+		}) {
+			continue
+		}
+		if under, err := ldap.UnderAny(g.DN, ous, Base); err == nil && under {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// namesUnder names the group at dn when it sits under the OUs.
+func (f *Directory) namesUnder(dn string, ous []string) []string {
+	for n, g := range f.Groups {
+		if strings.EqualFold(g.DN, dn) {
+			if under, err := ldap.UnderAny(g.DN, ous, Base); err == nil && under {
+				return []string{n}
+			}
+		}
+	}
+	return nil
+}
+
 // Cleared lists the DNs ClearLockout wrote, in order.
 func (f *Directory) Cleared() []string {
 	f.mu.Lock()
@@ -555,6 +847,11 @@ func NewDirectory() *Directory {
 			{DN: UserDN("Ruben Mulder", "IT"), Username: "ruben.mulder", DisplayName: "Ruben Mulder", Department: "IT", Mail: "ruben.mulder@noord.example", Enabled: true},
 			{DN: "CN=adm.ruben.mulder,OU=Admin Accounts,OU=Noord," + Base, Username: "adm.ruben.mulder", Mail: "adm@noord.example", Enabled: true},
 			{DN: UserDN("Old Leaver", "Sales"), Username: "old.leaver", Mail: "old.leaver@noord.example", Enabled: false},
+			// Spec 0013: a Finance requester, the finance owner, and a leaver
+			// who still owns a share.
+			{DN: UserDN("Noor El Amrani", "Finance"), Username: "noor.elamrani", DisplayName: "Noor El Amrani", Department: "Finance", Mail: "noor.elamrani@noord.example", Enabled: true},
+			{DN: UserDN("Ilse Smit", "Finance"), Username: "ilse.smit", DisplayName: "Ilse Smit", Department: "Finance", Mail: "ilse.smit@noord.example", Enabled: true},
+			{DN: UserDN("Thomas Meijer", "Finance"), Username: "thomas.meijer", DisplayName: "Thomas Meijer", Department: "Finance", Mail: "thomas.meijer@noord.example", Enabled: true},
 		},
 		Locked: map[string]time.Time{UserDN("Eva Peters", "Sales"): time.Date(2026, 10, 18, 12, 15, 0, 0, time.UTC)},
 		Groups: map[string]ldap.Group{
@@ -565,9 +862,36 @@ func NewDirectory() *Directory {
 			"Domain Admins":       {DN: "CN=Domain Admins,CN=Users," + Base, Name: "Domain Admins"},
 			"T-Nested":            {DN: GroupDN("T-Nested"), Name: "T-Nested"},
 			"Outside-Group":       {DN: "CN=Outside-Group,OU=Elsewhere," + Base, Name: "Outside-Group"},
+			"Finance_Users":       {DN: GroupDN("Finance_Users"), Name: "Finance_Users"},
+			"fin-readonly":        {DN: GroupDN("fin-readonly"), Name: "fin-readonly"},
+			"APP-ERP-Finance":     {DN: GroupDN("APP-ERP-Finance"), Name: "APP-ERP-Finance"},
+			"SHR-Finance-RW":      {DN: GroupDN("SHR-Finance-RW"), Name: "SHR-Finance-RW"},
+			"allstaff":            {DN: GroupDN("allstaff"), Name: "allstaff"},
+			"SG-Sales":            {DN: GroupDN("SG-Sales"), Name: "SG-Sales"},
 		},
 		NestedIn: map[string][]string{
-			"T-Nested": {"CN=SG-IT-Admins,OU=Admin Accounts,OU=Noord," + Base, "CN=Domain Admins,CN=Users," + Base},
+			"T-Nested":   {"CN=SG-IT-Admins,OU=Admin Accounts,OU=Noord," + Base, "CN=Domain Admins,CN=Users," + Base},
+			"SG-Finance": {GroupDN("APP-ERP-Finance"), GroupDN("SHR-Finance-RW")},
 		},
+		Info: financeGroups(),
+	}
+}
+
+// financeGroups are the spec 0013 access request details: the finance
+// groups (owned, unowned, undescribed, the leaver's share), a distribution
+// list that mentions finance, and a Sales group.
+func financeGroups() map[string]ldap.GroupInfo {
+	finance := []string{"Finance"}
+	return map[string]ldap.GroupInfo{
+		"SG-Finance":      {Description: "Finance department", Security: true, ManagedBy: UserDN("Ilse Smit", "Finance"), Departments: finance},
+		"Finance_Users":   {Description: "Finance (old)", Security: true, Departments: finance},
+		"fin-readonly":    {Security: true, Departments: finance},
+		"APP-ERP-Finance": {Description: "Finance ERP access", Security: true, ManagedBy: UserDN("Ilse Smit", "Finance"), Departments: []string{"Finance", "Management"}},
+		"SHR-Finance-RW":  {Description: "Finance share, read and write", Security: true, ManagedBy: UserDN("Thomas Meijer", "Finance"), Departments: finance},
+		"allstaff":        {Description: "Everyone at Noord, finance included", Departments: finance},
+		"SG-Sales":        {Description: "Sales department", Security: true, ManagedBy: UserDN("Eva Peters", "Sales"), Departments: []string{"Sales"}},
+		// Tagged, yet denied and fenced: they must never show up.
+		"APP-Helpdesk-Agents": {Description: "Zammad helpdesk agents, finance too", Security: true, ManagedBy: UserDN("Ruben Mulder", "IT"), Departments: finance},
+		"T-Nested":            {Description: "Nested finance admins", Security: true, ManagedBy: UserDN("Ilse Smit", "Finance"), Departments: finance},
 	}
 }

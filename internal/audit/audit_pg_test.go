@@ -206,11 +206,11 @@ func TestPgAnApprovalIsApprovedOnlyOnce(t *testing.T) {
 	r, q := pgRecorder(t)
 	a := deferMFA(t, r, []string{approverA, approverB}, time.Now().Add(time.Hour))
 
-	first, err := r.Decide(t.Context(), a.ID, approverA, true)
+	first, err := r.Decide(t.Context(), a.ID, Decider{SlackID: approverA}, true)
 	if err != nil || !first.Moved || first.Approval.Status != "approved" || first.Approval.DecidedBy.String != approverA {
 		t.Fatalf("first click = %+v, %v; want approved by %s", first, err, approverA)
 	}
-	second, err := r.Decide(t.Context(), a.ID, approverB, true)
+	second, err := r.Decide(t.Context(), a.ID, Decider{SlackID: approverB}, true)
 	if err != nil || second.Moved || second.Reason != "already decided" {
 		t.Fatalf("second click = %+v, %v; want refused as already decided", second, err)
 	}
@@ -241,13 +241,13 @@ func TestPgAnEndedApprovalForgetsItsArguments(t *testing.T) {
 	const full = `{"account": "jdevries"}`
 
 	denied := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
-	d, err := r.Decide(t.Context(), denied.ID, approverA, false)
+	d, err := r.Decide(t.Context(), denied.ID, Decider{SlackID: approverA}, false)
 	if err != nil || !d.Moved || d.Approval.Arguments != nil {
 		t.Errorf("deny = %+v, %v; want arguments cleared", d.Approval, err)
 	}
 
 	approved := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
-	d, err = r.Decide(t.Context(), approved.ID, approverA, true)
+	d, err = r.Decide(t.Context(), approved.ID, Decider{SlackID: approverA}, true)
 	if err != nil || string(d.Approval.Arguments) != full {
 		t.Fatalf("approve = %+v, %v; want the full call kept until it runs", d.Approval, err)
 	}
@@ -257,7 +257,7 @@ func TestPgAnEndedApprovalForgetsItsArguments(t *testing.T) {
 	}
 
 	failing := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
-	if _, err := r.Decide(t.Context(), failing.ID, approverA, true); err != nil {
+	if _, err := r.Decide(t.Context(), failing.ID, Decider{SlackID: approverA}, true); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
 	if failed, err := q.MarkApprovalFailed(t.Context(), failing.ID); err != nil || failed.Arguments != nil {
@@ -311,7 +311,7 @@ func TestPgOnlyAnApprovedApprovalCanRunOrFail(t *testing.T) {
 		t.Errorf("a pending approval was marked failed: %v", err)
 	}
 
-	if _, err := r.Decide(t.Context(), pending.ID, approverA, false); err != nil {
+	if _, err := r.Decide(t.Context(), pending.ID, Decider{SlackID: approverA}, false); err != nil {
 		t.Fatalf("deny: %v", err)
 	}
 	if _, err := q.MarkApprovalExecuted(t.Context(), pending.ID); !errors.Is(err, pgx.ErrNoRows) {
@@ -319,7 +319,7 @@ func TestPgOnlyAnApprovedApprovalCanRunOrFail(t *testing.T) {
 	}
 
 	approved := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
-	if d, err := r.Decide(t.Context(), approved.ID, approverA, true); err != nil || !d.Moved {
+	if d, err := r.Decide(t.Context(), approved.ID, Decider{SlackID: approverA}, true); err != nil || !d.Moved {
 		t.Fatalf("approve = %+v, %v", d, err)
 	}
 	failed, err := q.MarkApprovalFailed(t.Context(), approved.ID)
@@ -351,7 +351,7 @@ func TestPgRefusedClicksChangeNothing(t *testing.T) {
 			r, q := pgRecorder(t)
 			a := deferMFA(t, r, tc.approvers, time.Now().Add(tc.expires))
 
-			d, err := r.Decide(t.Context(), a.ID, tc.clicker, tc.approve)
+			d, err := r.Decide(t.Context(), a.ID, Decider{SlackID: tc.clicker}, tc.approve)
 			if err != nil || d.Moved || d.Reason != tc.reason {
 				t.Fatalf("Decide = %+v, %v; want refused: %s", d, err, tc.reason)
 			}
@@ -379,7 +379,7 @@ func TestPgApproveAndDenyRaceHasOneWinner(t *testing.T) {
 		errs := make([]error, 2)
 		for i, approve := range []bool{true, false} {
 			wg.Go(func() {
-				results[i], errs[i] = r.Decide(context.WithoutCancel(t.Context()), a.ID, []string{approverA, approverB}[i], approve)
+				results[i], errs[i] = r.Decide(context.WithoutCancel(t.Context()), a.ID, Decider{SlackID: []string{approverA, approverB}[i]}, approve)
 			})
 		}
 		wg.Wait()
@@ -422,7 +422,7 @@ func TestPgExpireMovesOnlyOverdueApprovals(t *testing.T) {
 	// covers: spec 0012 AC-9, AC-18. A click after the tick expired the row
 	// is refused as expired, not as already decided.
 	for _, approve := range []bool{true, false} {
-		d, err := r.Decide(t.Context(), overdue.ID, approverA, approve)
+		d, err := r.Decide(t.Context(), overdue.ID, Decider{SlackID: approverA}, approve)
 		if err != nil || d.Moved || d.Reason != "expired" {
 			t.Errorf("click on an expired row (approve %v) = %+v, %v; want refused as expired", approve, d, err)
 		}
@@ -459,7 +459,7 @@ func TestPgOnePendingApprovalPerAccount(t *testing.T) {
 	if after := len(threadRows(t, q, mfaCall())); after != before {
 		t.Errorf("the refused Defer left %d audit rows, want none (rolled back)", after-before)
 	}
-	if _, err := r.Decide(t.Context(), live.ID, approverA, false); err != nil {
+	if _, err := r.Decide(t.Context(), live.ID, Decider{SlackID: approverA}, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -486,11 +486,11 @@ func TestPgOnePendingApprovalPerAccount(t *testing.T) {
 		if won != 1 {
 			t.Fatalf("racing Defers: %d won, want exactly one (%v)", won, errs)
 		}
-		a, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset")
+		a, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset", "")
 		if err != nil || !ok {
 			t.Fatalf("PendingApproval: %v, %v", ok, err)
 		}
-		if _, err := r.Decide(t.Context(), a.ID, approverA, false); err != nil {
+		if _, err := r.Decide(t.Context(), a.ID, Decider{SlackID: approverA}, false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -513,7 +513,7 @@ func TestPgEachApprovalBelongsToOneCall(t *testing.T) {
 
 func TestPgDecidingAnUnknownApprovalFails(t *testing.T) {
 	r, _ := pgRecorder(t)
-	if _, err := r.Decide(t.Context(), uuid.New(), approverA, true); !errors.Is(err, ErrApprovalNotFound) {
+	if _, err := r.Decide(t.Context(), uuid.New(), Decider{SlackID: approverA}, true); !errors.Is(err, ErrApprovalNotFound) {
 		t.Fatalf("err = %v, want ErrApprovalNotFound", err)
 	}
 }
@@ -702,25 +702,25 @@ func TestPgDeferAndReuseKeepThePendingResult(t *testing.T) {
 // for that account is found.
 func TestPgPendingApproval(t *testing.T) {
 	r, _ := pgRecorder(t)
-	if _, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset"); ok || err != nil {
+	if _, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset", ""); ok || err != nil {
 		t.Fatalf("empty: ok %v, %v", ok, err)
 	}
 	deferMFA(t, r, []string{approverA}, time.Now().Add(-time.Minute)) // already past expiry
-	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "mfa_reset"); ok {
+	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "mfa_reset", ""); ok {
 		t.Error("an expired approval counted as pending")
 	}
 	live := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
-	a, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset")
+	a, ok, err := r.PendingApproval(t.Context(), "jdevries", "mfa_reset", "")
 	if err != nil || !ok || a.ID != live.ID {
 		t.Errorf("PendingApproval = %v, %v, %v; want %s", a.ID, ok, err, live.ID)
 	}
-	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "other_tool"); ok {
+	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "other_tool", ""); ok {
 		t.Error("another tool's approval counted")
 	}
-	if _, err := r.Decide(t.Context(), live.ID, approverA, false); err != nil {
+	if _, err := r.Decide(t.Context(), live.ID, Decider{SlackID: approverA}, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "mfa_reset"); ok {
+	if _, ok, _ := r.PendingApproval(t.Context(), "jdevries", "mfa_reset", ""); ok {
 		t.Error("a denied approval counted as pending")
 	}
 }
@@ -736,7 +736,7 @@ func TestPgExecutionOutcomeAndMark(t *testing.T) {
 	if found, err := r.MarkApproval(t.Context(), a.ID, true); found || err != nil {
 		t.Errorf("marked a pending approval: %v, %v", found, err)
 	}
-	d, err := r.Decide(t.Context(), a.ID, approverA, true)
+	d, err := r.Decide(t.Context(), a.ID, Decider{SlackID: approverA}, true)
 	if err != nil || !d.Moved {
 		t.Fatalf("approve: %+v, %v", d, err)
 	}
@@ -775,17 +775,17 @@ func TestPgAbandonAndOpenApprovals(t *testing.T) {
 	r, q := pgRecorder(t)
 	c := mfaCall()
 	a := deferMFA(t, r, []string{approverA}, time.Now().Add(time.Hour))
-	if open, err := r.ThreadHasOpenApproval(t.Context(), "mfa_reset", c.ChannelID, c.ThreadTS); err != nil || !open {
-		t.Fatalf("pending: open %v, %v", open, err)
+	if open, err := r.ThreadOpenApprovalTool(t.Context(), c.ChannelID, c.ThreadTS); err != nil || open != "mfa_reset" {
+		t.Fatalf("pending: open %q, %v", open, err)
 	}
-	if d, err := r.Decide(t.Context(), a.ID, approverA, true); err != nil || !d.Moved {
+	if d, err := r.Decide(t.Context(), a.ID, Decider{SlackID: approverA}, true); err != nil || !d.Moved {
 		t.Fatalf("approve: %+v, %v", d, err)
 	}
 	if got, err := r.Abandon(t.Context(), time.Hour, 100); err != nil || len(got) != 0 {
 		t.Fatalf("within the grace: abandoned %d, %v", len(got), err)
 	}
-	if open, err := r.ThreadHasOpenApproval(t.Context(), "mfa_reset", c.ChannelID, c.ThreadTS); err != nil || !open {
-		t.Fatalf("approved: open %v, %v", open, err)
+	if open, err := r.ThreadOpenApprovalTool(t.Context(), c.ChannelID, c.ThreadTS); err != nil || open != "mfa_reset" {
+		t.Fatalf("approved: open %q, %v", open, err)
 	}
 	time.Sleep(50 * time.Millisecond)
 	got, err := r.Abandon(t.Context(), 10*time.Millisecond, 100)
@@ -805,8 +805,8 @@ func TestPgAbandonAndOpenApprovals(t *testing.T) {
 	if err != nil || !ok || ex.Outcome != OutcomeError || ex.Reason != ReasonExecutionNotConfirmed {
 		t.Errorf("ExecutionOf = %+v, %v, %v; want the abandon's outcome", ex, ok, err)
 	}
-	if open, err := r.ThreadHasOpenApproval(t.Context(), "mfa_reset", c.ChannelID, c.ThreadTS); err != nil || open {
-		t.Errorf("failed: open %v, %v", open, err)
+	if open, err := r.ThreadOpenApprovalTool(t.Context(), c.ChannelID, c.ThreadTS); err != nil || open != "" {
+		t.Errorf("failed: open %q, %v", open, err)
 	}
 	if _, err := r.Abandon(t.Context(), 0, 100); !errors.Is(err, ErrInvalidCall) {
 		t.Errorf("zero grace: %v", err)

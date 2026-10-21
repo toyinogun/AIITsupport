@@ -172,22 +172,32 @@ type Approvals struct {
 	// on top of the code floor. Separate from RESET_DENIED_GROUPS and
 	// TOOL_DENIED_GROUPS (journal 0037).
 	MFADeniedGroups []string `env:"MFA_DENIED_GROUPS" default:"SG-IT-Admins,APP-Helpdesk-Agents"`
+	// AccessMaxPending is how many access requests one person may have
+	// waiting for an owner at once (spec 0013, AC-20).
+	AccessMaxPending int `env:"ACCESS_MAX_PENDING" default:"3"`
 }
 
-// ApprovalWindow is how long IT has to decide an approval. It is embedded in
-// Approvals (the tool server sets each expiry from it) and in Agent (the
-// approval tick adopts approvals created within it plus an hour, spec 0012
+// ApprovalWindow is how long IT has to decide an approval, and a group owner
+// an access request (spec 0013, AC-20). It is embedded in Approvals (the
+// tool server sets each expiry from it) and in Agent (the approval tick
+// adopts approvals created within the longer one plus an hour, spec 0012
 // AC-14), so both binaries read one value.
 type ApprovalWindow struct {
-	ApprovalTimeout time.Duration `env:"APPROVAL_TIMEOUT" default:"30m"`
+	ApprovalTimeout       time.Duration `env:"APPROVAL_TIMEOUT" default:"30m"`
+	AccessApprovalTimeout time.Duration `env:"ACCESS_APPROVAL_TIMEOUT" default:"8h"`
 }
 
-// checkApprovalWindow refuses an APPROVAL_TIMEOUT outside 5m to 24h.
+// checkApprovalWindow refuses an APPROVAL_TIMEOUT or ACCESS_APPROVAL_TIMEOUT
+// outside 5m to 24h.
 func checkApprovalWindow(w ApprovalWindow) error {
+	var errs []error
 	if w.ApprovalTimeout < minApprovalTimeout || w.ApprovalTimeout > maxApprovalTimeout {
-		return errors.New("APPROVAL_TIMEOUT must be between 5m and 24h")
+		errs = append(errs, errors.New("APPROVAL_TIMEOUT must be between 5m and 24h"))
 	}
-	return nil
+	if w.AccessApprovalTimeout < minApprovalTimeout || w.AccessApprovalTimeout > maxApprovalTimeout {
+		errs = append(errs, errors.New("ACCESS_APPROVAL_TIMEOUT must be between 5m and 24h"))
+	}
+	return errors.Join(errs...)
 }
 
 // Range bounds for the approval settings (spec 0012, AC-21).
@@ -200,6 +210,8 @@ const (
 	maxApprovalPollInterval   = 5 * time.Minute
 	minApprovalDecideTimeout  = 30 * time.Second
 	maxApprovalDecideTimeout  = 10 * time.Minute
+	minAccessMaxPending       = 1
+	maxAccessMaxPending       = 10
 )
 
 // slackApproverID is an approver's Slack user id (spec 0012, AC-21).
@@ -222,6 +234,9 @@ func checkApprovals(a Approvals) error {
 	}
 	if a.ApprovalExecuteGrace < 2*a.ApprovalExecuteTimeout {
 		errs = append(errs, errors.New("APPROVAL_EXECUTE_GRACE must be at least twice APPROVAL_EXECUTE_TIMEOUT"))
+	}
+	if a.AccessMaxPending < minAccessMaxPending || a.AccessMaxPending > maxAccessMaxPending {
+		errs = append(errs, errors.New("ACCESS_MAX_PENDING must be between 1 and 10"))
 	}
 	return errors.Join(errs...)
 }

@@ -30,11 +30,16 @@ const (
 	ToolApprovalDeny    = "approval.deny"
 	ToolApprovalExpire  = "approval.expire"
 	ToolApprovalAbandon = "approval.abandon"
+	ToolApprovalCancel  = "approval.cancel"
 )
 
 // ReasonExecutionNotConfirmed is the stored reason of an approval.abandon
 // pair (spec 0012, AC-12).
 const ReasonExecutionNotConfirmed = "execution not confirmed"
+
+// ReasonOwnerUnreachable is the stored reason of an approval.cancel pair
+// (spec 0013, AC-11).
+const ReasonOwnerUnreachable = "owner unreachable"
 
 // ErrApprovalNotFound means no approval has that id; nothing is recorded.
 var ErrApprovalNotFound = errors.New("approval not found")
@@ -49,9 +54,42 @@ const onePendingIndex = "approvals_one_pending_idx"
 
 // ApprovalRequest says who may approve a deferred call and until when.
 type ApprovalRequest struct {
-	Kind      ApproverKind
-	Approvers []string // Slack ids, snapshot now: later setting changes don't widen it
+	Kind ApproverKind
+	// Approvers are snapshot now, so later changes don't widen them: Slack
+	// ids for kind it, the group owner's AD account for kind group_owner.
+	Approvers []string
 	ExpiresAt time.Time
+	// Target is the group a group_access_request adds to, by its canonical
+	// name (spec 0013, AC-7); empty for every other tool.
+	Target string
+}
+
+// Decider is who clicked: the Slack id from the interaction payload and, for
+// a group_owner approval, the AD account their confirmed Slack email maps to
+// (spec 0013, AC-13). Account is empty for kind it, and when no account
+// matched.
+type Decider struct {
+	SlackID string
+	Account string
+}
+
+// deciderFor is the value an approval's allowed_approvers and decided_by
+// hold for this click: the AD account for kind group_owner, else the Slack id.
+func deciderFor(a queries.Approval, by Decider) string {
+	if a.ApproverKind == string(ApproverGroupOwner) {
+		return by.Account
+	}
+	return by.SlackID
+}
+
+// IsRequester reports whether decider is the approval's requester, by the
+// kind's own key: the AD account for group_owner, the Slack id for it (spec
+// 0013, AC-8). Nobody approves their own request.
+func IsRequester(a queries.Approval, decider string) bool {
+	if a.ApproverKind == string(ApproverGroupOwner) {
+		return decider == a.RequesterAccount.String
+	}
+	return decider == a.RequesterSlackID
 }
 
 // Decision is what Decide did with a click.
@@ -83,7 +121,7 @@ func (r *Recorder) Defer(ctx context.Context, c Call, req ApprovalRequest, resul
 
 	var approval queries.Approval
 	err = r.inTx(ctx, func(q Queries) error {
-		if err := r.expireDueFor(ctx, q, c); err != nil {
+		if err := r.expireDueFor(ctx, q, c, req.Target); err != nil {
 			return err
 		}
 		callID, err := r.insertIntent(ctx, q, intent)
@@ -103,6 +141,7 @@ func (r *Recorder) Defer(ctx context.Context, c Call, req ApprovalRequest, resul
 			ApproverKind:     string(req.Kind),
 			AllowedApprovers: req.Approvers,
 			ExpiresAt:        req.ExpiresAt,
+			Target:           text(req.Target),
 		})
 		if isOnePendingViolation(err) {
 			return ErrApprovalPending
@@ -120,15 +159,15 @@ func (r *Recorder) Defer(ctx context.Context, c Call, req ApprovalRequest, resul
 	return approval, err
 }
 
-// expireDueFor expires the account's overdue pending approvals of c's tool,
-// each with its approval.expire pair, so one the tick has not reached yet
-// does not block the new approval. A call with no account has none.
-func (r *Recorder) expireDueFor(ctx context.Context, q Queries, c Call) error {
+// expireDueFor expires the account's overdue pending approvals of c's tool
+// and target, each with its approval.expire pair, so one the tick has not
+// reached yet does not block the new approval. A call with no account has none.
+func (r *Recorder) expireDueFor(ctx context.Context, q Queries, c Call, target string) error {
 	if c.RequesterAccount == "" {
 		return nil
 	}
 	expired, err := q.ExpireDueApprovalsFor(ctx, queries.ExpireDueApprovalsForParams{
-		RequesterAccount: text(c.RequesterAccount), ToolName: c.Tool,
+		RequesterAccount: text(c.RequesterAccount), ToolName: c.Tool, Target: text(target),
 	})
 	if err != nil {
 		return fmt.Errorf("expire the account's due approvals: %w", err)
@@ -192,13 +231,14 @@ func (r *Recorder) pendingResult(c Call, result map[string]any) json.RawMessage 
 	return out
 }
 
-// PendingApproval is the pending, unexpired approval of tool for account, if
-// any (spec 0012, AC-3). It reads under the write timeout.
-func (r *Recorder) PendingApproval(ctx context.Context, account, tool string) (queries.Approval, bool, error) {
+// PendingApproval is the pending, unexpired approval of tool and target for
+// account, if any (spec 0012 AC-3, spec 0013 AC-5); target is empty for a
+// tool without one. It reads under the write timeout.
+func (r *Recorder) PendingApproval(ctx context.Context, account, tool, target string) (queries.Approval, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.WriteTimeout)
 	defer cancel()
 	a, err := r.store.FindPendingApproval(ctx, queries.FindPendingApprovalParams{
-		RequesterAccount: text(account), ToolName: tool,
+		RequesterAccount: text(account), ToolName: tool, Target: text(target),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return queries.Approval{}, false, nil
@@ -207,6 +247,38 @@ func (r *Recorder) PendingApproval(ctx context.Context, account, tool string) (q
 		return queries.Approval{}, false, fmt.Errorf("%w: read pending approvals: %w", ErrAuditUnavailable, err)
 	}
 	return a, true, nil
+}
+
+// PendingCount counts account's pending, unexpired approvals of tool: the
+// soft ACCESS_MAX_PENDING limit (spec 0013, AC-5).
+func (r *Recorder) PendingCount(ctx context.Context, account, tool string) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.cfg.WriteTimeout)
+	defer cancel()
+	n, err := r.store.CountPendingApprovals(ctx, queries.CountPendingApprovalsParams{
+		RequesterAccount: text(account), ToolName: tool,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("%w: count pending approvals: %w", ErrAuditUnavailable, err)
+	}
+	return n, nil
+}
+
+// ThreadPendingTarget is the target of the thread's newest pending,
+// unexpired approval of tool; ok is false when there is none (spec 0013,
+// AC-5: one access request per conversation).
+func (r *Recorder) ThreadPendingTarget(ctx context.Context, tool, channelID, threadTS string) (target string, ok bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, r.cfg.WriteTimeout)
+	defer cancel()
+	t, err := r.store.ThreadPendingTarget(ctx, queries.ThreadPendingTargetParams{
+		SlackChannelID: channelID, SlackThreadTs: threadTS, ToolName: tool,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("%w: read the thread's pending approval: %w", ErrAuditUnavailable, err)
+	}
+	return t.String, true, nil
 }
 
 // Approval reads one approval; an unknown id is ErrApprovalNotFound.
@@ -288,19 +360,24 @@ func validateDefer(c Call, req ApprovalRequest) error {
 		return fmt.Errorf("%w: no approvers", ErrInvalidCall)
 	case req.ExpiresAt.IsZero():
 		return fmt.Errorf("%w: no expiry", ErrInvalidCall)
+	case req.Kind == ApproverGroupOwner && (req.Target == "" || len(req.Approvers) != 1):
+		return fmt.Errorf("%w: a group owner approval needs its group and exactly one owner", ErrInvalidCall)
 	case c.ChannelID == "" || c.ThreadTS == "":
 		return fmt.Errorf("%w: an approval needs the Slack thread", ErrInvalidCall)
 	}
 	return nil
 }
 
-// Decide applies one Approve or Deny click from clicker (the Slack id from the
-// interaction payload, passed by agent code). In one transaction it makes the
-// guarded move and writes an approval.approve or approval.deny audit pair: ok
-// or denied_approval when the move happened, denied_policy with the reason
-// when it was refused. An unknown id returns ErrApprovalNotFound.
-func (r *Recorder) Decide(ctx context.Context, approvalID uuid.UUID, clicker string, approve bool) (Decision, error) {
-	if clicker == "" {
+// Decide applies one Approve or Deny click (the clicker's Slack id from the
+// interaction payload and, for a group owner approval, their AD account,
+// both passed by agent code and the approval route). In one transaction it
+// makes the guarded move and writes an approval.approve or approval.deny
+// audit pair: ok or denied_approval when the move happened, denied_policy
+// with the reason when it was refused. The pair's approver is the clicker's
+// Slack id; a moved group owner decision also names the decider account as
+// its target (spec 0013, AC-8). An unknown id returns ErrApprovalNotFound.
+func (r *Recorder) Decide(ctx context.Context, approvalID uuid.UUID, by Decider, approve bool) (Decision, error) {
+	if by.SlackID == "" {
 		return Decision{}, fmt.Errorf("%w: no clicker", ErrInvalidCall)
 	}
 	tool, movedOutcome := ToolApprovalDeny, OutcomeDeniedApproval
@@ -311,7 +388,7 @@ func (r *Recorder) Decide(ctx context.Context, approvalID uuid.UUID, clicker str
 	var d Decision
 	err := r.inTx(ctx, func(q Queries) error {
 		var err error
-		d, err = move(ctx, q, approvalID, clicker, approve)
+		d, err = move(ctx, q, approvalID, by, approve)
 		if err != nil {
 			return err
 		}
@@ -319,7 +396,11 @@ func (r *Recorder) Decide(ctx context.Context, approvalID uuid.UUID, clicker str
 		if !d.Moved {
 			outcome = OutcomeDeniedPolicy
 		}
-		intent, err := r.intentParams(approvalCall(d.Approval, tool, clicker))
+		c := approvalCall(d.Approval, tool, by.SlackID)
+		if d.Moved && d.Approval.ApproverKind == string(ApproverGroupOwner) {
+			c.Target = by.Account
+		}
+		intent, err := r.intentParams(c)
 		if err != nil {
 			return err
 		}
@@ -328,17 +409,22 @@ func (r *Recorder) Decide(ctx context.Context, approvalID uuid.UUID, clicker str
 	return d, err
 }
 
-// move tries the guarded update; when it changes nothing it reads the row
-// again to say why.
-func move(ctx context.Context, q Queries, id uuid.UUID, clicker string, approve bool) (Decision, error) {
-	var (
-		a   queries.Approval
-		err error
-	)
+// move reads the approval for its kind, which says who the decider is, then
+// tries the guarded update; when that changes nothing it reads the row again
+// to say why.
+func move(ctx context.Context, q Queries, id uuid.UUID, by Decider, approve bool) (Decision, error) {
+	a, err := q.GetApproval(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Decision{}, ErrApprovalNotFound
+	}
+	if err != nil {
+		return Decision{}, fmt.Errorf("read approval: %w", err)
+	}
+	decider := deciderFor(a, by)
 	if approve {
-		a, err = q.ApproveApproval(ctx, queries.ApproveApprovalParams{ID: id, Clicker: clicker})
+		a, err = q.ApproveApproval(ctx, queries.ApproveApprovalParams{ID: id, Decider: decider, DeciderSlackID: by.SlackID})
 	} else {
-		a, err = q.DenyApproval(ctx, queries.DenyApprovalParams{ID: id, Clicker: clicker})
+		a, err = q.DenyApproval(ctx, queries.DenyApprovalParams{ID: id, Decider: decider, DeciderSlackID: by.SlackID})
 	}
 	if err == nil {
 		return Decision{Approval: a, Moved: true}, nil
@@ -346,30 +432,70 @@ func move(ctx context.Context, q Queries, id uuid.UUID, clicker string, approve 
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Decision{}, fmt.Errorf("move approval: %w", err)
 	}
-	a, err = q.GetApproval(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Decision{}, ErrApprovalNotFound
-	}
-	if err != nil {
+	if a, err = q.GetApproval(ctx, id); err != nil {
 		return Decision{}, fmt.Errorf("read approval: %w", err)
 	}
-	return Decision{Approval: a, Reason: refusalReason(a, clicker, approve)}, nil
+	return Decision{Approval: a, Reason: refusalReason(a, decider, approve)}, nil
 }
 
 // refusalReason mirrors the guards in ApproveApproval and DenyApproval.
-func refusalReason(a queries.Approval, clicker string, approve bool) string {
+func refusalReason(a queries.Approval, decider string, approve bool) string {
 	switch {
 	case a.Status == "expired":
 		return "expired"
 	case a.Status != "pending":
 		return "already decided"
-	case !slices.Contains(a.AllowedApprovers, clicker):
+	case decider == "" || !slices.Contains(a.AllowedApprovers, decider):
 		return "not an allowed approver"
-	case approve && clicker == a.RequesterSlackID:
+	case approve && IsRequester(a, decider):
 		return "requester cannot approve"
 	default:
 		return "expired"
 	}
+}
+
+// Cancel ends a pending group owner approval whose owner cannot be reached
+// in Slack (spec 0013, AC-11): in one transaction, the guarded move to
+// expired and an approval.cancel audit pair, outcome expired, reason owner
+// unreachable. moved is false, with nothing written, when the approval is
+// not a pending group owner approval. An unknown id is ErrApprovalNotFound.
+func (r *Recorder) Cancel(ctx context.Context, id uuid.UUID) (a queries.Approval, moved bool, err error) {
+	err = r.inTx(ctx, func(q Queries) error {
+		var err error
+		a, err = q.CancelApproval(ctx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			if a, err = q.GetApproval(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+				return ErrApprovalNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("read approval: %w", err)
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("cancel approval: %w", err)
+		}
+		moved = true
+		intent, err := r.intentParams(approvalCall(a, ToolApprovalCancel, ""))
+		if err != nil {
+			return err
+		}
+		return r.writePair(ctx, q, intent, OutcomeExpired, ReasonOwnerUnreachable, a.ID)
+	})
+	return a, moved, err
+}
+
+// Cancelled reports whether approval id was cancelled as owner unreachable:
+// an approval.cancel outcome names it (spec 0013, AC-11), so a settle after
+// a crash still tells a cancel from a timeout.
+func (r *Recorder) Cancelled(ctx context.Context, id uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.cfg.WriteTimeout)
+	defer cancel()
+	ok, err := r.store.CancelReasonForApproval(ctx, nullUUID(id))
+	if err != nil {
+		return false, fmt.Errorf("%w: read the cancel reason: %w", ErrAuditUnavailable, err)
+	}
+	return ok, nil
 }
 
 // Expire moves up to limit overdue approvals to expired and writes an
@@ -389,8 +515,9 @@ func (r *Recorder) Expire(ctx context.Context, limit int32) ([]queries.Approval,
 
 // Abandon moves up to limit approved approvals whose decided_at is older
 // than grace to failed (spec 0012, AC-12) and writes an approval.abandon pair
-// for each (approver decided_by, target the requester account, outcome
-// error, reason execution not confirmed), in one transaction. It never runs
+// for each (approver the clicker's Slack id, target the requester account,
+// or the decider account for a group owner approval, outcome error, reason
+// execution not confirmed), in one transaction. It never runs
 // a stored call: an execution that never confirmed is handed to a human.
 func (r *Recorder) Abandon(ctx context.Context, grace time.Duration, limit int32) ([]queries.Approval, error) {
 	if grace <= 0 {
@@ -406,8 +533,11 @@ func (r *Recorder) Abandon(ctx context.Context, grace time.Duration, limit int32
 			return fmt.Errorf("abandon approvals: %w", err)
 		}
 		for _, a := range abandoned {
-			c := approvalCall(a, ToolApprovalAbandon, a.DecidedBy.String)
+			c := approvalCall(a, ToolApprovalAbandon, a.DeciderSlackID.String)
 			c.Target = a.RequesterAccount.String
+			if a.ApproverKind == string(ApproverGroupOwner) {
+				c.Target = a.DecidedBy.String
+			}
 			intent, err := r.intentParams(c)
 			if err != nil {
 				return err

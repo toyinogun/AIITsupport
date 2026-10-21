@@ -53,6 +53,7 @@ DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_ENTRA=1 go test -race -run L
 - The marker on `OU=Noord` is `seed:sha256:<YAML hash>:<overlay hash or none>`, written last. Any seeded content without the matching marker means "run `make directory-reset`", never a partial top up.
 - Passwords come from settings (`SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`, `LDAP_BIND_PASSWORD`), never from the YAML or the image. Error messages name the setting, never the value.
 - `svc-itsupport` (the tool server's account) is fenced by AD permissions set in `entrypoint.sh`: it may clear `lockoutTime` on users under `OU=Users` and change `member` on groups under `OU=Groups`, nothing else.
+- A group's `departments:` in `noord.yaml` is written to its `info` as `noord-departments: A, B` (`directory.DepartmentsInfo`, read back by `ldap.ParseDepartments`); the validator refuses unknown or repeated departments and tags on a distribution list or a privileged group (spec 0013, AC-3).
 - `seed/directory/overlay.local.yaml` is gitignored and only replaces `mail` for listed demo users.
 - The Entra sync touches only users marked `employeeType` = `noord-sync`. An unmarked user holding an in scope `mailNickname` or UPN (live or in the recycle bin) stops the run before any write; it is never edited, restored, or deleted.
 - A managed user out of scope is soft deleted (recycle bin) and restored with the same object id when it returns, never created again. More than `SEED_ENTRA_DELETE_LIMIT` deletes stops the run before any write.

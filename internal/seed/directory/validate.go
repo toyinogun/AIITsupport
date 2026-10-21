@@ -195,7 +195,27 @@ func (v *validator) groups() {
 				v.add("group %s: nested_into has an empty entry", g.Name)
 			}
 		}
+		v.groupDepartments(g)
 		v.groupMembers(g)
+	}
+}
+
+// groupDepartments checks a group's department tags (spec 0013, AC-3): only
+// departments the seed lists, each once, and never on a distribution list or
+// a privileged group, which can never be requested.
+func (v *validator) groupDepartments(g Group) {
+	if len(g.Departments) > 0 && (g.Kind == KindDistribution || g.Kind == KindPrivileged) {
+		v.add("group %s: a %s group may not have departments", g.Name, g.Kind)
+	}
+	seen := map[string]bool{}
+	for _, d := range g.Departments {
+		switch {
+		case !slices.Contains(v.m.Departments, d):
+			v.add("group %s: department %q is not one of the departments", g.Name, d)
+		case seen[d]:
+			v.add("group %s: department %q is listed twice", g.Name, d)
+		}
+		seen[d] = true
 	}
 }
 

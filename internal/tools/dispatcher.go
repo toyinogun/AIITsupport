@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"strings"
 	"time"
@@ -33,6 +34,12 @@ type Config struct {
 	TicketCreateLimit int           // TICKET_CREATE_LIMIT
 	TicketMaxPending  time.Duration // TICKET_MAX_PENDING
 	PrivilegedWindow  time.Duration // PRIVILEGED_ATTEMPT_WINDOW
+	// The approved execution (spec 0012 AC-11, moved here by spec 0013 AC-4
+	// so Execute works without the GRAPH_* settings).
+	ExecuteTimeout time.Duration // APPROVAL_EXECUTE_TIMEOUT
+	ExecuteGrace   time.Duration // APPROVAL_EXECUTE_GRACE
+	// AccessMaxPending is ACCESS_MAX_PENDING (spec 0013, AC-5).
+	AccessMaxPending int
 }
 
 // Check refuses an OU list that is empty or holds an entry that is empty,
@@ -53,7 +60,7 @@ func (c Config) Check() error {
 		}
 	}
 	if c.CallTimeout <= 0 || c.WriteWindow <= 0 || c.TicketMaxPending <= 0 || c.WriteLimit < 1 || c.TicketCreateLimit < 1 ||
-		c.PrivilegedWindow < time.Hour {
+		c.PrivilegedWindow < time.Hour || c.ExecuteTimeout <= 0 || c.ExecuteGrace <= 0 || c.AccessMaxPending < 1 {
 		errs = append(errs, errors.New("tool layer timeouts and limits must be positive, and the privileged attempt window at least 1h"))
 	}
 	return errors.Join(errs...)
@@ -61,7 +68,11 @@ func (c Config) Check() error {
 
 // Systems are the clients the dispatcher hands to handlers.
 type Systems struct {
-	Directory  Directory
+	Directory Directory
+	// Groups and Reader are the group reads and the account lookup the
+	// access request needs (spec 0013); *ldap.Client is both.
+	Groups     GroupReader
+	Reader     AccountReader
 	Writer     DirectoryWriter
 	Helpdesk   *Helpdesk
 	Recorder   *audit.Recorder
@@ -80,8 +91,6 @@ type MFASystem struct {
 	Reader AccountReader
 	// DeniedGroups is MFA_DENIED_GROUPS: members never get a clear.
 	DeniedGroups []string
-	// ExecuteTimeout is APPROVAL_EXECUTE_TIMEOUT, one approved execution's deadline.
-	ExecuteTimeout time.Duration
 }
 
 // ResetSystem is what the reset link handler needs beyond Systems.
@@ -115,15 +124,17 @@ type Dispatcher struct {
 // bad OU list or a missing client.
 func NewDispatcher(reg *Registry, cfg Config, sys Systems, logger *slog.Logger) (*Dispatcher, error) {
 	err := cfg.Check()
-	if reg == nil || sys.Directory == nil || sys.Writer == nil || sys.Helpdesk == nil || sys.Recorder == nil || sys.KillSwitch == nil {
-		err = errors.Join(err, errors.New("the dispatcher needs a registry, a directory, a writer, a helpdesk, a recorder, and a kill switch"))
+	if reg == nil || sys.Directory == nil || sys.Groups == nil || sys.Reader == nil || sys.Writer == nil || sys.Helpdesk == nil ||
+		sys.Recorder == nil || sys.KillSwitch == nil {
+		err = errors.Join(err, errors.New("the dispatcher needs a registry, a directory with its group reads and account lookup, "+
+			"a writer, a helpdesk, a recorder, and a kill switch"))
 	}
 	if reg != nil {
 		if _, ok := reg.Lookup(ToolPasswordResetLink); ok && (sys.Reset == nil || sys.Reset.Links == nil) {
 			err = errors.Join(err, errors.New("password_reset_link needs the reset link store"))
 		}
-		if _, ok := reg.Lookup(ToolMFAClear); ok && (sys.MFA == nil || sys.MFA.Graph == nil || sys.MFA.Reader == nil || sys.MFA.ExecuteTimeout <= 0) {
-			err = errors.Join(err, errors.New("mfa_clear needs Graph, the account reader, and an execute timeout"))
+		if _, ok := reg.Lookup(ToolMFAClear); ok && (sys.MFA == nil || sys.MFA.Graph == nil || sys.MFA.Reader == nil) {
+			err = errors.Join(err, errors.New("mfa_clear needs Graph and the account reader"))
 		}
 	}
 	if err != nil {
@@ -205,11 +216,11 @@ func (d *Dispatcher) dispatch(ctx context.Context, t *Tool, req Request) (Respon
 	}
 	// 4. Arguments, before identity or any other system. Nothing is stored
 	// from a call that fails here.
-	args, bad := t.parseArgs(req.Args, CheckEnv{Now: now, MaxPending: d.cfg.TicketMaxPending, Initiator: req.Requester.Initiator})
+	args, lists, bad := t.parseArgs(req.Args, CheckEnv{Now: now, MaxPending: d.cfg.TicketMaxPending, Initiator: req.Requester.Initiator})
 	if bad != nil {
 		return d.refuseInvalid(ctx, call, bad.field)
 	}
-	call.Args = anyArgs(args)
+	call.Args = anyArgs(args, lists)
 
 	// 5 and 6. Identity.
 	account, found, err := d.identify(ctx, req.Requester.Email)
@@ -243,7 +254,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, t *Tool, req Request) (Respon
 	if err := ctx.Err(); err != nil {
 		return d.fail(ctx, call, directoryFailure(err))
 	}
-	in := Input{Requester: req.Requester, Account: account, Args: args, Now: now}
+	in := Input{Requester: req.Requester, Account: account, Args: args, Lists: lists, Now: now}
 	// 9. A medium tool waits for a human; its handler never runs here.
 	if t.Tier == audit.TierMedium {
 		return d.deferCall(ctx, t, call, in)
@@ -300,32 +311,36 @@ func (d *Dispatcher) limitFor(t *Tool) int {
 	return 0
 }
 
-// deferCall is step 9 (spec 0012, AC-3 to AC-5): the precheck, then a
-// refusal, a reuse of this thread's pending approval, or a new approval and
-// its ticket note. The handler never runs here.
+// deferCall is step 9 (spec 0012 AC-3 to AC-5, spec 0013 AC-5 to AC-7): the
+// tool's precheck, then a refusal, a reuse of this thread's pending
+// approval, or a new approval and its ticket note. The handler never runs here.
 func (d *Dispatcher) deferCall(ctx context.Context, t *Tool, call audit.Call, in Input) (Response, string) {
 	call.PendingResult = t.PendingResult
-	pre, err := t.Precheck(ctx, d.mfaDeps(), in)
+	pre, err := d.precheck(ctx, t, in)
+	if t.Target == TargetGroup {
+		call.Target = pre.Target // empty until the group resolved
+	}
 	switch {
 	case err != nil:
 		return d.fail(ctx, call, err)
 	case pre.Refusal != nil:
 		return d.refuse(ctx, call, *pre.Refusal)
 	case pre.Reuse != nil:
-		return d.reuse(ctx, call, *pre.Reuse, in.Now)
+		return d.reuse(ctx, t, call, *pre.Reuse, pre, in.Now)
 	}
-	req, err := t.Approval(ctx, call, in.Now)
+	if pre.Args != nil {
+		call.Args = anyArgs(pre.Args, nil)
+	}
+	req, err := t.Approval(ctx, call, pre, in.Now)
 	if err != nil {
 		return d.fail(ctx, call, failed(err))
 	}
 	data := map[string]any{"expires_at": req.ExpiresAt.UTC().Format(time.RFC3339), "reused": false}
-	for k, v := range pre.Data {
-		data[k] = v
-	}
-	approval, err := d.sys.Recorder.Defer(recordCtx(ctx), call, req, data)
+	maps.Copy(data, pre.Data)
+	approval, err := d.sys.Recorder.Defer(recordCtx(ctx), call, req, withApprover(data, pre))
 	if errors.Is(err, audit.ErrApprovalPending) {
 		// Another thread's request passed the precheck at the same moment.
-		return d.refuse(ctx, call, refuseAlreadyPending)
+		return d.refuse(ctx, call, alreadyPendingFor(t.Name))
 	}
 	if err != nil {
 		return d.auditUnavailable(ctx)
@@ -335,45 +350,80 @@ func (d *Dispatcher) deferCall(ctx context.Context, t *Tool, call audit.Call, in
 		noted = d.sys.Helpdesk.addInternalNote(ctx, int(call.TicketID), pre.Note(req.ExpiresAt)) == nil
 	}
 	data["ticket_noted"] = noted
-	return d.pendingResponse(approval.ID.String(), req.ExpiresAt, in.Now, call.TicketID, data), string(audit.OutcomePendingApproval)
+	return d.pendingResponse(t, approval.ID.String(), req.ExpiresAt, in.Now, call.TicketID, data), string(audit.OutcomePendingApproval)
+}
+
+// precheck runs the tool's one precheck family (spec 0013, AC-4).
+func (d *Dispatcher) precheck(ctx context.Context, t *Tool, in Input) (Prechecked, error) {
+	if t.GroupPrecheck != nil {
+		return t.GroupPrecheck(ctx, d.groupDeps(), in)
+	}
+	return t.Precheck(ctx, d.mfaDeps(), in)
+}
+
+// withApprover adds the approver account to what the pending audit row may
+// keep; the model's response never carries it.
+func withApprover(data map[string]any, pre Prechecked) map[string]any {
+	if pre.Owner.Account == "" {
+		return data
+	}
+	kept := maps.Clone(data)
+	kept["approver_account"] = pre.Owner.Account
+	return kept
 }
 
 // reuse answers a repeat request in the thread that already holds a pending
 // approval (spec 0012, AC-5): an audit pair, no new approval, no note.
-func (d *Dispatcher) reuse(ctx context.Context, call audit.Call, a queries.Approval, now time.Time) (Response, string) {
+func (d *Dispatcher) reuse(ctx context.Context, t *Tool, call audit.Call, a queries.Approval, pre Prechecked, now time.Time) (Response, string) {
 	data := map[string]any{"expires_at": a.ExpiresAt.UTC().Format(time.RFC3339), "reused": true}
-	if err := d.sys.Recorder.Reuse(recordCtx(ctx), call, a.ID, data); err != nil {
+	maps.Copy(data, pre.Data)
+	if err := d.sys.Recorder.Reuse(recordCtx(ctx), call, a.ID, withApprover(data, pre)); err != nil {
 		return d.auditUnavailable(ctx)
 	}
 	data["ticket_noted"] = false
-	return d.pendingResponse(a.ID.String(), a.ExpiresAt, now, a.ZammadTicketID.Int64, data), string(audit.OutcomePendingApproval)
+	return d.pendingResponse(t, a.ID.String(), a.ExpiresAt, now, a.ZammadTicketID.Int64, data), string(audit.OutcomePendingApproval)
 }
 
-// pendingResponse is the AC-4 result: not an error, so the model reads it
-// as "wait for IT".
-func (d *Dispatcher) pendingResponse(approvalID string, expiresAt, now time.Time, ticketID int64, data map[string]any) Response {
+// pendingResponse is the pending result (spec 0012 AC-4, spec 0013 AC-7):
+// not an error, so the model reads it as "wait". An access request counts
+// its window in hours, an IT approval in minutes.
+func (d *Dispatcher) pendingResponse(t *Tool, approvalID string, expiresAt, now time.Time, ticketID int64, data map[string]any) Response {
 	out := map[string]any{
-		"code":               string(CodePendingApproval),
-		"approval_id":        approvalID,
-		"expires_in_minutes": int64(math.Ceil(expiresAt.Sub(now).Minutes())),
-		"ticket_id":          ticketID,
+		"code":        string(CodePendingApproval),
+		"approval_id": approvalID,
+		"ticket_id":   ticketID,
 	}
-	for k, v := range data {
-		out[k] = v
+	text := pendingApprovalSentence
+	if t.Name == ToolGroupAccessRequest {
+		out["expires_in_hours"] = int64(math.Ceil(expiresAt.Sub(now).Hours()))
+		text = groupPendingSentence
+	} else {
+		out["expires_in_minutes"] = int64(math.Ceil(expiresAt.Sub(now).Minutes()))
 	}
+	maps.Copy(out, data)
 	if u := d.sys.Helpdesk.ticketURL(int(ticketID)); u != "" {
 		out["ticket_url"] = u
 	}
-	return Response{Code: CodePendingApproval, Text: pendingApprovalSentence, Data: out}
+	return Response{Code: CodePendingApproval, Text: text, Data: out}
 }
 
 func (d *Dispatcher) deps() Deps {
 	return Deps{
 		Directory: d.sys.Directory,
+		Groups:    d.sys.Groups,
 		Helpdesk:  d.sys.Helpdesk,
 		History:   d.sys.Recorder,
 		Fence:     d.fence,
 		Limits:    Limits{TicketMaxPending: d.cfg.TicketMaxPending, PrivilegedWindow: d.cfg.PrivilegedWindow},
+		Scope:     Scope{BaseDN: d.cfg.BaseDN, UserOUs: d.cfg.UserOUs, GroupOUs: d.cfg.GroupOUs},
+	}
+}
+
+// groupDeps is GroupDeps (spec 0013, AC-4).
+func (d *Dispatcher) groupDeps() GroupDeps {
+	return GroupDeps{
+		Deps: d.deps(), Reader: d.sys.Reader, Writer: d.sys.Writer, Approvals: d.sys.Recorder,
+		Switch: d.sys.KillSwitch, MaxPending: d.cfg.AccessMaxPending,
 	}
 }
 
@@ -405,8 +455,7 @@ func (d *Dispatcher) run(ctx context.Context, t *Tool, call audit.Call, in Input
 			res, handlerErr = h(ctx, deps, in)
 		case ResetHandler:
 			res, handlerErr = h(ctx, ResetDeps{Deps: deps, Links: d.sys.Reset.Links, Settings: d.sys.Reset.Settings, Accounts: d.accounts}, in)
-		default: // an MFAHandler runs only from Execute
-
+		default: // an MFAHandler or GroupHandler runs only from Execute
 			handlerErr = failed(errors.New("unknown handler type"))
 		}
 		if handlerErr != nil {
@@ -513,13 +562,31 @@ func asFailure(err error) *failure {
 	return failed(err)
 }
 
-func anyArgs(a Args) map[string]any {
-	out := make(map[string]any, len(a))
+func anyArgs(a Args, l Lists) map[string]any {
+	out := make(map[string]any, len(a)+len(l))
 	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range l {
 		out[k] = v
 	}
 	return out
 }
+
+// ResolveDecider maps a clicker's confirmed Slack email to their directory
+// account by the requester rule (spec 0013, AC-13): exactly one enabled
+// account under TOOL_USER_OUS with that mail. ok is false when none or more
+// than one match. The approval routes hold no directory access of their own.
+func (d *Dispatcher) ResolveDecider(ctx context.Context, email string) (account string, ok bool, err error) {
+	u, found, err := d.identify(ctx, email)
+	if err != nil || found != matched {
+		return "", false, err
+	}
+	return u.Username, true, nil
+}
+
+// ExecuteGrace is APPROVAL_EXECUTE_GRACE, for the approval routes' abandon.
+func (d *Dispatcher) ExecuteGrace() time.Duration { return d.cfg.ExecuteGrace }
 
 func traceID(ctx context.Context) string {
 	sc := trace.SpanContextFromContext(ctx)

@@ -54,6 +54,7 @@ func testConfig() Config {
 		DeniedGroups: []string{"SG-IT-Admins", "APP-Helpdesk-Agents", "SYNC-Entra-Users"},
 		CallTimeout:  5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour,
 		TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour, PrivilegedWindow: 24 * time.Hour,
+		ExecuteTimeout: 5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
 	}
 }
 
@@ -89,12 +90,12 @@ func newHarnessSystems(t *testing.T, reset *ResetSystem, mfa *MFASystem, extra .
 	if mfa != nil && mfa.Reader == nil {
 		mfa.Reader = h.dir // the fake directory also answers by account name
 	}
-	reg, err := newRegistry(append(productionTools(), extra...))
+	reg, err := newRegistry(append(productionTools(), append([]Tool{groupSearchTool(), groupAccessRequestTool(8 * time.Hour)}, extra...)...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.d, err = NewDispatcher(reg, testConfig(), Systems{
-		Directory: h.dir, Writer: h.dir, Helpdesk: NewHelpdesk(client, "IT Support", "http://zammad.test/"),
+		Directory: h.dir, Groups: h.dir, Reader: h.dir, Writer: h.dir, Helpdesk: NewHelpdesk(client, "IT Support", "http://zammad.test/"),
 		Recorder: rec, KillSwitch: NewKillSwitch(h.ks.path, true), Reset: reset, MFA: mfa,
 	}, logger)
 	if err != nil {

@@ -105,12 +105,12 @@ func liveDispatcher(t *testing.T) (*Dispatcher, *zammad.Client, *toolstest.MemSt
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := NewRegistry()
+	reg, err := NewRegistry(8 * time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d, err := NewDispatcher(reg, testConfig(), Systems{
-		Directory: dir, Writer: dir, Helpdesk: desk, Recorder: rec, KillSwitch: NewKillSwitch("", true),
+		Directory: dir, Groups: dir, Reader: dir, Writer: dir, Helpdesk: desk, Recorder: rec, KillSwitch: NewKillSwitch("", true),
 	}, slog.Default())
 	if err != nil {
 		t.Fatal(err)

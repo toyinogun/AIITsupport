@@ -1090,6 +1090,10 @@ func TestApprovalDefaults(t *testing.T) {
 	if ag.ApprovalPollInterval != 30*time.Second || ag.ApprovalDecideTimeout != 90*time.Second || ag.ApprovalTimeout != 30*time.Minute {
 		t.Errorf("agent approvals = %v, %v, %v", ag.ApprovalPollInterval, ag.ApprovalDecideTimeout, ag.ApprovalTimeout)
 	}
+	// spec 0013, AC-20: both binaries read the access window; the cap is the tool server's.
+	if ts.AccessApprovalTimeout != 8*time.Hour || ag.AccessApprovalTimeout != 8*time.Hour || ts.AccessMaxPending != 3 {
+		t.Errorf("access = %v, %v, %d", ts.AccessApprovalTimeout, ag.AccessApprovalTimeout, ts.AccessMaxPending)
+	}
 }
 
 // covers: spec 0012 AC-21. Each bad value fails at load, naming the setting.
@@ -1117,6 +1121,15 @@ func TestApprovalRanges(t *testing.T) {
 		"decide at the boundary":  {true, "APPROVAL_DECIDE_TIMEOUT", "10m", ""},
 		"agent timeout too short": {true, "APPROVAL_TIMEOUT", "4m", "APPROVAL_TIMEOUT"},
 		"agent timeout ok":        {true, "APPROVAL_TIMEOUT", "2h", ""},
+		// spec 0013, AC-20
+		"access timeout too short":       {false, "ACCESS_APPROVAL_TIMEOUT", "4m", "ACCESS_APPROVAL_TIMEOUT"},
+		"access timeout too long":        {false, "ACCESS_APPROVAL_TIMEOUT", "25h", "ACCESS_APPROVAL_TIMEOUT"},
+		"access timeout at the top":      {false, "ACCESS_APPROVAL_TIMEOUT", "24h", ""},
+		"agent access timeout too short": {true, "ACCESS_APPROVAL_TIMEOUT", "4m", "ACCESS_APPROVAL_TIMEOUT"},
+		"agent access timeout ok":        {true, "ACCESS_APPROVAL_TIMEOUT", "12h", ""},
+		"max pending negative":           {false, "ACCESS_MAX_PENDING", "-2", "ACCESS_MAX_PENDING"},
+		"max pending too many":           {false, "ACCESS_MAX_PENDING", "11", "ACCESS_MAX_PENDING"},
+		"max pending at the top":         {false, "ACCESS_MAX_PENDING", "10", ""},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

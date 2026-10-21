@@ -9,7 +9,7 @@ The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`m
 | File | Owns |
 |---|---|
 | `listener.go` | `Listener`, `New`, `CheckBotToken` (auth.test with backoff; returns the workspace team id), `Run` (the socket, event loop, and purge loop in one errgroup), the `Handler.Submit` hand off, the event filter `toMessage`, `ErrBotTokenRejected`, `ErrAppTokenRejected` |
-| `adapters.go` | the thin adapters over slack-go's `socketmode.Client` (`Socket`) and Web API client (`Poster`, and `users` for `users.info` as `agent.SlackUser`), plus `wrapErr` |
+| `adapters.go` | the thin adapters over slack-go's `socketmode.Client` (`Socket`) and Web API client (`Poster`, and `users` for `users.info` and `users.lookupByEmail` as `agent.SlackUser`, `users_not_found` as `agent.ErrSlackUserNotFound`), plus `wrapErr` |
 | `../../deploy/slack/manifest.yaml` | the Slack app (scopes, events, Socket Mode); setup in [the Slack runbook](../../docs/runbooks/slack-workspace.md) |
 
 ## Conventions
@@ -22,6 +22,7 @@ The agent's Slack strand (spec 0006): a Socket Mode listener that hears a DM (`m
 - `Poster.ReplyNoUnfurl` posts with link and media unfurling off, so Slack never fetches the link; the password reset link goes out only through it (spec 0011, AC-5).
 - `Poster.Reply` with an empty `threadTS` posts to the channel itself, not a thread: that is how the agent posts to `SLACK_IT_CHANNEL` (spec 0009).
 - **Approval clicks (spec 0012, AC-8).** `interactive` events of type `block_actions` with action id `approval_approve` or `approval_deny` are acked at once and handed to `Handler.Click` (the approval id from the button value, the clicker's Slack id, the decision, the channel) without blocking; a value that is not a UUID logs `slack_interaction_ignored`. Every other interaction is acked and ignored. The trigger id is never logged.
+- `Poster.PostCard` takes a channel or a user id (a user id opens that person's DM, spec 0013) and returns the channel the card landed in and its ts; the Approve confirm text comes from the card.
 - Tests drive the listener through the `Socket`, `Poster`, and `Dedup` interfaces with fakes; no network.
 
 ## Gotchas
@@ -42,5 +43,6 @@ make dev                             # with both tokens in .env: the agent logs 
 - [0003 data model](../../docs/specs/0003-data-model/index.md) (the `slack_events` table and at most once delivery)
 - [0009 refusal and escalation](../../docs/specs/0009-refusal-escalation/index.md) (the IT channel post)
 - [0012 MFA re-registration with approval](../../docs/specs/0012-mfa-reregistration-approval/index.md) (the approval card buttons and the click hand off, AC-8)
+- [0013 Access requests via group owner](../../docs/specs/0013-access-requests-group-owner/index.md) (the owner lookup by email and the DM card)
 
 _Drafted by /sync from the introducing change, worth a quick human pass._

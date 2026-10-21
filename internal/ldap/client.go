@@ -117,6 +117,28 @@ func (c *Client) GetUser(ctx context.Context, dn string) (u User, ok bool, err e
 	return u, ok, err
 }
 
+// GetUsers reads users by DN on one connection, keyed by the DN as given;
+// a DN that does not exist is absent from the map.
+func (c *Client) GetUsers(ctx context.Context, dns []string) (map[string]User, error) {
+	users := make(map[string]User, len(dns))
+	if len(dns) == 0 {
+		return users, nil
+	}
+	err := c.session(ctx, func(conn *goldap.Conn) error {
+		for _, dn := range dns {
+			e, err := ReadOne(conn, dn, userAttrs...)
+			if err != nil {
+				return err
+			}
+			if e != nil {
+				users[dn] = toUser(e)
+			}
+		}
+		return nil
+	})
+	return users, err
+}
+
 // Lock reads a user's lock state and, when locked, when the lock ends (from
 // lockoutTime and the domain's lockoutDuration).
 func (c *Client) Lock(ctx context.Context, dn string) (Lock, error) {

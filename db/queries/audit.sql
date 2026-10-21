@@ -56,6 +56,15 @@ WHERE kind = 'outcome' AND outcome = @outcome
   AND tool_name = @tool_name AND requester_slack_id = @requester_slack_id
   AND occurred_at > @since;
 
+-- name: CountRecentReasons :one
+-- CountRecentReasons counts a requester's outcomes of one kind and stored
+-- reason for one tool since a time: protected access requests count toward
+-- the privileged attempt window (spec 0013, AC-5).
+SELECT count(*) FROM audit_log
+WHERE kind = 'outcome' AND outcome = @outcome AND error = @error::text
+  AND tool_name = @tool_name AND requester_slack_id = @requester_slack_id
+  AND occurred_at > @since;
+
 -- name: ThreadHasOutcome :one
 -- ThreadHasOutcome reports whether a tool has an outcome of one kind in a
 -- Slack thread: one ticket per conversation (spec 0007), and the blocked
@@ -89,3 +98,13 @@ WHERE approval_id = @approval_id AND kind = 'outcome'
   AND outcome <> 'pending_approval'
 ORDER BY id DESC
 LIMIT 1;
+
+-- name: CancelReasonForApproval :one
+-- CancelReasonForApproval reports whether an approval was cancelled as owner
+-- unreachable (spec 0013, AC-11): an approval.cancel outcome row names it.
+-- A cancel and a timeout both end pending as expired, and only one can win.
+SELECT EXISTS (
+    SELECT 1 FROM audit_log
+    WHERE approval_id = @approval_id AND kind = 'outcome' AND tool_name = 'approval.cancel'
+      AND outcome = 'expired'
+);

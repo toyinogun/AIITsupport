@@ -74,5 +74,11 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0050](0050-two-branches-took-the-same-journal-number.md) | 2026-10-20 | Two branches took the same journal number, so the merge from main collided | #14 MFA re-registration with approval | ~10 min | no |
 | [0051](0051-parallel-test-packages-raced-on-one-image-tag.md) | 2026-10-20 | Parallel test packages raced to build one Samba image tag, so a docs only PR failed CI | #6 Noord directory & seeded mess | ~20 min | post |
 | [0052](0052-govulncheck-flags-go-1-27-2.md) | 2026-10-21 | govulncheck flagged the Go 1.27.2 standard library partway through a feature build | #4 Coding standards & tooling | ~15 min | no |
+| [0053](0053-elasticsearch-disk-watermark-stalled-zammad-init.md) | 2026-10-21 | A full Docker disk stalled the Zammad reset at the Elasticsearch watermark | #15 Access requests via group owner | ~12 min | post |
+| [0054](0054-pgrep-wait-loop-matched-itself.md) | 2026-10-21 | A pgrep wait loop matched itself, so the binaries never started | #15 Access requests via group owner | ~5 min | no |
+| [0055](0055-rate-limits-outlived-the-reset-during-live-verify.md) | 2026-10-21 | The per person rate limits outlived the reset and blocked the live verify | #15 Access requests via group owner | ~15 min | post |
+| [0056](0056-live-samba-run-outlasted-the-default-test-timeout.md) | 2026-10-21 | The live Samba run outlasted Go's default 10 minute test timeout before any test ran | #15 Access requests via group owner | ~20 min | no |
+| [0057](0057-migration-00006-could-not-go-down-and-up-with-access-requests.md) | 2026-10-21 | Migration 00006 could not go down, then up, with access requests in the table | #15 Access requests via group owner | ~10 min | no |
+| [0058](0058-read-only-env-and-the-token-budget-ended-a-live-run.md) | 2026-10-21 | READ_ONLY in .env, then the token budget, ended a live run early | #15 Access requests via group owner | ~10 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

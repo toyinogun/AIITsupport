@@ -107,12 +107,16 @@ type itPost struct {
 	ran     string
 	result  map[string]any // the ok escalate result
 	summary string         // already safe: modelSummary or a fixed text
+	// headline replaces the reason's headline when set (an access request's
+	// approval endings, spec 0013).
+	headline string
 }
 
 // escalateReasons are the reasons escalate accepts (spec 0009, AC-2).
 var escalateReasons = []string{
 	escalatePrivileged, escalateOther, escalateSecurity, escalateFailure, escalateRestart,
 	escalateManual, escalateApprovalDenied, escalateApprovalExpired, escalateApprovalFailed, escalateApprovalCancelled,
+	escalateNoGroupOwner,
 }
 
 // resultReason is an ok escalate result's reason, or security_concern when
@@ -136,7 +140,11 @@ func (p itPost) text() string {
 	if privileged {
 		reason = escalatePrivileged
 	}
-	lines := []string{itHeadlines[reason], requesterLine(p.slackID, p.account)}
+	headline := itHeadlines[reason]
+	if p.headline != "" && !privileged {
+		headline = p.headline
+	}
+	lines := []string{headline, requesterLine(p.slackID, p.account)}
 	attempts, _ := wholeNumber(p.result["privileged_attempts"])
 	if privileged && attempts >= 2 {
 		hours, _ := wholeNumber(p.result["privileged_window_hours"])
@@ -146,9 +154,13 @@ func (p itPost) text() string {
 	return strings.Join(lines, "\n")
 }
 
-// itShort is the post for a code call refused already_escalated (AC-9).
-func itShort(reason, slackID, account string) string {
-	return strings.Join([]string{itHeadlines[reason], requesterLine(slackID, account), itAlreadyEscalated}, "\n")
+// itShort is the post for a code call refused already_escalated (AC-9);
+// headline replaces the reason's own when set.
+func itShort(reason, headline, slackID, account string) string {
+	if headline == "" {
+		headline = itHeadlines[reason]
+	}
+	return strings.Join([]string{headline, requesterLine(slackID, account), itAlreadyEscalated}, "\n")
 }
 
 // itNotMatched is the post for a person code refused as not_matched or
@@ -218,6 +230,7 @@ type codeEscalation struct {
 	title     string
 	summary   string // the call's argument; may hold the user's message
 	itSummary string // what the IT post shows instead: a fixed text
+	headline  string // the IT post's headline when not the reason's own (spec 0013)
 }
 
 // escalationOutcome is what a code escalation got back.
@@ -268,10 +281,12 @@ func (a *Agent) escalateByCode(parent context.Context, r mcpclient.Requester, e 
 func (a *Agent) announce(parent context.Context, eventID string, o escalationOutcome, e codeEscalation, slackID, account string, calls []storedCall) {
 	switch {
 	case o.ok:
-		post := itPost{slackID: slackID, account: account, ran: ranLine(calls, true), result: o.result, summary: e.itSummary}
+		post := itPost{
+			slackID: slackID, account: account, ran: ranLine(calls, true), result: o.result, summary: e.itSummary, headline: e.headline,
+		}
 		a.postIT(parent, eventID, kindITEscalation, post.text())
 	case o.already:
-		a.postIT(parent, eventID, kindITEscalation, itShort(e.reason, slackID, account))
+		a.postIT(parent, eventID, kindITEscalation, itShort(e.reason, e.headline, slackID, account))
 	}
 }
 

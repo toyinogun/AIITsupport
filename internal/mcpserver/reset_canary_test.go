@@ -161,7 +161,7 @@ func TestCanaryResetLink(t *testing.T) {
 	killSwitch := tools.NewKillSwitch("", false)
 	denied := []string{"SG-IT-Admins", "APP-Helpdesk-Agents"}
 
-	reg, err := tools.NewRegistry(tools.WithPasswordReset())
+	reg, err := tools.NewRegistry(8*time.Hour, tools.WithPasswordReset())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,8 +169,9 @@ func TestCanaryResetLink(t *testing.T) {
 		BaseDN: toolstest.Base, UserOUs: []string{"OU=Users,OU=Noord"}, GroupOUs: []string{"OU=Groups,OU=Noord"},
 		CallTimeout: 5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour, TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
 		PrivilegedWindow: 24 * time.Hour,
+		ExecuteTimeout:   5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
 	}, tools.Systems{
-		Directory: dir, Writer: dir, Helpdesk: helpdesk, Recorder: rec, KillSwitch: killSwitch,
+		Directory: dir, Groups: dir, Reader: dir, Writer: dir, Helpdesk: helpdesk, Recorder: rec, KillSwitch: killSwitch,
 		Reset: &tools.ResetSystem{Links: links, DeniedGroups: denied, Settings: tools.ResetSettings{
 			PublicURL: "https://reset.noord.test", TTL: 15 * time.Minute, LinkLimit: 3, Window: 24 * time.Hour,
 		}},

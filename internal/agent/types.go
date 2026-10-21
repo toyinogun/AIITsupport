@@ -33,6 +33,7 @@ type Inbound struct {
 // SlackUser is what users.info says about the sender: the gate fields and
 // the profile email (AC-3).
 type SlackUser struct {
+	ID                string
 	TeamID            string
 	Deleted           bool
 	IsBot             bool
@@ -44,19 +45,29 @@ type SlackUser struct {
 	Email             string
 }
 
-// SlackUsers is users.info with the bot token.
+// SlackUsers is users.info and users.lookupByEmail with the bot token.
 type SlackUsers interface {
 	UserInfo(ctx context.Context, userID string) (SlackUser, error)
+	// LookupByEmail finds a group owner's Slack account (spec 0013, AC-10).
+	// No account with that email is ErrSlackUserNotFound; any other error
+	// is worth trying again.
+	LookupByEmail(ctx context.Context, email string) (SlackUser, error)
 }
+
+// ErrSlackUserNotFound means users.lookupByEmail found nobody
+// (users_not_found).
+var ErrSlackUserNotFound = errors.New("agent: no Slack user has that email")
 
 // Poster is chat.postMessage in a thread with the bot token.
 type Poster interface {
 	Reply(ctx context.Context, channel, threadTS, text string) error
 	// ReplyNoUnfurl posts with link and media unfurling off (spec 0011, AC-5).
 	ReplyNoUnfurl(ctx context.Context, channel, threadTS, text string) error
-	// PostCard posts an approval card as a new channel message and returns
-	// its ts (spec 0012, AC-7).
-	PostCard(ctx context.Context, channel string, c Card) (string, error)
+	// PostCard posts an approval card as a new message and returns the
+	// channel it landed in and its ts (spec 0012, AC-7). A Slack user id as
+	// channel posts to that person's DM, whose channel id comes back (spec
+	// 0013, AC-10).
+	PostCard(ctx context.Context, channel string, c Card) (postedChannel, ts string, err error)
 	// UpdateCard replaces a posted card (chat.update, spec 0012 AC-16).
 	UpdateCard(ctx context.Context, channel, ts string, c Card) error
 	// Ephemeral shows text to one user in a channel (chat.postEphemeral).
@@ -71,6 +82,8 @@ type Card struct {
 	Lines    []string // mrkdwn lines, every interpolated value already escaped
 	// ApprovalID is the buttons' value; empty renders no buttons.
 	ApprovalID string
+	// Confirm is the Approve button's confirm dialog text, plain text.
+	Confirm string
 }
 
 // Card action ids (spec 0012, AC-7 and AC-8).
@@ -90,10 +103,17 @@ type Click struct {
 }
 
 // Approvals are the tool server's approval routes (spec 0012, AC-9 to
-// AC-14). *mcpclient.ApprovalClient satisfies it.
+// AC-14; spec 0013 adds the clicker's email and Cancel).
+// *mcpclient.ApprovalClient satisfies it.
 type Approvals interface {
-	Decide(ctx context.Context, id uuid.UUID, clicker string, approve bool) (mcpclient.DecisionResponse, error)
+	Decide(ctx context.Context, id uuid.UUID, clicker, email string, approve bool) (mcpclient.DecisionResponse, error)
+	// Cancel ends a pending group owner approval whose owner cannot be
+	// reached (spec 0013, AC-11).
+	Cancel(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error)
 	Get(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error)
+	// Peek reads one approval without a group owner approval's live
+	// directory fields (spec 0013, AC-17): the tick's status check.
+	Peek(ctx context.Context, id uuid.UUID) (mcpclient.ApprovalView, error)
 	// Since lists the approvals created at or after since (the tick's adopt).
 	Since(ctx context.Context, since time.Time) ([]mcpclient.ApprovalView, error)
 	// Expire ends overdue pending approvals and abandons stuck approved ones.
@@ -194,12 +214,18 @@ type ApprovalCard struct {
 	ApprovalID     uuid.UUID
 	ConversationID int64
 	ToolName       string
-	ChannelID      string // where the card goes: SLACK_IT_CHANNEL
-	CardTS         string // empty until a post succeeds
-	PostAttempts   int
-	ExpiresAt      time.Time
-	Settled        bool
-	Outcome        string // executed, failed, denied, or expired once settled
+	// ChannelID is where the card goes: SLACK_IT_CHANNEL for an IT card;
+	// for a group owner card, empty until the first DM post sets the DM
+	// channel (spec 0013, AC-9).
+	ChannelID string
+	// ApproverSlackID is the group owner's Slack id, found by email and set
+	// with the first post; only that person's click counts (spec 0013, AC-13).
+	ApproverSlackID string
+	CardTS          string // empty until a post succeeds
+	PostAttempts    int
+	ExpiresAt       time.Time
+	Settled         bool
+	Outcome         string // executed, failed, denied, or expired once settled
 }
 
 // ErrNoCard means no approval card has that approval id.
@@ -215,7 +241,9 @@ type ApprovalStore interface {
 	// while no post succeeded, under maxAttempts, and spacing after the
 	// last attempt. ok is false when the claim did not happen.
 	RecordCardPostAttempt(ctx context.Context, approvalID uuid.UUID, maxAttempts int, spacing time.Duration) (ok bool, err error)
-	SetCardTS(ctx context.Context, approvalID uuid.UUID, ts string) error
+	// SetCardPosted stores the first successful post: its ts and, when
+	// still empty, the channel and the owner's Slack id (spec 0013, AC-10).
+	SetCardPosted(ctx context.Context, approvalID uuid.UUID, ts, channel, approverSlackID string) error
 	// GetApprovalCard returns ErrNoCard for an unknown id.
 	GetApprovalCard(ctx context.Context, approvalID uuid.UUID) (ApprovalCard, error)
 	// SettleCard records the outcome once and, when the conversation is

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
+	"github.com/toyinogun/AIITsupport/internal/ldap"
+	"github.com/toyinogun/AIITsupport/internal/tools/toolstest"
 )
 
 // NewTestRegistry is the production registry plus extra test only tools. It
@@ -41,7 +43,7 @@ func mediumTool(name string, runs *atomic.Int32) Tool {
 	return Tool{
 		Name: name, Description: "test only", Tier: audit.TierMedium, Target: TargetRequester,
 		PendingResult: []string{"expires_at"},
-		Approval: func(_ context.Context, _ audit.Call, now time.Time) (audit.ApprovalRequest, error) {
+		Approval: func(_ context.Context, _ audit.Call, _ Prechecked, now time.Time) (audit.ApprovalRequest, error) {
 			return audit.ApprovalRequest{Kind: audit.ApproverIT, Approvers: []string{"U09IT"}, ExpiresAt: now.Add(time.Hour)}, nil
 		},
 		Precheck: func(context.Context, MFADeps, Input) (Prechecked, error) { return Prechecked{}, nil },
@@ -52,10 +54,12 @@ func mediumTool(name string, runs *atomic.Int32) Tool {
 	}
 }
 
-// covers: AC-1, AC-14, and spec 0009 AC-1. The production registry lists
-// exactly the six tools, none of them a test tool, and nothing that approves.
+// covers: AC-1, AC-14, spec 0009 AC-1, and spec 0013 AC-4. The production
+// registry lists exactly the six tools plus the two access request tools,
+// none of them a test tool, and none named for approving: a description may
+// say a human approves, but no tool can.
 func TestProductionRegistry(t *testing.T) {
-	reg, err := NewRegistry()
+	reg, err := NewRegistry(8 * time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,11 +70,14 @@ func TestProductionRegistry(t *testing.T) {
 		if schema["type"] != "object" || schema["additionalProperties"] != false {
 			t.Errorf("%s schema = %v, want a closed object", tool.Name, schema)
 		}
-		if strings.Contains(strings.ToLower(tool.Name+tool.Description), "approve") {
-			t.Errorf("%s mentions approving", tool.Name)
+		if strings.Contains(strings.ToLower(tool.Name), "approve") {
+			t.Errorf("%s is named for approving", tool.Name)
 		}
 	}
-	want := []string{ToolUserLookup, ToolAccountUnlock, ToolTicketCreate, ToolTicketUpdate, ToolPrivilegedAccessChange, ToolEscalate}
+	want := []string{
+		ToolUserLookup, ToolAccountUnlock, ToolTicketCreate, ToolTicketUpdate, ToolPrivilegedAccessChange, ToolEscalate,
+		ToolGroupSearch, ToolGroupAccessRequest,
+	}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}
@@ -79,12 +86,13 @@ func TestProductionRegistry(t *testing.T) {
 	}
 }
 
-// covers: AC-21. A tool is an account change exactly when its handler takes
-// AccountDeps; the production set has one, account_unlock.
+// covers: AC-21, spec 0013 AC-4. A tool is an account change exactly when
+// its handler can change an account; the production set has account_unlock
+// and group_access_request (a GroupHandler).
 func TestAccountChangeFollowsTheHandlerType(t *testing.T) {
-	reg, _ := NewRegistry()
+	reg, _ := NewRegistry(8 * time.Hour)
 	for _, tool := range reg.Tools() {
-		if tool.accountChange() != (tool.Name == ToolAccountUnlock) {
+		if tool.accountChange() != (tool.Name == ToolAccountUnlock || tool.Name == ToolGroupAccessRequest) {
 			t.Errorf("%s accountChange = %v", tool.Name, tool.accountChange())
 		}
 	}
@@ -122,7 +130,7 @@ func TestRegistryConstructionRules(t *testing.T) {
 func TestMediumToolIsDeferred(t *testing.T) {
 	var runs atomic.Int32
 	tool := mediumTool("t_medium", &runs)
-	tool.Approval = func(_ context.Context, c audit.Call, now time.Time) (audit.ApprovalRequest, error) {
+	tool.Approval = func(_ context.Context, c audit.Call, _ Prechecked, now time.Time) (audit.ApprovalRequest, error) {
 		if c.RequesterAccount != "eva.peters" {
 			t.Errorf("hook saw account %q", c.RequesterAccount)
 		}
@@ -148,7 +156,7 @@ func TestMediumToolIsDeferred(t *testing.T) {
 	}
 
 	// A failing hook is an error, not a pending approval.
-	tool.Approval = func(context.Context, audit.Call, time.Time) (audit.ApprovalRequest, error) {
+	tool.Approval = func(context.Context, audit.Call, Prechecked, time.Time) (audit.ApprovalRequest, error) {
 		return audit.ApprovalRequest{}, errors.New("no approvers configured")
 	}
 	h = newHarness(t, tool)
@@ -235,5 +243,45 @@ func TestFenceCheckGroup(t *testing.T) {
 		t.Errorf("CheckGroup with AD down = %v, want a directory failure", err)
 	} else if asFailure(err).code != CodeUnavailable {
 		t.Errorf("code = %s, want unavailable", asFailure(err).code)
+	}
+}
+
+// covers: AC-13, spec 0013 AC-2. AllowedGroups gives CheckGroup's answer for
+// many groups at once: it keeps the allowed ones in order and drops the
+// denied, nested, and outside ones; an unresolved denied name allows none,
+// and the directory down is classified.
+func TestFenceAllowedGroups(t *testing.T) {
+	h := newHarness(t)
+	f := h.d.Fence()
+	var groups []ldap.GroupInfo
+	for _, name := range []string{"SG-Finance", "Domain Admins", "T-Nested", "Outside-Group", "SHR-Finance-RW"} {
+		g, ok := h.dir.Groups[name]
+		if !ok {
+			g = ldap.Group{DN: toolstest.GroupDN(name), Name: name}
+		}
+		groups = append(groups, ldap.GroupInfo{DN: g.DN, Name: g.Name})
+	}
+	allowed, err := f.AllowedGroups(t.Context(), groups)
+	var names []string
+	for _, g := range allowed {
+		names = append(names, g.Name)
+	}
+	if err != nil || !slices.Equal(names, []string{"SG-Finance", "SHR-Finance-RW"}) {
+		t.Errorf("allowed = %v, %v", names, err)
+	}
+	for _, g := range allowed {
+		if err := f.CheckGroup(t.Context(), g.Name); err != nil {
+			t.Errorf("CheckGroup(%s) = %v, but AllowedGroups kept it", g.Name, err)
+		}
+	}
+
+	delete(h.dir.Groups, "SYNC-Entra-Users")
+	if allowed, err := f.AllowedGroups(t.Context(), groups); err != nil || len(allowed) != 0 {
+		t.Errorf("with an unresolved denied group: %v, %v", allowed, err)
+	}
+
+	h.dir.Err = errNetwork
+	if _, err := f.AllowedGroups(t.Context(), groups); err == nil || asFailure(err).code != CodeUnavailable {
+		t.Errorf("AllowedGroups with AD down = %v, want unavailable", err)
 	}
 }
