@@ -26,4 +26,6 @@ description = "Sealed Secrets ciphertext in a cluster's sealed-values.yaml"
 condition = "AND"
 paths = ['''^deploy/clusters/[a-z][a-z0-9-]*/sealed-values\.yaml$''']
 regexTarget = "line"
-regexes = ['''^\s+[A-Za-z0-9_]+: Ag[A-Za-z0-9+/]{300,}={0,2}$''']
+# Key names include Secret file keys like tls.key and the Zammad
+# subcharts' postgres-password (journal 0066).
+regexes = ['''^\s+[A-Za-z0-9_.-]+: Ag[A-Za-z0-9+/]{300,}={0,2}$''']
