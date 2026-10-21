@@ -84,5 +84,8 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0060](0060-zammad-kb-search-is-newest-first-not-relevance.md) | 2026-10-21 | Zammad's KB search returns newest first, so an older conflicting article can drop out | #16 Knowledge base answers | ~30 min | post |
 | [0061](0061-ghcr-answers-403-for-a-missing-package.md) | 2026-10-21 | GHCR answers 403, not 404, for a package that does not exist yet | #17 One command GitOps install | ~10 min | no |
 | [0062](0062-go-run-hides-the-installers-exit-code.md) | 2026-10-21 | `go run` would hide the installer's exit code 2 | #17 One command GitOps install | ~5 min | no |
+| [0063](0063-cnpg-managed-roles-keep-argocd-out-of-sync.md) | 2026-10-21 | CNPG managed roles keep the Cluster OutOfSync in ArgoCD | #17 One command GitOps install | ~15 min | post |
+| [0064](0064-a-stray-reset-password-crashed-the-tool-server.md) | 2026-10-21 | A stray reset password crashed the tool server on the first install | #17 One command GitOps install | ~5 min | no |
+| [0065](0065-gitleaks-flags-sealed-ciphertext.md) | 2026-10-21 | gitleaks flags the sealed ciphertext the installer commits | #17 One command GitOps install | ~15 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
