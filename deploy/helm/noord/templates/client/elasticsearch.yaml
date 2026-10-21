@@ -55,7 +55,8 @@ spec:
       initContainers:
         - name: config
           image: {{ $es.image }}
-          command: ["cp", "-a", "/usr/share/elasticsearch/config/.", "/config/"]
+          # -r, not -a: the user may not set times on the emptyDir it copies into.
+          command: ["cp", "-r", "/usr/share/elasticsearch/config/.", "/config/"]
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {cpu: 500m, memory: 128Mi}
