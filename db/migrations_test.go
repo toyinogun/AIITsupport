@@ -155,6 +155,40 @@ func TestMigrationGoesDownAndUpCleanly(t *testing.T) {
 	}
 }
 
+// covers: spec 0013 (migration 00006). Going down past 00006 with two
+// pending access requests for one account expires them, so the old one per
+// account and tool index still builds; going up again keeps those rows,
+// while a new access request with no target is still refused.
+func TestMigrationDownExpiresPendingAccessRequests(t *testing.T) {
+	name, admin := emptyDatabase(t)
+	p := provider(t, name, ownerUser())
+	if _, err := p.Up(t.Context()); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	for _, group := range []string{"SG-Finance", "SHR-Finance-RW"} {
+		if _, err := admin.Exec(t.Context(), "INSERT INTO approvals (call_id, tool_name, arguments, risk_tier, requester_slack_id, "+
+			"requester_account, slack_channel_id, slack_thread_ts, approver_kind, allowed_approvers, expires_at, target) "+
+			"VALUES (gen_random_uuid(), 'group_access_request', '{}', 'medium', 'u', 'noor.elamrani', 'c', 't', "+
+			"'group_owner', '{ilse.smit}', now() + interval '8 hours', $1)", group); err != nil {
+			t.Fatalf("insert the %s request: %v", group, err)
+		}
+	}
+	if _, err := p.DownTo(t.Context(), 5); err != nil {
+		t.Fatalf("down to 5: %v", err)
+	}
+	if n := count(t, admin, "SELECT count(*) FROM approvals WHERE status = 'expired' AND arguments IS NULL"); n != 2 {
+		t.Errorf("%d expired requests after down, want 2", n)
+	}
+	if _, err := p.Up(t.Context()); err != nil {
+		t.Fatalf("up again: %v", err)
+	}
+	if _, err := admin.Exec(t.Context(), "INSERT INTO approvals (call_id, tool_name, arguments, risk_tier, requester_slack_id, "+
+		"slack_channel_id, slack_thread_ts, approver_kind, allowed_approvers, expires_at) "+
+		"VALUES (gen_random_uuid(), 'group_access_request', '{}', 'medium', 'u', 'c', 't', 'group_owner', '{ilse.smit}', now())"); err == nil {
+		t.Error("an access request with no target was stored after up again")
+	}
+}
+
 // covers: AC-13 (spec 0003)
 func TestMigrationRefusesAnyRoleButTheOwner(t *testing.T) {
 	name, admin := emptyDatabase(t)

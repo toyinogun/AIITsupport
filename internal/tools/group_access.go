@@ -219,6 +219,9 @@ func resolveGroup(ctx context.Context, d GroupDeps, in Input) (resolution, error
 	// From here on the group is AD's own spelling.
 	res := resolution{group: g}
 	if err := d.Fence.CheckGroup(ctx, g.Name); errors.Is(err, ErrGroupProtected) {
+		// The refusal keeps the group, so its canonical name is the audit
+		// target (AC-5). The model sees only the fixed refusal text, so it
+		// learns nothing it did not already type.
 		res.refusal = &refuseProtected
 		return res, nil
 	} else if err != nil {

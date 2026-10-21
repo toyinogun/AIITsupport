@@ -6,9 +6,11 @@
 
 -- +goose Up
 ALTER TABLE approvals ADD COLUMN target text;
--- A group name is not personal data, so target is never cleared.
+-- A group name is not personal data, so target is never cleared. NOT VALID:
+-- every new or changed row is checked, but access requests kept from before
+-- a down and up again (whose target the down dropped) are not.
 ALTER TABLE approvals ADD CONSTRAINT approvals_group_target_check
-    CHECK (tool_name <> 'group_access_request' OR target IS NOT NULL);
+    CHECK (tool_name <> 'group_access_request' OR target IS NOT NULL) NOT VALID;
 
 ALTER TABLE approvals ADD COLUMN decider_slack_id text;
 -- Every decision so far came from an IT approval, decided by a Slack id.
@@ -40,6 +42,11 @@ DELETE FROM approval_cards WHERE slack_channel_id IS NULL;
 ALTER TABLE approval_cards ALTER COLUMN slack_channel_id SET NOT NULL;
 
 REVOKE UPDATE (decider_slack_id) ON approvals FROM noord_toolserver;
+-- The old index allows one pending approval per account and tool, and code
+-- before this migration cannot run an access request: expire the pending
+-- ones (arguments cleared, as every expiry), or the index cannot be built.
+UPDATE approvals SET status = 'expired', arguments = NULL
+    WHERE status = 'pending' AND tool_name = 'group_access_request';
 DROP INDEX approvals_one_pending_idx;
 CREATE UNIQUE INDEX approvals_one_pending_idx ON approvals (requester_account, tool_name)
     WHERE status = 'pending';

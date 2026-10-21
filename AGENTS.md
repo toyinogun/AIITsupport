@@ -127,6 +127,6 @@ Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, 
 - [internal/server/AGENTS.md](internal/server/AGENTS.md): the health and MCP HTTP server both binaries run, its shutdown, and the fixed `http_server_error` line
 - [internal/resetlink/AGENTS.md](internal/resetlink/AGENTS.md): the password reset link store (spec 0011): token, hash, issue, claim, revert, and the hourly cleanup
 - [internal/resetpage/AGENTS.md](internal/resetpage/AGENTS.md): the password reset page on its own listener (spec 0011): the form, the audited POST as `svc-pwreset`, the fixed pages and headers
-- [internal/approvalapi/AGENTS.md](internal/approvalapi/AGENTS.md): the tool server approval routes (spec 0012): decide and execute, the views, expire and abandon, never MCP tools
+- [internal/approvalapi/AGENTS.md](internal/approvalapi/AGENTS.md): the tool server approval routes (specs 0012, 0013): decide and execute, the owner unreachable cancel, the views, expire and abandon, never MCP tools
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

@@ -1,7 +1,7 @@
 # 0013. Access requests via group owner: a group search, a medium tool that asks the group's owner in a Slack DM, and an audited add that runs only after the owner clicks
 
 **Date**: 2026-10-20
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
@@ -56,7 +56,7 @@ Reasoning and the options weighed: see [rationale.md](rationale.md).
      - the group is not on the denied name list, passes `Fence.CheckGroup`, is a security group under `TOOL_GROUP_OUS`, is still tagged with the requester's department, and still has `managedBy` naming `decided_by`;
      - the owner and the requester are both still enabled under `TOOL_USER_OUS`.
   3. Reads the kill switch again.
-  4. Adds the requester's DN to the group's `member` as `svc-itsupport`. LDAP `attributeOrValueExists` counts as success, with `already_member` true.
+  4. Adds the requester's DN to the group's `member` as `svc-itsupport`. LDAP `attributeOrValueExists` (20), or `entryAlreadyExists` (68) as Windows AD answers, counts as success, with `already_member` true; the read back confirms the membership either way.
   5. Reads the group's direct members back, and fails (`error`, reason `add not confirmed`) if the requester is missing.
 
   On success it adds the note `Added to <group> after approval by the group owner (<decided_by>).` and closes the ticket. It leaves the ticket open when the ticket is closed or merged, or when the thread holds an `ok` `escalate` (IT owns it now); `ticket_closed` is then false. StoreResult: `added`, `already_member`, `ticket_closed`. Nothing is retried.
@@ -183,7 +183,7 @@ New refusal rows (code · outcome · stored reason · sentence):
 - `GroupNestedInto(ctx, groupDN, ous)`: the groups under those OUs that hold this group at any depth (`LDAP_MATCHING_RULE_IN_CHAIN` on `member`), for the card's `Also gives` line.
 - `GroupByName(ctx, name)`: the same attributes for one exact name (the precheck and the execute recheck).
 - `ParseDepartments(info)`: the strict `noord-departments: A, B` form; anything else returns none.
-- `Writer.AddMember(ctx, groupDN, userDN)`: one modify add on `member`, mapping LDAP 20 (`attributeOrValueExists`) to `ErrAlreadyMember`. `DirectoryWriter` gains it; `svc-itsupport` already has write on `member` under `OU=Groups` (spec 0004).
+- `Writer.AddMember(ctx, groupDN, userDN)`: one modify add on `member`, mapping LDAP 20 (`attributeOrValueExists`) and 68 (`entryAlreadyExists`, what Windows AD answers) to `ErrAlreadyMember`. `DirectoryWriter` gains it; `svc-itsupport` already has write on `member` under `OU=Groups` (spec 0004).
 - `GroupHasMember(ctx, groupDN, userDN)`: a base search on the group with filter `(member=<escaped DN>)` for the read back.
 
 **Seed department tags** (AC-3; values the seed writes)
