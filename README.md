@@ -116,7 +116,7 @@ The reasoning behind every choice is in [spec 0001](docs/specs/0001-stack-archit
 
 ## Quick start
 
-**Prerequisites:** Go 1.27.2, Docker, and `make`. Every other tool (`sqlc`, `goose`, the linters) runs through `go tool`, so there is nothing else to install.
+**Prerequisites:** Go 1.27.3, Docker, and `make`. Every other tool (`sqlc`, `goose`, the linters) runs through `go tool`, so there is nothing else to install.
 
 ```bash
 git clone https://github.com/toyinogun/AIITsupport.git

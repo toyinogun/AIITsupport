@@ -14,7 +14,7 @@ Mock FDE engagement. The plan lives in `docs/scope/scope.md`; start there.
 
 ## Stack
 
-- **Language / Runtime**: Go 1.27 (toolchain 1.27.2), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver`, plus the dev and ops tool `cmd/seed` (`cmd/eval` arrives with feature #20)
+- **Language / Runtime**: Go 1.27 (toolchain 1.27.3), one module `github.com/toyinogun/AIITsupport`, binaries `cmd/agent` and `cmd/toolserver`, plus the dev and ops tool `cmd/seed` (`cmd/eval` arrives with feature #20)
 - **Key dependencies**: `pgx/v5` + `sqlc` on PostgreSQL 17, `goose` migrations, `log/slog` JSON logs, OpenTelemetry SDK (no op until `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `go-ldap/v3` over LDAPS to Samba AD, `azidentity` client credentials for a thin Microsoft Graph client (Entra), `testcontainers-go` for throwaway Postgres and Samba in tests, `slack-go` (Socket Mode) for the agent's Slack strand, `goldmark` for KB article Markdown, MCP `go-sdk` (the tool server and the agent's client, streamable HTTP, stateless), `anthropic-sdk-go` (the agent's model client, `internal/llm`)
 - **Dev tools**: `sqlc` and `goose` are `tool` entries in `go.mod` (`go tool sqlc`, `go tool goose`), nothing to install
 - **Lint, hook, and scan tools**: `golangci-lint` v2 (also runs gofumpt and goimports), `lefthook`, `gitleaks`, and `govulncheck` are `tool` entries in a separate `tools.mod` (`go tool -modfile=tools.mod <tool>`). Its `go` and `toolchain` lines must match `go.mod`. Dependabot can't see it, so bump these by hand. Decision: [docs/specs/0002-coding-standards-tooling/index.md](docs/specs/0002-coding-standards-tooling/index.md)
