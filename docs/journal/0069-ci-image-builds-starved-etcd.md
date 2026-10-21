@@ -20,7 +20,7 @@ Our own change. The helpdesk had just added Zammad, Elasticsearch, and three Lon
 ## What it actually was
 The user's guess: the CI run on `main`. Its image builds run on ARC runner pods, all three on `k3sprox-wkr-pve1-0` (load average 126, IO pressure 96%). `cp-0` runs almost nothing, so it most likely shares a physical disk with that worker on the same Proxmox host (TODO (you): confirm). etcd slow request warnings per 10 minutes were 2 to 113 all evening, including Zammad's first start, then 977 and 1627 in the two buckets after the `main` CI run was queued at 22:23 UTC.
 
-The same starvation failed that CI run's `images (agent, app)` job: BuildKit lost its session (`error: no active session …: context deadline exceeded`, repeated for a minute), while every other job passed.
+The same starvation failed that CI run's `images (agent, app)` job: BuildKit lost its session (`error: no active session …: context deadline exceeded`, repeated for a minute), while every other job passed. Why the session died, and the workflow fix: [0070](0070-buildkit-session-dies-before-the-push.md).
 
 ## How I fixed it
 Waited for the CI run to finish and the API to report ready, reran the install (which then sealed Slack and passed), and reran only the failed CI job afterwards. No code change. A real fix is a placement or storage change (keep ARC runners off the worker that shares `cp-0`'s disk, or give etcd its own disk); not done yet.

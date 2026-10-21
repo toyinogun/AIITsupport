@@ -91,5 +91,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0067](0067-elasticsearch-cp-a-on-an-emptydir.md) | 2026-10-21 | Elasticsearch's config copy failed on the emptyDir | #17 One command GitOps install | ~10 min | no |
 | [0068](0068-statefulset-claim-templates-stay-outofsync.md) | 2026-10-22 | StatefulSet claim templates kept noord-client OutOfSync | #17 One command GitOps install | ~10 min | no |
 | [0069](0069-ci-image-builds-starved-etcd.md) | 2026-10-22 | CI image builds starved k3sprox's etcd | #17 One command GitOps install | ~20 min | post |
+| [0070](0070-buildkit-session-dies-before-the-push.md) | 2026-10-22 | BuildKit dropped the session before the agent image's push | #17 One command GitOps install | ~45 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
