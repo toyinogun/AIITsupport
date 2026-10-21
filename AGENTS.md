@@ -56,6 +56,7 @@ make helpdesk-up    # start Zammad in Compose (profile helpdesk, http://127.0.0.
 make helpdesk-seed  # seed Zammad from seed/helpdesk/; says "already seeded" or asks for a reset
 make helpdesk-reset # fresh Zammad containers and volumes, then seed (Samba and pgdata untouched)
 TEST_ZAMMAD=1 go test -race -run Live ./internal/seed/helpdesk/ # live helpdesk tests after helpdesk-reset, .env loaded
+make install CLUSTER=<name> # seal, commit and push the cluster folder, install or update it through ArgoCD (spec 0015; exit 2: nothing changed)
 ```
 
 Hooks: pre commit runs a format check on staged Go files, lint, and gitleaks on the staged changes; pre push runs `go test -race` and `gen-check`. A Claude Code PostToolUse hook (`.claude/hooks/format-go.py`) formats each Go file after an edit.
@@ -76,6 +77,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - Never hardcode model ids, prices, or limits; they are config values or `eval/pricing.yaml`.
 - The credential boundary is checked twice: the depguard rule `agent-credential-boundary` in `.golangci.yml` and `cmd/agent/boundary_test.go`. A new client system package goes on both deny lists.
 - Only `cmd/seed` binds as the domain Administrator (`SEED_*` settings); `internal/seed` is on both deny lists, so the agent can never import it. See [internal/seed/AGENTS.md](internal/seed/AGENTS.md).
+- `internal/install` (the cluster installer, only `cmd/seed` uses it) is on both deny lists too. See [internal/install/AGENTS.md](internal/install/AGENTS.md).
 - `internal/zammad` never writes a Zammad user, organization, or user token: its transport refuses them (`ErrUserWrite`), because Zammad lets any agent token do it. See [internal/zammad/AGENTS.md](internal/zammad/AGENTS.md).
 - Entra has two app registrations: only `cmd/seed` holds the seed app (`SEED_GRAPH_*`, user writes); the tool server app (`GRAPH_*`) reads users and changes phone methods only. `internal/graph` refuses any user without the `noord-sync` marker (`ErrNotManaged`). See [internal/graph/AGENTS.md](internal/graph/AGENTS.md).
 - Log with `log/slog` only; the standard `log` package is denied (depguard `no-std-log`). slog messages are static strings with snake_case keys (sloglint).
@@ -128,5 +130,7 @@ Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, 
 - [internal/resetlink/AGENTS.md](internal/resetlink/AGENTS.md): the password reset link store (spec 0011): token, hash, issue, claim, revert, and the hourly cleanup
 - [internal/resetpage/AGENTS.md](internal/resetpage/AGENTS.md): the password reset page on its own listener (spec 0011): the form, the audited POST as `svc-pwreset`, the fixed pages and headers
 - [internal/approvalapi/AGENTS.md](internal/approvalapi/AGENTS.md): the tool server approval routes (specs 0012, 0013): decide and execute, the owner unreachable cancel, the views, expire and abandon, never MCP tools
+- [internal/install/AGENTS.md](internal/install/AGENTS.md): the one command cluster installer (spec 0015): its steps, the shared Secret table, sealing, the commit and push rules, exit codes
+- [deploy/AGENTS.md](deploy/AGENTS.md): what ArgoCD installs (spec 0015): the bootstrap chart, our chart's components, the cluster folders, the vendored Zammad chart, waves, hooks, and seed Job hashing
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
