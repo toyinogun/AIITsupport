@@ -89,6 +89,28 @@ func TestParseRejects(t *testing.T) {
 			[]string{`"ann.fin"`},
 		},
 		{
+			"department tag not a department",
+			func(s string) string {
+				return strings.Replace(s, "kind: department, owner: ann.fin,", "kind: department, departments: [Finance, Sales], owner: ann.fin,", 1)
+			},
+			[]string{`department "Sales" is not one of the departments`},
+		},
+		{
+			"department tag listed twice",
+			func(s string) string {
+				return strings.Replace(s, "kind: department, owner: ann.fin,", "kind: department, departments: [Finance, Finance], owner: ann.fin,", 1)
+			},
+			[]string{`department "Finance" is listed twice`},
+		},
+		{
+			"department tag on a distribution list and a privileged group",
+			func(s string) string {
+				s = strings.Replace(s, "kind: distribution, owner: boss.top,", "kind: distribution, departments: [Finance], owner: boss.top,", 1)
+				return strings.Replace(s, "kind: privileged, owner: null,", "kind: privileged, departments: [IT], owner: null,", 1)
+			},
+			[]string{"a distribution group may not have departments", "a privileged group may not have departments"},
+		},
+		{
 			"group name clashes with a user",
 			func(s string) string { return strings.Replace(s, "name: APP-ERP,", "name: Boss.Top,", 1) },
 			[]string{`"Boss.Top"`},
@@ -326,5 +348,19 @@ func TestLoadNamesTheFile(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"), "")
 	if err == nil || !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("err = %v, want a not exist error", err)
+	}
+}
+
+// covers: spec 0013 AC-3. A group's department tags load from the seed and
+// become the info value the tool layer parses back.
+func TestDepartmentTags(t *testing.T) {
+	seed := strings.Replace(smallSeed, "kind: app, owner: null,", "kind: app, departments: [Finance, Management], owner: null,", 1)
+	m := mustParse(t, seed)
+	g, _ := m.Group("APP-ERP")
+	if got := DepartmentsInfo(g.Departments); got != "noord-departments: Finance, Management" {
+		t.Errorf("info = %q", got)
+	}
+	if untagged, _ := m.Group("SG-Finance"); len(untagged.Departments) != 0 {
+		t.Errorf("SG-Finance departments = %v", untagged.Departments)
 	}
 }

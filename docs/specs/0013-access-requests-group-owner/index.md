@@ -1,7 +1,7 @@
 # 0013. Access requests via group owner: a group search, a medium tool that asks the group's owner in a Slack DM, and an audited add that runs only after the owner clicks
 
 **Date**: 2026-10-20
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

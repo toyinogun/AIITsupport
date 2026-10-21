@@ -41,7 +41,7 @@ func mediumTool(name string, runs *atomic.Int32) Tool {
 	return Tool{
 		Name: name, Description: "test only", Tier: audit.TierMedium, Target: TargetRequester,
 		PendingResult: []string{"expires_at"},
-		Approval: func(_ context.Context, _ audit.Call, now time.Time) (audit.ApprovalRequest, error) {
+		Approval: func(_ context.Context, _ audit.Call, _ Prechecked, now time.Time) (audit.ApprovalRequest, error) {
 			return audit.ApprovalRequest{Kind: audit.ApproverIT, Approvers: []string{"U09IT"}, ExpiresAt: now.Add(time.Hour)}, nil
 		},
 		Precheck: func(context.Context, MFADeps, Input) (Prechecked, error) { return Prechecked{}, nil },
@@ -52,10 +52,12 @@ func mediumTool(name string, runs *atomic.Int32) Tool {
 	}
 }
 
-// covers: AC-1, AC-14, and spec 0009 AC-1. The production registry lists
-// exactly the six tools, none of them a test tool, and nothing that approves.
+// covers: AC-1, AC-14, spec 0009 AC-1, and spec 0013 AC-4. The production
+// registry lists exactly the six tools plus the two access request tools,
+// none of them a test tool, and none named for approving: a description may
+// say a human approves, but no tool can.
 func TestProductionRegistry(t *testing.T) {
-	reg, err := NewRegistry()
+	reg, err := NewRegistry(8 * time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,11 +68,14 @@ func TestProductionRegistry(t *testing.T) {
 		if schema["type"] != "object" || schema["additionalProperties"] != false {
 			t.Errorf("%s schema = %v, want a closed object", tool.Name, schema)
 		}
-		if strings.Contains(strings.ToLower(tool.Name+tool.Description), "approve") {
-			t.Errorf("%s mentions approving", tool.Name)
+		if strings.Contains(strings.ToLower(tool.Name), "approve") {
+			t.Errorf("%s is named for approving", tool.Name)
 		}
 	}
-	want := []string{ToolUserLookup, ToolAccountUnlock, ToolTicketCreate, ToolTicketUpdate, ToolPrivilegedAccessChange, ToolEscalate}
+	want := []string{
+		ToolUserLookup, ToolAccountUnlock, ToolTicketCreate, ToolTicketUpdate, ToolPrivilegedAccessChange, ToolEscalate,
+		ToolGroupSearch, ToolGroupAccessRequest,
+	}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}
@@ -79,12 +84,13 @@ func TestProductionRegistry(t *testing.T) {
 	}
 }
 
-// covers: AC-21. A tool is an account change exactly when its handler takes
-// AccountDeps; the production set has one, account_unlock.
+// covers: AC-21, spec 0013 AC-4. A tool is an account change exactly when
+// its handler can change an account; the production set has account_unlock
+// and group_access_request (a GroupHandler).
 func TestAccountChangeFollowsTheHandlerType(t *testing.T) {
-	reg, _ := NewRegistry()
+	reg, _ := NewRegistry(8 * time.Hour)
 	for _, tool := range reg.Tools() {
-		if tool.accountChange() != (tool.Name == ToolAccountUnlock) {
+		if tool.accountChange() != (tool.Name == ToolAccountUnlock || tool.Name == ToolGroupAccessRequest) {
 			t.Errorf("%s accountChange = %v", tool.Name, tool.accountChange())
 		}
 	}
@@ -122,7 +128,7 @@ func TestRegistryConstructionRules(t *testing.T) {
 func TestMediumToolIsDeferred(t *testing.T) {
 	var runs atomic.Int32
 	tool := mediumTool("t_medium", &runs)
-	tool.Approval = func(_ context.Context, c audit.Call, now time.Time) (audit.ApprovalRequest, error) {
+	tool.Approval = func(_ context.Context, c audit.Call, _ Prechecked, now time.Time) (audit.ApprovalRequest, error) {
 		if c.RequesterAccount != "eva.peters" {
 			t.Errorf("hook saw account %q", c.RequesterAccount)
 		}
@@ -148,7 +154,7 @@ func TestMediumToolIsDeferred(t *testing.T) {
 	}
 
 	// A failing hook is an error, not a pending approval.
-	tool.Approval = func(context.Context, audit.Call, time.Time) (audit.ApprovalRequest, error) {
+	tool.Approval = func(context.Context, audit.Call, Prechecked, time.Time) (audit.ApprovalRequest, error) {
 		return audit.ApprovalRequest{}, errors.New("no approvers configured")
 	}
 	h = newHarness(t, tool)

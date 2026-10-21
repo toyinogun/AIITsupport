@@ -25,7 +25,7 @@ WHERE id IN (
     LIMIT $2
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 type AbandonStuckApprovalsParams struct {
@@ -63,6 +63,8 @@ func (q *Queries) AbandonStuckApprovals(ctx context.Context, arg AbandonStuckApp
 			&i.ExecutedAt,
 			&i.ExpiresAt,
 			&i.CreatedAt,
+			&i.Target,
+			&i.DeciderSlackID,
 		); err != nil {
 			return nil, err
 		}
@@ -76,20 +78,27 @@ func (q *Queries) AbandonStuckApprovals(ctx context.Context, arg AbandonStuckApp
 
 const approveApproval = `-- name: ApproveApproval :one
 UPDATE approvals
-SET status = 'approved', decided_by = $1::text, decided_at = now()
-WHERE id = $2 AND status = 'pending' AND expires_at > now()
+SET status = 'approved', decided_by = $1::text, decider_slack_id = $2::text, decided_at = now()
+WHERE id = $3 AND status = 'pending' AND expires_at > now()
   AND $1::text = ANY (allowed_approvers)
-  AND $1::text <> requester_slack_id
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+  AND CASE approver_kind
+      WHEN 'group_owner' THEN requester_account IS DISTINCT FROM $1::text
+      ELSE $1::text <> requester_slack_id
+  END
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 type ApproveApprovalParams struct {
-	Clicker string
-	ID      uuid.UUID
+	Decider        string
+	DeciderSlackID string
+	ID             uuid.UUID
 }
 
+// The decider is the clicker's Slack id for kind it and the clicker's AD
+// account for kind group_owner (spec 0013, AC-8); either way it must be
+// listed and must not be the requester. decider_slack_id is the clicker.
 func (q *Queries) ApproveApproval(ctx context.Context, arg ApproveApprovalParams) (Approval, error) {
-	row := q.db.QueryRow(ctx, approveApproval, arg.Clicker, arg.ID)
+	row := q.db.QueryRow(ctx, approveApproval, arg.Decider, arg.DeciderSlackID, arg.ID)
 	var i Approval
 	err := row.Scan(
 		&i.ID,
@@ -110,8 +119,68 @@ func (q *Queries) ApproveApproval(ctx context.Context, arg ApproveApprovalParams
 		&i.ExecutedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
 	)
 	return i, err
+}
+
+const cancelApproval = `-- name: CancelApproval :one
+UPDATE approvals
+SET status = 'expired', arguments = NULL
+WHERE id = $1 AND status = 'pending' AND approver_kind = 'group_owner'
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
+`
+
+// CancelApproval ends a pending group owner approval whose owner cannot be
+// reached in Slack (spec 0013, AC-11). It reuses the expired status; the
+// approval.cancel audit row tells it apart from a timeout.
+func (q *Queries) CancelApproval(ctx context.Context, id uuid.UUID) (Approval, error) {
+	row := q.db.QueryRow(ctx, cancelApproval, id)
+	var i Approval
+	err := row.Scan(
+		&i.ID,
+		&i.CallID,
+		&i.ToolName,
+		&i.Arguments,
+		&i.RiskTier,
+		&i.RequesterSlackID,
+		&i.RequesterAccount,
+		&i.SlackChannelID,
+		&i.SlackThreadTs,
+		&i.ZammadTicketID,
+		&i.ApproverKind,
+		&i.AllowedApprovers,
+		&i.Status,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.ExecutedAt,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
+	)
+	return i, err
+}
+
+const countPendingApprovals = `-- name: CountPendingApprovals :one
+SELECT count(*) FROM approvals
+WHERE requester_account = $1 AND tool_name = $2
+  AND status = 'pending' AND expires_at > now()
+`
+
+type CountPendingApprovalsParams struct {
+	RequesterAccount pgtype.Text
+	ToolName         string
+}
+
+// CountPendingApprovals counts an account's pending, unexpired approvals of
+// a tool: the soft ACCESS_MAX_PENDING limit (spec 0013, AC-5).
+func (q *Queries) CountPendingApprovals(ctx context.Context, arg CountPendingApprovalsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingApprovals, arg.RequesterAccount, arg.ToolName)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createApproval = `-- name: CreateApproval :one
@@ -119,13 +188,13 @@ const createApproval = `-- name: CreateApproval :one
 INSERT INTO approvals (
     call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account,
     slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind,
-    allowed_approvers, expires_at
+    allowed_approvers, expires_at, target
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
     $7, $8, $9, $10,
-    $11::text[], $12
+    $11::text[], $12, $13
 )
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 type CreateApprovalParams struct {
@@ -141,6 +210,7 @@ type CreateApprovalParams struct {
 	ApproverKind     string
 	AllowedApprovers []string
 	ExpiresAt        time.Time
+	Target           pgtype.Text
 }
 
 // Approvals (spec 0003). Each move is one guarded UPDATE: no rows back means
@@ -159,6 +229,7 @@ func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) 
 		arg.ApproverKind,
 		arg.AllowedApprovers,
 		arg.ExpiresAt,
+		arg.Target,
 	)
 	var i Approval
 	err := row.Scan(
@@ -180,26 +251,30 @@ func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) 
 		&i.ExecutedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
 	)
 	return i, err
 }
 
 const denyApproval = `-- name: DenyApproval :one
 UPDATE approvals
-SET status = 'denied', decided_by = $1::text, decided_at = now(), arguments = NULL
-WHERE id = $2 AND status = 'pending' AND expires_at > now()
+SET status = 'denied', decided_by = $1::text, decider_slack_id = $2::text, decided_at = now(),
+    arguments = NULL
+WHERE id = $3 AND status = 'pending' AND expires_at > now()
   AND $1::text = ANY (allowed_approvers)
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 type DenyApprovalParams struct {
-	Clicker string
-	ID      uuid.UUID
+	Decider        string
+	DeciderSlackID string
+	ID             uuid.UUID
 }
 
 // An ended approval drops the full call (the CHECK on approvals requires it).
 func (q *Queries) DenyApproval(ctx context.Context, arg DenyApprovalParams) (Approval, error) {
-	row := q.db.QueryRow(ctx, denyApproval, arg.Clicker, arg.ID)
+	row := q.db.QueryRow(ctx, denyApproval, arg.Decider, arg.DeciderSlackID, arg.ID)
 	var i Approval
 	err := row.Scan(
 		&i.ID,
@@ -220,6 +295,8 @@ func (q *Queries) DenyApproval(ctx context.Context, arg DenyApprovalParams) (App
 		&i.ExecutedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
 	)
 	return i, err
 }
@@ -234,7 +311,7 @@ WHERE id IN (
     LIMIT $1
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 func (q *Queries) ExpireDueApprovals(ctx context.Context, maxRows int32) ([]Approval, error) {
@@ -265,6 +342,8 @@ func (q *Queries) ExpireDueApprovals(ctx context.Context, maxRows int32) ([]Appr
 			&i.ExecutedAt,
 			&i.ExpiresAt,
 			&i.CreatedAt,
+			&i.Target,
+			&i.DeciderSlackID,
 		); err != nil {
 			return nil, err
 		}
@@ -280,19 +359,21 @@ const expireDueApprovalsFor = `-- name: ExpireDueApprovalsFor :many
 UPDATE approvals
 SET status = 'expired', arguments = NULL
 WHERE requester_account = $1 AND tool_name = $2
+  AND coalesce(target, '') = coalesce($3::text, '')
   AND status = 'pending' AND expires_at <= now()
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 type ExpireDueApprovalsForParams struct {
 	RequesterAccount pgtype.Text
 	ToolName         string
+	Target           pgtype.Text
 }
 
 // ExpireDueApprovalsFor expires one account's overdue pending approvals of a
-// tool, so Defer can create the next one (approvals_one_pending_idx).
+// tool and target, so Defer can create the next one (approvals_one_pending_idx).
 func (q *Queries) ExpireDueApprovalsFor(ctx context.Context, arg ExpireDueApprovalsForParams) ([]Approval, error) {
-	rows, err := q.db.Query(ctx, expireDueApprovalsFor, arg.RequesterAccount, arg.ToolName)
+	rows, err := q.db.Query(ctx, expireDueApprovalsFor, arg.RequesterAccount, arg.ToolName, arg.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -319,6 +400,8 @@ func (q *Queries) ExpireDueApprovalsFor(ctx context.Context, arg ExpireDueApprov
 			&i.ExecutedAt,
 			&i.ExpiresAt,
 			&i.CreatedAt,
+			&i.Target,
+			&i.DeciderSlackID,
 		); err != nil {
 			return nil, err
 		}
@@ -331,8 +414,9 @@ func (q *Queries) ExpireDueApprovalsFor(ctx context.Context, arg ExpireDueApprov
 }
 
 const findPendingApproval = `-- name: FindPendingApproval :one
-SELECT id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at FROM approvals
+SELECT id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id FROM approvals
 WHERE requester_account = $1 AND tool_name = $2
+  AND coalesce(target, '') = coalesce($3::text, '')
   AND status = 'pending' AND expires_at > now()
 ORDER BY created_at DESC
 LIMIT 1
@@ -341,12 +425,14 @@ LIMIT 1
 type FindPendingApprovalParams struct {
 	RequesterAccount pgtype.Text
 	ToolName         string
+	Target           pgtype.Text
 }
 
-// FindPendingApproval is the one pending, unexpired approval of a tool for an
-// account (spec 0012, AC-3): the precheck reuses it or refuses.
+// FindPendingApproval is the one pending, unexpired approval of a tool and
+// target for an account (spec 0012 AC-3, spec 0013 AC-5): the precheck
+// reuses it or refuses. A null target matches only a null target.
 func (q *Queries) FindPendingApproval(ctx context.Context, arg FindPendingApprovalParams) (Approval, error) {
-	row := q.db.QueryRow(ctx, findPendingApproval, arg.RequesterAccount, arg.ToolName)
+	row := q.db.QueryRow(ctx, findPendingApproval, arg.RequesterAccount, arg.ToolName, arg.Target)
 	var i Approval
 	err := row.Scan(
 		&i.ID,
@@ -367,12 +453,14 @@ func (q *Queries) FindPendingApproval(ctx context.Context, arg FindPendingApprov
 		&i.ExecutedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
 	)
 	return i, err
 }
 
 const getApproval = `-- name: GetApproval :one
-SELECT id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at FROM approvals WHERE id = $1
+SELECT id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id FROM approvals WHERE id = $1
 `
 
 func (q *Queries) GetApproval(ctx context.Context, id uuid.UUID) (Approval, error) {
@@ -397,12 +485,14 @@ func (q *Queries) GetApproval(ctx context.Context, id uuid.UUID) (Approval, erro
 		&i.ExecutedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
 	)
 	return i, err
 }
 
 const listApprovalsSince = `-- name: ListApprovalsSince :many
-SELECT id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at FROM approvals
+SELECT id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id FROM approvals
 WHERE created_at >= $1::timestamptz
 ORDER BY created_at, id
 LIMIT $2
@@ -441,6 +531,8 @@ func (q *Queries) ListApprovalsSince(ctx context.Context, arg ListApprovalsSince
 			&i.ExecutedAt,
 			&i.ExpiresAt,
 			&i.CreatedAt,
+			&i.Target,
+			&i.DeciderSlackID,
 		); err != nil {
 			return nil, err
 		}
@@ -455,7 +547,7 @@ func (q *Queries) ListApprovalsSince(ctx context.Context, arg ListApprovalsSince
 const markApprovalExecuted = `-- name: MarkApprovalExecuted :one
 UPDATE approvals SET status = 'executed', executed_at = now(), arguments = NULL
 WHERE id = $1 AND status = 'approved'
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 func (q *Queries) MarkApprovalExecuted(ctx context.Context, id uuid.UUID) (Approval, error) {
@@ -480,6 +572,8 @@ func (q *Queries) MarkApprovalExecuted(ctx context.Context, id uuid.UUID) (Appro
 		&i.ExecutedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
 	)
 	return i, err
 }
@@ -487,7 +581,7 @@ func (q *Queries) MarkApprovalExecuted(ctx context.Context, id uuid.UUID) (Appro
 const markApprovalFailed = `-- name: MarkApprovalFailed :one
 UPDATE approvals SET status = 'failed', executed_at = now(), arguments = NULL
 WHERE id = $1 AND status = 'approved'
-RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at
+RETURNING id, call_id, tool_name, arguments, risk_tier, requester_slack_id, requester_account, slack_channel_id, slack_thread_ts, zammad_ticket_id, approver_kind, allowed_approvers, status, decided_by, decided_at, executed_at, expires_at, created_at, target, decider_slack_id
 `
 
 func (q *Queries) MarkApprovalFailed(ctx context.Context, id uuid.UUID) (Approval, error) {
@@ -512,28 +606,55 @@ func (q *Queries) MarkApprovalFailed(ctx context.Context, id uuid.UUID) (Approva
 		&i.ExecutedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Target,
+		&i.DeciderSlackID,
 	)
 	return i, err
 }
 
-const threadHasOpenApproval = `-- name: ThreadHasOpenApproval :one
-SELECT EXISTS (
-    SELECT 1 FROM approvals
-    WHERE slack_channel_id = $1 AND slack_thread_ts = $2
-      AND tool_name = $3 AND status IN ('pending', 'approved')
-)
+const threadOpenApprovalTool = `-- name: ThreadOpenApprovalTool :one
+SELECT tool_name FROM approvals
+WHERE slack_channel_id = $1 AND slack_thread_ts = $2
+  AND risk_tier = 'medium' AND status IN ('pending', 'approved')
+ORDER BY created_at DESC
+LIMIT 1
 `
 
-type ThreadHasOpenApprovalParams struct {
+type ThreadOpenApprovalToolParams struct {
+	SlackChannelID string
+	SlackThreadTs  string
+}
+
+// ThreadOpenApprovalTool is the tool of the thread's newest pending or
+// approved medium approval: the ticket_update close guard (spec 0012 AC-24,
+// widened to every medium tool by spec 0013 AC-18). No rows means none.
+func (q *Queries) ThreadOpenApprovalTool(ctx context.Context, arg ThreadOpenApprovalToolParams) (string, error) {
+	row := q.db.QueryRow(ctx, threadOpenApprovalTool, arg.SlackChannelID, arg.SlackThreadTs)
+	var tool_name string
+	err := row.Scan(&tool_name)
+	return tool_name, err
+}
+
+const threadPendingTarget = `-- name: ThreadPendingTarget :one
+SELECT target FROM approvals
+WHERE slack_channel_id = $1 AND slack_thread_ts = $2
+  AND tool_name = $3 AND status = 'pending' AND expires_at > now()
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type ThreadPendingTargetParams struct {
 	SlackChannelID string
 	SlackThreadTs  string
 	ToolName       string
 }
 
-// ThreadHasOpenApproval guards ticket_update closed (spec 0012, AC-24).
-func (q *Queries) ThreadHasOpenApproval(ctx context.Context, arg ThreadHasOpenApprovalParams) (bool, error) {
-	row := q.db.QueryRow(ctx, threadHasOpenApproval, arg.SlackChannelID, arg.SlackThreadTs, arg.ToolName)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
+// ThreadPendingTarget is the target of the thread's newest pending,
+// unexpired approval of a tool: one access request per conversation (spec
+// 0013, AC-5). No rows means none.
+func (q *Queries) ThreadPendingTarget(ctx context.Context, arg ThreadPendingTargetParams) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, threadPendingTarget, arg.SlackChannelID, arg.SlackThreadTs, arg.ToolName)
+	var target pgtype.Text
+	err := row.Scan(&target)
+	return target, err
 }

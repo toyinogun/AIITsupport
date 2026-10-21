@@ -14,6 +14,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelReasonForApproval = `-- name: CancelReasonForApproval :one
+SELECT EXISTS (
+    SELECT 1 FROM audit_log
+    WHERE approval_id = $1 AND kind = 'outcome' AND tool_name = 'approval.cancel'
+      AND outcome = 'expired'
+)
+`
+
+// CancelReasonForApproval reports whether an approval was cancelled as owner
+// unreachable (spec 0013, AC-11): an approval.cancel outcome row names it.
+// A cancel and a timeout both end pending as expired, and only one can win.
+func (q *Queries) CancelReasonForApproval(ctx context.Context, approvalID uuid.NullUUID) (bool, error) {
+	row := q.db.QueryRow(ctx, cancelReasonForApproval, approvalID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countRecentOutcomes = `-- name: CountRecentOutcomes :one
 SELECT count(*) FROM audit_log
 WHERE kind = 'outcome' AND outcome = $1
@@ -34,6 +52,37 @@ type CountRecentOutcomesParams struct {
 func (q *Queries) CountRecentOutcomes(ctx context.Context, arg CountRecentOutcomesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countRecentOutcomes,
 		arg.Outcome,
+		arg.ToolName,
+		arg.RequesterSlackID,
+		arg.Since,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countRecentReasons = `-- name: CountRecentReasons :one
+SELECT count(*) FROM audit_log
+WHERE kind = 'outcome' AND outcome = $1 AND error = $2::text
+  AND tool_name = $3 AND requester_slack_id = $4
+  AND occurred_at > $5
+`
+
+type CountRecentReasonsParams struct {
+	Outcome          pgtype.Text
+	Error            string
+	ToolName         string
+	RequesterSlackID string
+	Since            time.Time
+}
+
+// CountRecentReasons counts a requester's outcomes of one kind and stored
+// reason for one tool since a time: protected access requests count toward
+// the privileged attempt window (spec 0013, AC-5).
+func (q *Queries) CountRecentReasons(ctx context.Context, arg CountRecentReasonsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentReasons,
+		arg.Outcome,
+		arg.Error,
 		arg.ToolName,
 		arg.RequesterSlackID,
 		arg.Since,

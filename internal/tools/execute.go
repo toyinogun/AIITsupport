@@ -27,16 +27,16 @@ func (d *Dispatcher) Execute(ctx context.Context, approved queries.Approval) aud
 		return audit.OutcomeError
 	}
 	t, ok := d.reg.Lookup(a.ToolName)
-	var h MFAHandler
+	var handle func(context.Context, Input) (Result, error)
 	if ok {
-		h, ok = t.Handler.(MFAHandler)
+		handle, ok = d.approvedHandler(t)
 	}
-	if !ok || d.sys.MFA == nil {
+	if !ok {
 		// Never happens: only registry tools are ever deferred.
 		d.mark(ctx, a, false)
 		return audit.OutcomeError
 	}
-	ctx, cancel := context.WithTimeout(ctx, d.sys.MFA.ExecuteTimeout)
+	ctx, cancel := context.WithTimeout(ctx, d.cfg.ExecuteTimeout)
 	defer cancel()
 	ctx, span := d.tracer.Start(ctx, "tool.call", trace.WithAttributes(
 		attribute.String("tool", t.Name), attribute.String("tier", string(t.Tier))))
@@ -55,15 +55,20 @@ func (d *Dispatcher) Execute(ctx context.Context, approved queries.Approval) aud
 		StoreResult:      t.StoreResult,
 		TraceID:          traceID(ctx),
 		ApprovalID:       a.ID,
-		ApproverSlackID:  a.DecidedBy.String,
+		ApproverSlackID:  a.DeciderSlackID.String,
+	}
+	if t.Target == TargetGroup {
+		call.Target = a.Target.String
 	}
 	now := d.now()
-	args, bad := t.parseArgs(a.Arguments, CheckEnv{Now: now, MaxPending: d.cfg.TicketMaxPending})
+	args, lists, bad := t.parseArgs(a.Arguments, CheckEnv{Now: now, MaxPending: d.cfg.TicketMaxPending})
+	call.Args = anyArgs(args, lists)
 	in := Input{
 		Requester: Requester{
 			SlackID: a.RequesterSlackID, ChannelID: a.SlackChannelID, ThreadTS: a.SlackThreadTs, TicketID: a.ZammadTicketID.Int64,
 		},
-		Account: ldap.User{Username: account}, Args: args, Now: now, ApproverSlackID: a.DecidedBy.String,
+		Account: ldap.User{Username: account}, Args: args, Lists: lists, Now: now,
+		ApproverSlackID: a.DeciderSlackID.String, Approver: a.DecidedBy.String,
 	}
 
 	var res Result
@@ -75,7 +80,7 @@ func (d *Dispatcher) Execute(ctx context.Context, approved queries.Approval) aud
 			if d.beforeHandler != nil {
 				d.beforeHandler()
 			}
-			res, handlerErr = h(ctx, d.mfaDeps(), in)
+			res, handlerErr = handle(ctx, in)
 		}
 		if handlerErr != nil {
 			f := asFailure(handlerErr)
@@ -102,12 +107,28 @@ func (d *Dispatcher) Execute(ctx context.Context, approved queries.Approval) aud
 	return outcome
 }
 
+// approvedHandler is the tool's handler on its own family's deps (spec
+// 0013, AC-4); ok is false for a tool that never runs behind an approval.
+func (d *Dispatcher) approvedHandler(t *Tool) (func(context.Context, Input) (Result, error), bool) {
+	switch h := t.Handler.(type) {
+	case MFAHandler:
+		if d.sys.MFA == nil {
+			return nil, false
+		}
+		return func(ctx context.Context, in Input) (Result, error) { return h(ctx, d.mfaDeps(), in) }, true
+	case GroupHandler:
+		return func(ctx context.Context, in Input) (Result, error) { return h(ctx, d.groupDeps(), in) }, true
+	}
+	return nil, false
+}
+
 // executable repeats what the approve's SQL guard decided: approved, by a
-// listed approver who is not the requester, before the expiry. A row that
+// listed decider who is not the requester (by the kind's own key, spec 0013
+// AC-8), with the clicker's Slack id recorded, before the expiry. A row that
 // fails it never runs, whoever calls Execute.
 func executable(a queries.Approval) bool {
 	by := a.DecidedBy.String
-	return a.Status == "approved" && by != "" && by != a.RequesterSlackID &&
+	return a.Status == "approved" && by != "" && a.DeciderSlackID.String != "" && !audit.IsRequester(a, by) &&
 		slices.Contains(a.AllowedApprovers, by) && a.DecidedAt.Valid && !a.DecidedAt.Time.After(a.ExpiresAt)
 }
 

@@ -69,8 +69,9 @@ var ourStates = map[string]string{
 // ticketUpdate changes only the ticket in _meta, only when the requester is
 // its customer and it is not closed (AC-11). State and note are one request.
 // A close waits until a blocked privileged request is escalated (spec 0009,
-// AC-6), and never runs while the thread has an open MFA approval: the
-// execution closes the ticket itself (spec 0012, AC-24).
+// AC-6), and never runs while the thread has an open medium approval: the
+// execution or the settle closes the ticket itself (spec 0012 AC-24, every
+// medium tool since spec 0013 AC-18).
 func ticketUpdate(ctx context.Context, d Deps, in Input) (Result, error) {
 	if in.Requester.TicketID == 0 {
 		return refused(refuseNoTicket), nil
@@ -83,11 +84,13 @@ func ticketUpdate(ctx context.Context, d Deps, in Input) (Result, error) {
 		if owed {
 			return refused(refuseEscalateFirst), nil
 		}
-		open, err := d.History.ThreadHasOpenApproval(ctx, ToolMFAClear, in.Requester.ChannelID, in.Requester.ThreadTS)
-		if err != nil {
+		open, err := d.History.ThreadOpenApprovalTool(ctx, in.Requester.ChannelID, in.Requester.ThreadTS)
+		switch {
+		case err != nil:
 			return Result{}, failed(err)
-		}
-		if open {
+		case open == ToolGroupAccessRequest:
+			return refused(refuseAccessPending), nil
+		case open != "":
 			return refused(refuseApprovalPending), nil
 		}
 	}

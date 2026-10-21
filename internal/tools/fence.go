@@ -82,6 +82,13 @@ func (a *AccountFence) CheckAccount(ctx context.Context, dn string) error {
 	return nil
 }
 
+// DeniedName reports whether name is on the denied name list (the code floor
+// or TOOL_DENIED_GROUPS), ignoring case. It reads nothing.
+func (f *Fence) DeniedName(name string) bool {
+	match := func(d string) bool { return strings.EqualFold(d, name) }
+	return slices.ContainsFunc(FloorDeniedGroups, match) || slices.ContainsFunc(f.denied, match)
+}
+
 // CheckGroup returns nil when a tool may change the group named name (a
 // sAMAccountName). It returns ErrGroupProtected when the group does not
 // exist, sits outside the allowed group OUs, is denied (the floor or

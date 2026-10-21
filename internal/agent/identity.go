@@ -34,6 +34,9 @@ const (
 	escalateApprovalFailed  = "approval_failed"
 	// escalateApprovalCancelled: the requester denied their own request.
 	escalateApprovalCancelled = "approval_cancelled"
+	// escalateNoGroupOwner: an access request nobody can decide (spec 0013,
+	// AC-19), for the model and for code.
+	escalateNoGroupOwner = "no_group_owner"
 )
 
 // Tool result codes the agent code acts on (spec 0007, refusal table).

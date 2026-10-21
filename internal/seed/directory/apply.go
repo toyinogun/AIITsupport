@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"unicode/utf16"
 
 	"github.com/go-ldap/ldap/v3"
@@ -216,6 +217,12 @@ func (a *applier) addAccount(dn string, attrs [][2]any, enabledUAC string) error
 	return a.replace(dn, "userAccountControl", enabledUAC)
 }
 
+// DepartmentsInfo is the info value that tags a group with departments
+// (spec 0013, AC-3): ldap.DepartmentsPrefix, then the names joined with ", ".
+func DepartmentsInfo(departments []string) string {
+	return noordldap.DepartmentsPrefix + strings.Join(departments, ", ")
+}
+
 // groups adds every group without members, so members can refer to groups
 // added later.
 func (a *applier) groups() error {
@@ -240,6 +247,9 @@ func (a *applier) groups() error {
 		if g.Owner != "" {
 			ownerDN, _ := a.m.UserDN(a.base, g.Owner)
 			attrs = append(attrs, [2]any{"managedBy", ownerDN})
+		}
+		if len(g.Departments) > 0 {
+			attrs = append(attrs, [2]any{"info", DepartmentsInfo(g.Departments)})
 		}
 		if err := a.add(dn, attrs); err != nil {
 			return fmt.Errorf("group %s: %w", g.Name, err)

@@ -56,10 +56,14 @@ type Input struct {
 	Requester Requester
 	Account   ldap.User // the requester's directory account
 	Args      Args
+	Lists     Lists // the list arguments (group_search's terms)
 	Now       time.Time
-	// ApproverSlackID is who approved the call; set only for an approved
+	// ApproverSlackID is the Slack id of who approved the call, and Approver
+	// the approval's decider (that Slack id for an IT approval, the owner's
+	// AD account for a group owner approval); set only for an approved
 	// execution (Dispatcher.Execute).
 	ApproverSlackID string
+	Approver        string
 }
 
 // Result is what a handler returns. Outcome empty means ok; a handler refuses
@@ -70,7 +74,7 @@ type Result struct {
 }
 
 // Handler is a tool's code: a ReadHandler, an AccountHandler, a ResetHandler,
-// or an MFAHandler.
+// an MFAHandler, or a GroupHandler.
 type Handler interface{ handler() }
 
 // ReadHandler may read the directory and use the helpdesk; it cannot write
@@ -92,10 +96,17 @@ type ResetHandler func(ctx context.Context, d ResetDeps, in Input) (Result, erro
 // to the request.
 type MFAHandler func(ctx context.Context, d MFADeps, in Input) (Result, error)
 
+// GroupHandler adds the requester to a group after the group owner approved
+// (spec 0013). Like an MFAHandler it runs only from Dispatcher.Execute, and
+// the dispatcher treats it as an account change: the kill switch and
+// TOOL_WRITE_LIMIT apply to the request.
+type GroupHandler func(ctx context.Context, d GroupDeps, in Input) (Result, error)
+
 func (ReadHandler) handler()    {}
 func (AccountHandler) handler() {}
 func (ResetHandler) handler()   {}
 func (MFAHandler) handler()     {}
+func (GroupHandler) handler()   {}
 
 // Directory is what every handler may read from AD. *ldap.Client satisfies it.
 type Directory interface {
@@ -106,9 +117,23 @@ type Directory interface {
 	UserInChainMemberOf(ctx context.Context, dn string, parents []string) (bool, error)
 }
 
-// DirectoryWriter is the directory's only write. *ldap.Writer satisfies it.
+// DirectoryWriter is the directory's writes as svc-itsupport: the unlock and
+// the group add (spec 0013). *ldap.Writer satisfies it.
 type DirectoryWriter interface {
 	ClearLockout(ctx context.Context, dn string) error
+	// AddMember is ldap.ErrAlreadyMember when the user is in the group.
+	AddMember(ctx context.Context, groupDN, userDN string) error
+}
+
+// GroupReader is the directory's group reads for the access request (spec
+// 0013). *ldap.Client satisfies it. No user text reaches an LDAP filter
+// except an exact name through GroupByName, escaped.
+type GroupReader interface {
+	ListGroups(ctx context.Context, ous []string) ([]ldap.GroupInfo, error)
+	GroupByName(ctx context.Context, name string) (ldap.GroupInfo, bool, error)
+	GroupNestedInto(ctx context.Context, groupDN string, ous []string) ([]string, error)
+	GroupHasMember(ctx context.Context, groupDN, userDN string) (bool, error)
+	GetUser(ctx context.Context, dn string) (ldap.User, bool, error)
 }
 
 // HelpdeskAPI is the part of the Zammad client the tools use. *zammad.Client
@@ -128,10 +153,13 @@ type History interface {
 	ThreadHasOK(ctx context.Context, tool, channelID, threadTS string) (bool, error)
 	ThreadHas(ctx context.Context, tool string, outcome audit.Outcome, channelID, threadTS string) (bool, error)
 	CountRecent(ctx context.Context, tool, requesterSlackID string, outcome audit.Outcome, since time.Time) (int64, error)
+	// CountRecentReason also matches the stored reason (spec 0013, AC-5).
+	CountRecentReason(ctx context.Context, tool, requesterSlackID string, outcome audit.Outcome, reason string, since time.Time) (int64, error)
 	ThreadTicketID(ctx context.Context, channelID, threadTS string) (int64, error)
-	// ThreadHasOpenApproval reports a pending or approved approval of tool in
-	// the thread: the close guard (spec 0012, AC-24).
-	ThreadHasOpenApproval(ctx context.Context, tool, channelID, threadTS string) (bool, error)
+	// ThreadOpenApprovalTool is the tool of a pending or approved medium
+	// approval in the thread, or "": the close guard (spec 0012 AC-24, spec
+	// 0013 AC-18).
+	ThreadOpenApprovalTool(ctx context.Context, channelID, threadTS string) (string, error)
 }
 
 // KillSwitch says whether account changes may run right now.
@@ -142,10 +170,20 @@ type KillSwitch interface {
 // Deps is what a non account change handler may touch.
 type Deps struct {
 	Directory Directory
+	Groups    GroupReader
 	Helpdesk  *Helpdesk
 	History   History
 	Fence     *Fence
 	Limits    Limits
+	Scope     Scope
+}
+
+// Scope is where the tool layer may look in the directory (TOOL_USER_OUS
+// and TOOL_GROUP_OUS, relative to LDAP_BASE_DN).
+type Scope struct {
+	BaseDN   string
+	UserOUs  []string
+	GroupOUs []string
 }
 
 // AccountDeps is what an account change handler may touch: Deps plus the
@@ -199,7 +237,10 @@ type GraphAPI interface {
 // ApprovalReads are the approval reads a medium tool's precheck makes.
 // *audit.Recorder satisfies it.
 type ApprovalReads interface {
-	PendingApproval(ctx context.Context, account, tool string) (queries.Approval, bool, error)
+	// PendingApproval's target is empty for a tool without one.
+	PendingApproval(ctx context.Context, account, tool, target string) (queries.Approval, bool, error)
+	PendingCount(ctx context.Context, account, tool string) (int64, error)
+	ThreadPendingTarget(ctx context.Context, tool, channelID, threadTS string) (string, bool, error)
 }
 
 // MFADeps is what the MFA tool may touch (spec 0012, AC-2): Deps plus Graph,
@@ -214,6 +255,18 @@ type MFADeps struct {
 	Switch    KillSwitch
 	UserOUs   []string // TOOL_USER_OUS, for the execution's account recheck
 	BaseDN    string
+}
+
+// GroupDeps is what the access request may touch (spec 0013, AC-4): Deps
+// plus the account reader, the directory writer with AddMember, the approval
+// reads, the kill switch it reads twice before an add, and ACCESS_MAX_PENDING.
+type GroupDeps struct {
+	Deps
+	Reader     AccountReader
+	Writer     DirectoryWriter
+	Approvals  ApprovalReads
+	Switch     KillSwitch
+	MaxPending int // ACCESS_MAX_PENDING
 }
 
 // Limits are the settings a handler checks.

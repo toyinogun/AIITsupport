@@ -88,7 +88,7 @@ func TestCanaryMFAClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decided, err := ac.Decide(t.Context(), id, approver, true)
+	decided, err := ac.Decide(t.Context(), id, approver, "", true)
 	if err != nil || decided.Approval.Status != mcpclient.StatusExecuted {
 		t.Fatalf("decide = %+v, %v", decided, err)
 	}
@@ -171,7 +171,7 @@ func startMFA(t *testing.T, logger *slog.Logger, approver, authID, phone string)
 		t.Fatal(err)
 	}
 	dir := &pageDir{Directory: toolstest.NewDirectory()}
-	reg, err := tools.NewRegistry(tools.WithMFAClear([]string{approver}, 30*time.Minute))
+	reg, err := tools.NewRegistry(8*time.Hour, tools.WithMFAClear([]string{approver}, 30*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,11 +179,12 @@ func startMFA(t *testing.T, logger *slog.Logger, approver, authID, phone string)
 		BaseDN: toolstest.Base, UserOUs: []string{"OU=Users,OU=Noord"}, GroupOUs: []string{"OU=Groups,OU=Noord"},
 		CallTimeout: 5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour, TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
 		PrivilegedWindow: 24 * time.Hour,
+		ExecuteTimeout:   5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
 	}, tools.Systems{
-		Directory: dir, Writer: dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", "http://zammad.test"), Recorder: rec,
+		Directory: dir, Groups: dir, Reader: dir, Writer: dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", "http://zammad.test"), Recorder: rec,
 		KillSwitch: tools.NewKillSwitch("", false),
 		MFA: &tools.MFASystem{
-			Graph: gc, Reader: dir, DeniedGroups: []string{"SG-IT-Admins", "APP-Helpdesk-Agents"}, ExecuteTimeout: 5 * time.Second,
+			Graph: gc, Reader: dir, DeniedGroups: []string{"SG-IT-Admins", "APP-Helpdesk-Agents"},
 		},
 	}, logger)
 	if err != nil {
@@ -194,7 +195,7 @@ func startMFA(t *testing.T, logger *slog.Logger, approver, authID, phone string)
 		t.Fatal(err)
 	}
 	approvals, err := approvalapi.Handler(d, rec, approvalapi.Options{
-		Token: token, MaxRequestBytes: 4096, ExecuteGrace: 5 * time.Minute, Logger: logger,
+		Token: token, MaxRequestBytes: 4096, Logger: logger,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +227,10 @@ func TestApprovalRoutesAreNotTools(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	slices.Sort(names)
-	want := []string{"account_unlock", "escalate", "mfa_clear", "privileged_access_change", "ticket_create", "ticket_update", "user_lookup"}
+	want := []string{
+		"account_unlock", "escalate", "group_access_request", "group_search", "mfa_clear", "privileged_access_change",
+		"ticket_create", "ticket_update", "user_lookup",
+	}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}

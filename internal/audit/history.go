@@ -2,8 +2,11 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
 )
@@ -16,6 +19,21 @@ func (r *Recorder) CountRecent(ctx context.Context, tool, requesterSlackID strin
 	defer cancel()
 	n, err := r.store.CountRecentOutcomes(ctx, queries.CountRecentOutcomesParams{
 		Outcome: text(string(outcome)), ToolName: tool, RequesterSlackID: requesterSlackID, Since: since,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("%w: count recent outcomes: %w", ErrAuditUnavailable, err)
+	}
+	return n, nil
+}
+
+// CountRecentReason counts requesterSlackID's outcome rows of one kind with
+// one stored reason for tool after since: protected access requests in the
+// privileged attempt window (spec 0013, AC-5). It reads under the write timeout.
+func (r *Recorder) CountRecentReason(ctx context.Context, tool, requesterSlackID string, outcome Outcome, reason string, since time.Time) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.cfg.WriteTimeout)
+	defer cancel()
+	n, err := r.store.CountRecentReasons(ctx, queries.CountRecentReasonsParams{
+		Outcome: text(string(outcome)), Error: reason, ToolName: tool, RequesterSlackID: requesterSlackID, Since: since,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("%w: count recent outcomes: %w", ErrAuditUnavailable, err)
@@ -64,17 +82,21 @@ func (r *Recorder) ThreadTicketID(ctx context.Context, channelID, threadTS strin
 	return id, nil
 }
 
-// ThreadHasOpenApproval reports whether the thread holds a pending or
-// approved approval of tool: the ticket_update close guard (spec 0012,
-// AC-24). It reads under the write timeout.
-func (r *Recorder) ThreadHasOpenApproval(ctx context.Context, tool, channelID, threadTS string) (bool, error) {
+// ThreadOpenApprovalTool is the tool of the thread's newest pending or
+// approved medium approval, or "" when there is none: the ticket_update
+// close guard (spec 0012 AC-24, every medium tool since spec 0013 AC-18). It
+// reads under the write timeout.
+func (r *Recorder) ThreadOpenApprovalTool(ctx context.Context, channelID, threadTS string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.WriteTimeout)
 	defer cancel()
-	open, err := r.store.ThreadHasOpenApproval(ctx, queries.ThreadHasOpenApprovalParams{
-		SlackChannelID: channelID, SlackThreadTs: threadTS, ToolName: tool,
+	tool, err := r.store.ThreadOpenApprovalTool(ctx, queries.ThreadOpenApprovalToolParams{
+		SlackChannelID: channelID, SlackThreadTs: threadTS,
 	})
-	if err != nil {
-		return false, fmt.Errorf("%w: read open approvals: %w", ErrAuditUnavailable, err)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
 	}
-	return open, nil
+	if err != nil {
+		return "", fmt.Errorf("%w: read open approvals: %w", ErrAuditUnavailable, err)
+	}
+	return tool, nil
 }

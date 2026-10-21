@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
 )
@@ -39,7 +40,7 @@ func (s *pgStore) AppendToolResultWithCard(ctx context.Context, id int64, conten
 	}
 	n, err := q.InsertApprovalCard(ctx, queries.InsertApprovalCardParams{
 		ApprovalID: card.ApprovalID, ConversationID: id, ToolName: card.ToolName,
-		SlackChannelID: card.ChannelID, ExpiresAt: card.ExpiresAt,
+		SlackChannelID: optText(card.ChannelID), ExpiresAt: card.ExpiresAt,
 	})
 	if err != nil {
 		return false, fmt.Errorf("insert approval card: %w", err)
@@ -60,12 +61,18 @@ func (s *pgStore) RecordCardPostAttempt(ctx context.Context, approvalID uuid.UUI
 	return n == 1, nil
 }
 
-func (s *pgStore) SetCardTS(ctx context.Context, approvalID uuid.UUID, ts string) error {
-	if _, err := s.q.SetApprovalCardTS(ctx, queries.SetApprovalCardTSParams{ApprovalID: approvalID, CardTs: ts}); err != nil {
-		return fmt.Errorf("set card ts: %w", err)
+func (s *pgStore) SetCardPosted(ctx context.Context, approvalID uuid.UUID, ts, channel, approverSlackID string) error {
+	_, err := s.q.SetApprovalCardPosted(ctx, queries.SetApprovalCardPostedParams{
+		ApprovalID: approvalID, CardTs: ts, SlackChannelID: channel, ApproverSlackID: optText(approverSlackID),
+	})
+	if err != nil {
+		return fmt.Errorf("set card posted: %w", err)
 	}
 	return nil
 }
+
+// optText is a nullable text: empty is NULL.
+func optText(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
 
 func (s *pgStore) GetApprovalCard(ctx context.Context, approvalID uuid.UUID) (ApprovalCard, error) {
 	c, err := s.q.GetApprovalCard(ctx, approvalID)
@@ -111,7 +118,7 @@ func (s *pgStore) SettleCard(ctx context.Context, approvalID uuid.UUID, outcome,
 // stored a result for, in the conversation that owns its thread (AC-14).
 func (s *pgStore) AdoptApprovalCard(ctx context.Context, card ApprovalCard, threadChannel, threadTS string) (bool, error) {
 	n, err := s.q.AdoptApprovalCard(ctx, queries.AdoptApprovalCardParams{
-		ApprovalID: card.ApprovalID, ToolName: card.ToolName, CardChannelID: card.ChannelID, ExpiresAt: card.ExpiresAt,
+		ApprovalID: card.ApprovalID, ToolName: card.ToolName, CardChannelID: optText(card.ChannelID), ExpiresAt: card.ExpiresAt,
 		ThreadChannelID: threadChannel, ThreadTs: threadTS,
 	})
 	if err != nil {
@@ -150,7 +157,8 @@ func (s *pgStore) ListUnsettledApprovalCards(ctx context.Context, limit int) ([]
 func cardFromRow(c queries.ApprovalCard) ApprovalCard {
 	return ApprovalCard{
 		ApprovalID: c.ApprovalID, ConversationID: c.ConversationID, ToolName: c.ToolName,
-		ChannelID: c.SlackChannelID, CardTS: c.CardTs.String, PostAttempts: int(c.PostAttempts),
+		ChannelID: c.SlackChannelID.String, ApproverSlackID: c.ApproverSlackID.String,
+		CardTS: c.CardTs.String, PostAttempts: int(c.PostAttempts),
 		ExpiresAt: c.ExpiresAt, Settled: c.SettledAt.Valid, Outcome: c.Outcome.String,
 	}
 }

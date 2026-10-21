@@ -39,7 +39,7 @@ func newMFAHarness(t *testing.T) *mfaHarness {
 		t.Fatal(err)
 	}
 	h := newHarnessSystems(t, nil, &MFASystem{
-		Graph: client, Reader: nil, DeniedGroups: []string{"SG-IT-Admins", "APP-Helpdesk-Agents"}, ExecuteTimeout: 5 * time.Second,
+		Graph: client, Reader: nil, DeniedGroups: []string{"SG-IT-Admins", "APP-Helpdesk-Agents"},
 	}, mfaClearTool([]string{itApprover}, 30*time.Minute))
 	id := g.AddUser(map[string]any{"mailNickname": "eva.peters", "employeeType": graph.ManagedMarker})
 	g.SetAuthenticators(id, "auth-1")
@@ -323,7 +323,7 @@ func (h *mfaHarness) approve() (queries.Approval, int) {
 	h.t.Helper()
 	resp, ticket := h.request()
 	id := h.store.All()[len(h.store.All())-1].ApprovalID.UUID
-	d, err := h.d.sys.Recorder.Decide(h.t.Context(), id, itApprover, true)
+	d, err := h.d.sys.Recorder.Decide(h.t.Context(), id, audit.Decider{SlackID: itApprover}, true)
 	if err != nil || !d.Moved {
 		h.t.Fatalf("approve %v = %+v, %v (request %+v)", id, d, err, resp)
 	}
@@ -396,7 +396,7 @@ func TestMFAClearDeletesTheDefaultLast(t *testing.T) {
 // written, the approval ends failed, and nothing is tried again.
 func TestMFAClearExecuteTimeoutMidClear(t *testing.T) {
 	h := newMFAHarness(t)
-	h.d.sys.MFA.ExecuteTimeout = 300 * time.Millisecond
+	h.d.cfg.ExecuteTimeout = 300 * time.Millisecond
 	a, ticket := h.approve()
 	h.graph.Intercept = func(r *http.Request) (graphtest.Fault, bool) {
 		if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "microsoftAuthenticatorMethods") {
@@ -566,14 +566,14 @@ func TestMFAClearRechecksTheAccount(t *testing.T) {
 // covers: spec 0012 AC-2. The handler never runs from a tools/call, and a
 // tools/list without the option holds no mfa_clear.
 func TestMFAClearOnlyRunsFromExecute(t *testing.T) {
-	reg, err := NewRegistry()
+	reg, err := NewRegistry(8 * time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := reg.Lookup(ToolMFAClear); ok {
 		t.Error("mfa_clear registered without WithMFAClear")
 	}
-	reg, err = NewRegistry(WithMFAClear([]string{itApprover}, 30*time.Minute))
+	reg, err = NewRegistry(8*time.Hour, WithMFAClear([]string{itApprover}, 30*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -671,7 +671,7 @@ func TestMFACloseGuard(t *testing.T) {
 		t.Errorf("note = %+v", r)
 	}
 
-	d, err := h.d.sys.Recorder.Decide(t.Context(), id, itApprover, true)
+	d, err := h.d.sys.Recorder.Decide(t.Context(), id, audit.Decider{SlackID: itApprover}, true)
 	if err != nil || !d.Moved {
 		t.Fatalf("approve = %+v, %v", d, err)
 	}
@@ -688,7 +688,7 @@ func TestMFACloseGuard(t *testing.T) {
 func TestMFACloseGuardEndsWithTheApproval(t *testing.T) {
 	h := newMFAHarness(t)
 	_, ticket := h.request()
-	if _, err := h.d.sys.Recorder.Decide(t.Context(), h.store.All()[len(h.store.All())-1].ApprovalID.UUID, itApprover, false); err != nil {
+	if _, err := h.d.sys.Recorder.Decide(t.Context(), h.store.All()[len(h.store.All())-1].ApprovalID.UUID, audit.Decider{SlackID: itApprover}, false); err != nil {
 		t.Fatal(err)
 	}
 	if r := h.call(ToolTicketUpdate, `{"state":"closed"}`, withTicket(eva(), ticket)); r.IsError {
@@ -719,12 +719,12 @@ func TestMFAClearApproversAreASnapshot(t *testing.T) {
 	tool := mfaClearTool(configured, 30*time.Minute)
 	configured[0] = "U0CHANGED1"
 
-	first, err := tool.Approval(t.Context(), audit.Call{}, time.Now())
+	first, err := tool.Approval(t.Context(), audit.Call{}, Prechecked{}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	first.Approvers[0] = "U0CHANGED2"
-	second, err := tool.Approval(t.Context(), audit.Call{}, time.Now())
+	second, err := tool.Approval(t.Context(), audit.Call{}, Prechecked{}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

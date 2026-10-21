@@ -243,14 +243,14 @@ func TestPasswordResetLinkStoreFails(t *testing.T) {
 // covers: spec 0011 AC-17. The tool is listed only when registered, and the
 // dispatcher refuses it without a store.
 func TestPasswordResetLinkRegistration(t *testing.T) {
-	plain, err := NewRegistry()
+	plain, err := NewRegistry(8 * time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := plain.Lookup(ToolPasswordResetLink); ok {
 		t.Error("password_reset_link is registered without WithPasswordReset")
 	}
-	withReset, err := NewRegistry(WithPasswordReset())
+	withReset, err := NewRegistry(8*time.Hour, WithPasswordReset())
 	if err != nil {
 		t.Fatal(err)
 	}

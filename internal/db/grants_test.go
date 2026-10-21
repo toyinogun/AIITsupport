@@ -77,7 +77,7 @@ type access struct {
 }
 
 // grants is the spec 0003 Security model (plus spec 0011's reset_links and
-// spec 0012's approval_cards),
+// spec 0012's approval_cards; spec 0013's column grants are columnGrants),
 // cell by cell. Missing means none.
 var grants = map[string]map[string]access{
 	dbtest.RoleAgent: {
@@ -147,6 +147,38 @@ func TestEachRoleReachesOnlyItsGrantedTables(t *testing.T) {
 				case !c.allowed && !denied:
 					t.Errorf("%s %s %s: want permission denied (42501), got %v", role, c.op, table, err)
 				}
+			}
+		}
+	}
+}
+
+// columnGrants are the column UPDATE grants spec 0013 added (migration
+// 00006): who may move a column, and that no other app role may.
+var columnGrants = []struct {
+	table, column string
+	role          string // the one app role allowed; empty for none
+}{
+	{"approvals", "decider_slack_id", dbtest.RoleToolServer},
+	{"approvals", "target", ""},
+	{"approval_cards", "slack_channel_id", dbtest.RoleAgent},
+	{"approval_cards", "approver_slack_id", dbtest.RoleAgent},
+}
+
+// covers: AC-8, AC-9 (spec 0013). The new columns' UPDATE grants, both ways.
+func TestAccessRequestColumnGrants(t *testing.T) {
+	tdb := dbtest.New(t)
+	pools := map[string]*pgxpool.Pool{
+		dbtest.RoleAgent: tdb.Agent, dbtest.RoleToolServer: tdb.ToolServer, dbtest.RoleEval: tdb.Eval,
+	}
+	for _, g := range columnGrants {
+		for _, role := range sortedKeys(pools) {
+			sql := fmt.Sprintf("UPDATE %s SET %s = %[2]s WHERE false", g.table, g.column)
+			_, err := pools[role].Exec(t.Context(), sql)
+			switch denied := pgCode(err) == insufficientPrivilege; {
+			case role == g.role && err != nil:
+				t.Errorf("%s update %s.%s: want allowed, got %v", role, g.table, g.column, err)
+			case role != g.role && !denied:
+				t.Errorf("%s update %s.%s: want permission denied (42501), got %v", role, g.table, g.column, err)
 			}
 		}
 	}

@@ -58,7 +58,7 @@ func startWith(t *testing.T, newLogger func(io.Writer) *slog.Logger) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := tools.NewRegistry()
+	reg, err := tools.NewRegistry(8 * time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,9 @@ func startWith(t *testing.T, newLogger func(io.Writer) *slog.Logger) *env {
 		BaseDN: toolstest.Base, UserOUs: []string{"OU=Users,OU=Noord"}, GroupOUs: []string{"OU=Groups,OU=Noord"},
 		CallTimeout: 5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour, TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
 		PrivilegedWindow: 24 * time.Hour,
+		ExecuteTimeout:   5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
 	}, tools.Systems{
-		Directory: e.dir, Writer: e.dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", ""),
+		Directory: e.dir, Groups: e.dir, Reader: e.dir, Writer: e.dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", ""),
 		Recorder: rec, KillSwitch: tools.NewKillSwitch("", false),
 	}, logger)
 	if err != nil {
@@ -256,7 +257,7 @@ func TestListTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	reg, _ := tools.NewRegistry()
+	reg, _ := tools.NewRegistry(8 * time.Hour)
 	var names []string
 	for _, tool := range list {
 		names = append(names, tool.Name)
@@ -267,7 +268,10 @@ func TestListTools(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"account_unlock", "escalate", "privileged_access_change", "ticket_create", "ticket_update", "user_lookup"}
+	want := []string{
+		"account_unlock", "escalate", "group_access_request", "group_search", "privileged_access_change",
+		"ticket_create", "ticket_update", "user_lookup",
+	}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}

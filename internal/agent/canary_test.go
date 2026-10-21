@@ -201,3 +201,46 @@ func TestCanaryMFAApproval(t *testing.T) {
 		}
 	}
 }
+
+// covers: spec 0013 AC-21. The access flow on the agent side (the request,
+// the owner's DM card, the owner's click, the granted settle, a deny closed
+// by code, and an owner not in Slack cancelled and escalated), logged
+// through logging.New and exported through NewRedactingExporter: no log line
+// or span holds a group name, the reason, an email, an account, a Slack id,
+// or the message text. The reason may reach the model, because the user
+// typed it in the conversation.
+func TestCanaryAccessRequest(t *testing.T) {
+	const text = "ik heb toegang nodig tot finance"
+	hunt, err := canary.Seed(filepath.Join("..", "..", "seed", "directory", "noord.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hunt.AnyCase(janSlack)
+	hunt.AnyCase(ilseSlack)
+	hunt.Word(fakeDepartment)
+	for _, s := range []string{text, accessAnswer, "I book invoices", "SG-Finance", "APP-ERP-Finance", "SHR-Finance-RW"} {
+		hunt.Text(s)
+	}
+	sinks := traceSinks()
+	sinks.exported.Reset()
+
+	granted := accessRequested(t, nil, withProductionLogger())
+	granted.appr.Decisions[approvalID] = mcpclient.DecisionResponse{Moved: true, Approval: accessView(mcpclient.StatusExecuted)}
+	granted.ownerClick(ilseSlack, true)
+	denied := accessRequested(t, nil, withProductionLogger())
+	denied.appr.Decisions[approvalID] = mcpclient.DecisionResponse{Moved: true, Approval: accessView(mcpclient.StatusDenied)}
+	denied.ownerClick(ilseSlack, false)
+	unreachable := accessRequested(t, func(h *harness) { h.users.Set(ilseSlack, agenttest.Staff("someone.else@noord.example")) },
+		withProductionLogger())
+
+	logs := granted.logs.String() + denied.logs.String() + unreachable.logs.String()
+	for _, want := range []string{`"msg":"approval_card_posted"`, `"outcome":"executed"`, `"outcome":"denied"`, `"msg":"approval_cancelled"`} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("the flows did not run as scripted: no %s in\n%s", want, logs)
+		}
+	}
+	values := append(canary.LogValues([]byte(logs)), canary.SpanValues(sinks.exported.GetSpans())...)
+	if leaks := hunt.Leaks(values); len(leaks) > 0 {
+		t.Errorf("logs or spans hold personal data, a group, or the reason:\n%s\nlogs:\n%s", strings.Join(leaks, "\n"), logs)
+	}
+}

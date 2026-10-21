@@ -140,6 +140,9 @@ func toolConfig(cfg config.ToolServer) tools.Config {
 		TicketCreateLimit: cfg.TicketCreateLimit,
 		TicketMaxPending:  cfg.TicketMaxPending,
 		PrivilegedWindow:  cfg.PrivilegedWindow,
+		ExecuteTimeout:    cfg.ApprovalExecuteTimeout,
+		ExecuteGrace:      cfg.ApprovalExecuteGrace,
+		AccessMaxPending:  cfg.AccessMaxPending,
 	}
 }
 
@@ -178,6 +181,8 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 	killSwitch := tools.NewKillSwitch(cfg.KillSwitchFile, cfg.ReadOnly)
 	sys := tools.Systems{
 		Directory:  reader,
+		Groups:     reader,
+		Reader:     reader,
 		Writer:     ldap.NewWriter(dir),
 		Helpdesk:   helpdesk,
 		Recorder:   recorder,
@@ -199,11 +204,9 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 			return layer{}, err
 		}
 		opts = append(opts, tools.WithMFAClear(cfg.SlackITApprovers, cfg.ApprovalTimeout))
-		sys.MFA = &tools.MFASystem{
-			Graph: g, Reader: reader, DeniedGroups: cfg.MFADeniedGroups, ExecuteTimeout: cfg.ApprovalExecuteTimeout,
-		}
+		sys.MFA = &tools.MFASystem{Graph: g, Reader: reader, DeniedGroups: cfg.MFADeniedGroups}
 	}
-	reg, err := tools.NewRegistry(opts...)
+	reg, err := tools.NewRegistry(cfg.AccessApprovalTimeout, opts...)
 	if err != nil {
 		return layer{}, err
 	}
@@ -218,8 +221,7 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 		return layer{}, err
 	}
 	approvals, err := approvalapi.Handler(d, recorder, approvalapi.Options{
-		Token: cfg.ToolServerToken, MaxRequestBytes: int64(cfg.MaxRequestBytes),
-		ExecuteGrace: cfg.ApprovalExecuteGrace, Logger: logger,
+		Token: cfg.ToolServerToken, MaxRequestBytes: int64(cfg.MaxRequestBytes), Logger: logger,
 	})
 	if err != nil || !cfg.ResetEnabled() {
 		return layer{mcp: mcp, approvals: approvals}, err

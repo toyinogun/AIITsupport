@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
 )
@@ -111,8 +112,28 @@ func (f *fakeStore) ThreadHasOutcome(context.Context, queries.ThreadHasOutcomePa
 	return false, errNotUsed
 }
 
-func (f *fakeStore) ThreadHasOpenApproval(context.Context, queries.ThreadHasOpenApprovalParams) (bool, error) {
+func (f *fakeStore) ThreadOpenApprovalTool(context.Context, queries.ThreadOpenApprovalToolParams) (string, error) {
+	return "", errNotUsed
+}
+
+func (f *fakeStore) CountPendingApprovals(context.Context, queries.CountPendingApprovalsParams) (int64, error) {
+	return 0, errNotUsed
+}
+
+func (f *fakeStore) ThreadPendingTarget(context.Context, queries.ThreadPendingTargetParams) (pgtype.Text, error) {
+	return pgtype.Text{}, errNotUsed
+}
+
+func (f *fakeStore) CancelApproval(context.Context, uuid.UUID) (queries.Approval, error) {
+	return queries.Approval{}, errNotUsed
+}
+
+func (f *fakeStore) CancelReasonForApproval(context.Context, uuid.NullUUID) (bool, error) {
 	return false, errNotUsed
+}
+
+func (f *fakeStore) CountRecentReasons(context.Context, queries.CountRecentReasonsParams) (int64, error) {
+	return 0, errNotUsed
 }
 
 func (f *fakeStore) ThreadTicketID(context.Context, queries.ThreadTicketIDParams) (int64, error) {
@@ -321,12 +342,13 @@ func TestEncodeKeptStoresOnlyAllowedKeys(t *testing.T) {
 	}
 }
 
-// covers: AC-7 (spec 0003)
+// covers: AC-7 (spec 0003), spec 0013 AC-2. A read call stores no result
+// unless it lists keys to keep, and then only those (group_search's count).
 func TestReadTierStoresNoResult(t *testing.T) {
 	store := &fakeStore{}
 	r, _ := newTestRecorder(t, store)
 	c := unlockCall()
-	c.Tool, c.Tier, c.StoreResult = "user_lookup", TierRead, []string{"display_name"}
+	c.Tool, c.Tier, c.StoreResult = "user_lookup", TierRead, nil
 
 	_, err := r.Run(t.Context(), c, okAction(Result{Data: map[string]any{"display_name": "Jan de Vries"}}))
 	if err != nil {
@@ -334,6 +356,15 @@ func TestReadTierStoresNoResult(t *testing.T) {
 	}
 	if store.outcomes[0].Result != nil {
 		t.Errorf("a read call stored a result: %s", store.outcomes[0].Result)
+	}
+
+	c.Tool, c.StoreResult = "group_search", []string{"count"}
+	_, err = r.Run(t.Context(), c, okAction(Result{Data: map[string]any{"count": 2, "groups": []string{"SG-Finance"}}}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := string(store.outcomes[1].Result); got != `{"_omitted":1,"count":2}` {
+		t.Errorf("group_search stored %s, want only the count", got)
 	}
 }
 
@@ -515,7 +546,7 @@ func TestDeferRejectsAnIncompleteRequest(t *testing.T) {
 			r, _ := newTestRecorder(t, store)
 			var err error
 			if name == "no clicker" {
-				_, err = r.Decide(t.Context(), uuid.New(), "", true)
+				_, err = r.Decide(t.Context(), uuid.New(), Decider{SlackID: ""}, true)
 			} else {
 				c := unlockCall()
 				if tc.mutate != nil {

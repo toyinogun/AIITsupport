@@ -112,7 +112,9 @@ func (p *fakePoster) ReplyNoUnfurl(ctx context.Context, channel, thread, text st
 	return p.Reply(ctx, channel, thread, text)
 }
 
-func (p *fakePoster) PostCard(context.Context, string, agent.Card) (string, error) { return "", nil }
+func (p *fakePoster) PostCard(context.Context, string, agent.Card) (string, string, error) {
+	return "", "", nil
+}
 
 func (p *fakePoster) UpdateCard(context.Context, string, string, agent.Card) error { return nil }
 
@@ -552,7 +554,10 @@ func TestApprovalClicks(t *testing.T) {
 // actions block named for the approval, with a confirm on Approve; the
 // outcome card has no buttons.
 func TestCardBlocks(t *testing.T) {
-	card := agent.Card{Fallback: "MFA reset request for <@U1>", Lines: []string{"MFA reset request", "Requester: <@U1> (jan)"}, ApprovalID: "abc"}
+	card := agent.Card{
+		Fallback: "MFA reset request for <@U1>", Lines: []string{"MFA reset request", "Requester: <@U1> (jan)"},
+		ApprovalID: "abc", Confirm: "Clear this person's MFA methods?",
+	}
 	blocks := cardBlocks(card)
 	if len(blocks) != 2 {
 		t.Fatalf("blocks = %d", len(blocks))

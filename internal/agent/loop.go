@@ -202,7 +202,7 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 		return &failure{reason: ReasonStoreUnavailable, cause: cause(err), unknown: !answered}
 	}
 	if cardCreated {
-		t.a.postCard(t.ctx, card.ApprovalID, requestCard(factsFromResult(t.conv, res.Data, card.ExpiresAt), stringOf(res.Data["methods"]), card.ApprovalID))
+		t.a.postFirstCard(t.ctx, t.conv, *card, res.Data)
 	}
 	if change != nil {
 		if change.TicketID != 0 {

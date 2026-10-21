@@ -4,8 +4,9 @@
 -- name: InsertApprovalCard :execrows
 -- InsertApprovalCard returns 1 exactly when this caller created the row and
 -- so owes the first post.
+-- A group owner card has no channel until its first DM post (spec 0013).
 INSERT INTO approval_cards (approval_id, conversation_id, tool_name, slack_channel_id, expires_at)
-VALUES (@approval_id, @conversation_id, @tool_name, @slack_channel_id, @expires_at)
+VALUES (@approval_id, @conversation_id, @tool_name, sqlc.narg(slack_channel_id), @expires_at)
 ON CONFLICT (approval_id) DO NOTHING;
 
 -- name: AdoptApprovalCard :execrows
@@ -13,7 +14,7 @@ ON CONFLICT (approval_id) DO NOTHING;
 -- agent its card row (spec 0012, AC-14), when its thread is a known
 -- conversation. Zero rows: the row exists already, or the thread is unknown.
 INSERT INTO approval_cards (approval_id, conversation_id, tool_name, slack_channel_id, expires_at)
-SELECT @approval_id, c.id, @tool_name, @card_channel_id, @expires_at
+SELECT @approval_id, c.id, @tool_name, sqlc.narg(card_channel_id), @expires_at
 FROM conversations AS c
 WHERE c.slack_channel_id = @thread_channel_id AND c.slack_thread_ts = @thread_ts
 ON CONFLICT (approval_id) DO NOTHING;
@@ -28,8 +29,14 @@ WHERE approval_id = @approval_id AND card_ts IS NULL AND settled_at IS NULL
   AND post_attempts < @max_attempts::int
   AND (last_post_at IS NULL OR last_post_at < now() - make_interval(secs => @spacing_seconds::float8));
 
--- name: SetApprovalCardTS :execrows
-UPDATE approval_cards SET card_ts = @card_ts::text
+-- name: SetApprovalCardPosted :execrows
+-- SetApprovalCardPosted stores the first successful post: its ts and, for a
+-- group owner card, the DM channel and the owner's Slack id (spec 0013,
+-- AC-10). A value already set is kept.
+UPDATE approval_cards
+SET card_ts = @card_ts::text,
+    slack_channel_id = coalesce(slack_channel_id, @slack_channel_id::text),
+    approver_slack_id = coalesce(approver_slack_id, sqlc.narg(approver_slack_id)::text)
 WHERE approval_id = @approval_id AND card_ts IS NULL;
 
 -- name: GetApprovalCard :one

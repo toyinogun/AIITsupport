@@ -21,10 +21,12 @@ const (
 	maxCardPosts = 3
 )
 
-// pendingCard is the card row an mfa_clear pending_approval result owes
-// (AC-6), or nil. A result that does not parse owes none here.
+// pendingCard is the card row a pending_approval result of mfa_clear or
+// group_access_request owes (spec 0012 AC-6, spec 0013 AC-9), or nil. A
+// result that does not parse owes none here. A group owner card has no
+// channel until its first DM post.
 func (a *Agent) pendingCard(tool string, r mcpclient.Result) *ApprovalCard {
-	if tool != toolMFAClear || r.IsError || r.Code != codePendingApproval {
+	if (tool != toolMFAClear && tool != toolGroupAccessRequest) || r.IsError || r.Code != codePendingApproval {
 		return nil
 	}
 	idText, _ := r.Data["approval_id"].(string)
@@ -37,7 +39,23 @@ func (a *Agent) pendingCard(tool string, r mcpclient.Result) *ApprovalCard {
 	if err != nil {
 		return nil
 	}
-	return &ApprovalCard{ApprovalID: id, ToolName: tool, ChannelID: a.cfg.ITChannel, ExpiresAt: expires}
+	card := &ApprovalCard{ApprovalID: id, ToolName: tool, ExpiresAt: expires}
+	if tool == toolMFAClear {
+		card.ChannelID = a.cfg.ITChannel
+	}
+	return card
+}
+
+// postFirstCard posts the card a new pending result owes (spec 0012 AC-7,
+// spec 0013 AC-10): to the IT channel for an IT approval, as a DM to the
+// group owner for an access request.
+func (a *Agent) postFirstCard(parent context.Context, conv Conversation, card ApprovalCard, data map[string]any) {
+	card.ConversationID = conv.ID // the row's, so a cancel can settle on this thread
+	if card.ToolName == toolGroupAccessRequest {
+		a.postOwnerCard(parent, card)
+		return
+	}
+	a.postCard(parent, card.ApprovalID, requestCard(factsFromResult(conv, data, card.ExpiresAt), stringOf(data["methods"]), card.ApprovalID))
 }
 
 // cardFacts are the values every form of the card shows (AC-7).
@@ -91,6 +109,7 @@ func requestCard(f cardFacts, methods string, id uuid.UUID) Card {
 		Fallback:   f.fallback(),
 		Lines:      []string{cardHeader, f.requester(), f.ticket(), methodsLine, f.expiry(), cardConfirm},
 		ApprovalID: id.String(),
+		Confirm:    cardConfirmMFA,
 	}
 }
 
@@ -155,7 +174,7 @@ func (a *Agent) postCard(parent context.Context, id uuid.UUID, card Card) {
 		return
 	}
 	pctx, pcancel := a.detached(parent, a.cfg.PostTimeout)
-	ts, err := a.deps.Poster.PostCard(pctx, a.cfg.ITChannel, card)
+	channel, ts, err := a.deps.Poster.PostCard(pctx, a.cfg.ITChannel, card)
 	pcancel()
 	if err != nil {
 		a.deps.Logger.Warn("approval_card_post_failed", "approval_id", id.String(), "cause", cause(err))
@@ -163,7 +182,7 @@ func (a *Agent) postCard(parent context.Context, id uuid.UUID, card Card) {
 	}
 	sctx, scancel := a.detached(parent, a.cfg.ToolTimeout)
 	defer scancel()
-	if err := a.deps.Store.SetCardTS(sctx, id, ts); err != nil {
+	if err := a.deps.Store.SetCardPosted(sctx, id, ts, channel, ""); err != nil {
 		a.deps.Logger.Warn("approval_card_post_failed", "approval_id", id.String(), "cause", cause(err))
 		return
 	}
@@ -195,8 +214,16 @@ func (a *Agent) click(c Click) {
 		a.ephemeral(c, TextApprovalUnavailable)
 		return
 	}
+	var email string
+	if card.ToolName == toolGroupAccessRequest {
+		var refusal string
+		if email, refusal = a.ownerClick(c, card); refusal != "" {
+			a.ephemeral(c, refusal)
+			return
+		}
+	}
 	dctx, dcancel := context.WithTimeout(a.workCtx, a.cfg.ApprovalDecideTimeout)
-	res, err := a.deps.Approvals.Decide(dctx, c.ApprovalID, c.UserID, c.Approve)
+	res, err := a.deps.Approvals.Decide(dctx, c.ApprovalID, c.UserID, email, c.Approve)
 	dcancel()
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
@@ -285,13 +312,54 @@ var settleEscalations = map[string]string{
 	mcpclient.StatusFailed:  escalateApprovalFailed,
 }
 
-// settle announces one ended approval once (AC-15 to AC-17). A denied,
-// expired, or failed approval escalates first, at least once; then, in one
+// settlePolicy is one tool's row of the settle table (spec 0013, AC-15):
+// the user's fixed text, the escalation an ending owes, the code close a
+// deny owes, and the card's outcome form.
+type settlePolicy struct {
+	// text is the user's one fixed text; ok is false while not ended.
+	text func(v mcpclient.ApprovalView) (text string, ok bool)
+	// escalation is the code only reason and fixed summary owed, if any.
+	escalation func(v mcpclient.ApprovalView) (reason, summary string, owes bool)
+	// headline is the IT post's headline for a reason, "" for the default.
+	headline func(reason string) string
+	// closeNote is the note of a code ticket close owed, "" for none.
+	closeNote   func(v mcpclient.ApprovalView) string
+	title       string // the escalation ticket's title when one is opened
+	endedText   string // the user's text when no escalation could be made
+	outcomeCard func(v mcpclient.ApprovalView) Card
+}
+
+// mfaSettle is mfa_clear's row (spec 0012, AC-15 to AC-17).
+var mfaSettle = settlePolicy{
+	text: settleText,
+	escalation: func(v mcpclient.ApprovalView) (string, string, bool) {
+		reason, owes := settleReason(v)
+		return reason, settleSummary(v), owes
+	},
+	headline:    func(string) string { return "" },
+	closeNote:   func(mcpclient.ApprovalView) string { return "" },
+	title:       MFAEscalationTitle,
+	endedText:   TextMFAEndedContactIT,
+	outcomeCard: outcomeCard,
+}
+
+// settlePolicyFor is the settle table, keyed by the card's tool.
+func settlePolicyFor(tool string) settlePolicy {
+	if tool == toolGroupAccessRequest {
+		return accessSettle
+	}
+	return mfaSettle
+}
+
+// settle announces one ended approval once (spec 0012 AC-15 to AC-17, spec
+// 0013 AC-15). An ending that owes an escalation escalates first, at least
+// once, and a denied access request closes its ticket by code; then, in one
 // transaction, the card row and the conversation settle; only after that
 // commit do the card update, the user's fixed text, and the IT post go out,
 // at most once each.
 func (a *Agent) settle(ctx context.Context, card ApprovalCard, conv Conversation, v mcpclient.ApprovalView) {
-	userText, ok := settleText(v)
+	p := settlePolicyFor(card.ToolName)
+	userText, ok := p.text(v)
 	if !ok {
 		return // not ended yet
 	}
@@ -302,17 +370,19 @@ func (a *Agent) settle(ctx context.Context, card ApprovalCard, conv Conversation
 		account    string
 		notMatched bool
 	)
-	if reason, owes := settleReason(v); owes {
+	if reason, summary, owes := p.escalation(v); owes {
 		status = StatusEscalated
 		r, acct, _, matched := a.reidentify(ctx, conv)
 		switch {
 		case !matched && !a.pastSettleLimit(v):
 			return // tried again on a later tick
 		case !matched:
-			notMatched, userText = true, TextMFAEndedContactIT
+			notMatched, userText = true, p.endedText
 		default:
 			account = acct
-			esc = codeEscalation{reason: reason, title: MFAEscalationTitle, summary: settleSummary(v), itSummary: slackEscape(settleSummary(v))}
+			esc = codeEscalation{
+				reason: reason, title: p.title, summary: summary, itSummary: slackEscape(summary), headline: p.headline(reason),
+			}
 			o := a.escalateByCode(ctx, r, esc)
 			a.logEscalated(ctx, "", Reason(reason), o.exists(), o.cause)
 			if !o.exists() {
@@ -320,6 +390,8 @@ func (a *Agent) settle(ctx context.Context, card ApprovalCard, conv Conversation
 			}
 			escalated = &o
 		}
+	} else if note := p.closeNote(v); note != "" {
+		a.closeByCode(ctx, conv, note)
 	}
 	sctx, cancel := a.detached(ctx, a.cfg.ToolTimeout)
 	won, err := a.deps.Store.SettleCard(sctx, card.ApprovalID, v.Status, status)
@@ -414,7 +486,7 @@ func (a *Agent) updateCard(parent context.Context, card ApprovalCard, v mcpclien
 	}
 	ctx, cancel := a.detached(parent, a.cfg.PostTimeout)
 	defer cancel()
-	if err := a.deps.Poster.UpdateCard(ctx, card.ChannelID, card.CardTS, outcomeCard(v)); err != nil {
+	if err := a.deps.Poster.UpdateCard(ctx, card.ChannelID, card.CardTS, settlePolicyFor(card.ToolName).outcomeCard(v)); err != nil {
 		a.deps.Logger.Warn("approval_card_update_failed", "approval_id", card.ApprovalID.String(), "cause", cause(err))
 	}
 }

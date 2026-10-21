@@ -16,6 +16,10 @@ import (
 	"syscall"
 	"time"
 
+	// The group owner's card shows its expiry in Europe/Amsterdam (spec 0013,
+	// AC-12), so the zone database goes into the binary for a bare container.
+	_ "time/tzdata"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
@@ -148,6 +152,7 @@ func runSlack(ctx context.Context, cfg config.Agent, m agentModel, pool *pgxpool
 		ApprovalDecideTimeout: cfg.ApprovalDecideTimeout,
 		ApprovalPollInterval:  cfg.ApprovalPollInterval,
 		ApprovalTimeout:       cfg.ApprovalTimeout,
+		AccessApprovalTimeout: cfg.AccessApprovalTimeout,
 	}, agent.Deps{
 		Slack: listener.Users, Poster: listener.Poster, Tools: m.client,
 		Model: m.model, Store: agent.NewStore(pool), Approvals: m.approvals, Logger: logger,

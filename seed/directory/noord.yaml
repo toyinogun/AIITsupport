@@ -115,48 +115,61 @@ admins:
   - {username: adm.ruben.mulder, person: ruben.mulder}
 
 groups:
+  # departments tags a group the access request may offer (spec 0013): only
+  # people in a listed department see it. Untagged groups are never offered.
   # Department security groups. Three of them all mean "finance".
+  # noor.elamrani (Finance) is in no finance group: she joined after they
+  # were set up, so the access request demo has someone to add.
   - name: SG-Finance
     kind: department
+    departments: [Finance]
     owner: ilse.smit
     description: Finance department
-    members: [ilse.smit, jan.devries2, marloes.vanleeuwen, bas.kramer, noor.elamrani, wouter.hoekstra, thomas.meijer]
+    members: [ilse.smit, jan.devries2, marloes.vanleeuwen, bas.kramer, wouter.hoekstra, thomas.meijer]
   - name: Finance_Users
     kind: department
+    departments: [Finance]
     owner: null
     description: Finance (old)
     members: [ilse.smit, bas.kramer, marloes.vanleeuwen, thomas.meijer, floor.dewit]
   - name: fin-readonly
     kind: department
+    departments: [Finance]
     owner: null
     members: [annemiek.bakker, pieter.vandam, bas.kramer, daan.bos, mark.dekker]
   - name: SG-Sales
     kind: department
+    departments: [Sales]
     owner: daan.bos
     description: Sales department
     members: [daan.bos, eva.peters, milan.vanderberg, sophie.koster, lars.brouwer, fleur.dijkstra, mark.dekker, lotte.hendriks]
   - name: SG-CustomerService
     kind: department
+    departments: [Customer Service]
     owner: esther.vermeulen
     description: Customer Service department
     members: [esther.vermeulen, sanne.jansen, rick.vandenbroek, yara.schouten, tim.vos, iris.molenaar, jeroen.prins]
   - name: SG-HR
     kind: department
+    departments: [HR]
     owner: monique.vandijk
     description: HR department
     members: [monique.vandijk, kim.verhoeven, anouk.kok]
   - name: SG-Management
     kind: department
+    departments: [Management]
     owner: annemiek.bakker
     description: Management team
     members: [annemiek.bakker, pieter.vandam, floor.dewit, linda.bosman, ilse.smit, monique.vandijk, esther.vermeulen, hans.groen, kees.visser, ruben.mulder]
   - name: SG-Warehouse
     kind: department
+    departments: [Warehouse]
     owner: hans.groen
     description: Warehouse staff
     members: [hans.groen, erik.dejong, martijn.huisman, sandra.veenstra, sanne.janssen, kevin.smits, dennis.post, mohamed.bouzid, piotr.nowak, marta.kowalska, tomasz.wisniewski, bram.vandenberg, stefan.wouters, nina.hermans, youssef.elhadi, gerrit.mol, robin.kuipers, ahmet.yilmaz, jasper.vink, olga.petrenko, niels.vandermeer, tamara.bosch, mehmet.demir, rob.zwart, ferry.lammers, lisa.vanbeek, andrzej.zielinski, joris.timmer, patrick.claassen]
   - name: SG-Transport
     kind: department
+    departments: [Transport]
     owner: kees.visser
     description: Transport planners and drivers
     members: [kees.visser, nicole.bergsma, frank.vandersluis, jan.devries, henk.bakker, johan.veenstra, ronald.meijer, marco.vanes, willem.vos, arjen.hofman, tomas.novak, bogdan.ionescu, sjoerd.terpstra, gerard.koning, peter.vandijk, mike.vandeven, karim.benali, ricardo.silva, dirk.scholten, rutger.smeets, alex.dobrev, vincent.bijl, harm.wijnands, erwin.kok, lucas.dekker, ad.vanloon]
@@ -164,21 +177,25 @@ groups:
   # App access groups
   - name: APP-ERP-Finance
     kind: app
+    departments: [Finance, Management]
     owner: ilse.smit
     description: Finance ERP access
     members: [SG-Finance, annemiek.bakker]
   - name: APP-TMS-Users
     kind: app
+    departments: [Transport]
     owner: kees.visser
     description: Transport management system
     members: [SG-Transport, esther.vermeulen, tim.vos, jeroen.prins]
   - name: APP-WMS-Users
     kind: app
+    departments: [Warehouse]
     owner: hans.groen
     description: Warehouse management system
     members: [SG-Warehouse]
   - name: APP-CRM-Users
     kind: app
+    departments: [Sales, Customer Service]
     owner: daan.bos
     description: CRM access
     members: [SG-Sales, SG-CustomerService]
@@ -191,21 +208,25 @@ groups:
   # Shared drive groups, read and read/write pairs
   - name: SHR-Finance-R
     kind: share
+    departments: [Finance, Management]
     owner: ilse.smit
     description: Finance share, read
     members: [SG-Management]
   - name: SHR-Finance-RW
     kind: share
+    departments: [Finance]
     owner: thomas.meijer
     description: Finance share, read and write
     members: [SG-Finance]
   - name: SHR-Operations-R
     kind: share
+    departments: [Warehouse, Transport, Management]
     owner: null
     description: Operations share, read
     members: [SG-Warehouse, SG-Transport]
   - name: SHR-Operations-RW
     kind: share
+    departments: [Warehouse, Transport]
     owner: pieter.vandam
     description: Operations share, read and write
     members: [hans.groen, kees.visser, nicole.bergsma, frank.vandersluis, erik.dejong]

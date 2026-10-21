@@ -44,8 +44,8 @@ func TestTickAdoptsAndPostsTheCard(t *testing.T) {
 	if h.appr.Expires() != 1 {
 		t.Errorf("expire calls = %d", h.appr.Expires())
 	}
-	if s := h.appr.SinceCalls(); len(s) != 1 || !s[0].Equal(now.Add(-90*time.Minute)) {
-		t.Errorf("since = %v, want now minus APPROVAL_TIMEOUT and an hour", s)
+	if s := h.appr.SinceCalls(); len(s) != 1 || !s[0].Equal(now.Add(-9*time.Hour)) {
+		t.Errorf("since = %v, want now minus ACCESS_APPROVAL_TIMEOUT (the longer one) and an hour", s)
 	}
 	cards := h.store.Cards()
 	if len(cards) != 1 || cards[0].ApprovalID != approvalID || cards[0].ConversationID != h.conv().ID ||
@@ -233,12 +233,22 @@ func TestRunTicksAtStart(t *testing.T) {
 	}
 }
 
-// covers: spec 0012 AC-14, AC-21 (amended). The adopt window is read from
-// the agent's own APPROVAL_TIMEOUT: now minus that and an hour.
+// covers: spec 0012 AC-14, AC-21 (amended), spec 0013 AC-17. The adopt
+// window is read from the agent's own settings: now minus the longer of
+// APPROVAL_TIMEOUT and ACCESS_APPROVAL_TIMEOUT, and an hour.
 func TestTickAdoptWindowFollowsTheAgentsTimeout(t *testing.T) {
-	h := newHarness(t, agenttest.NewModel(), withConfig(func(c *agent.Config) { c.ApprovalTimeout = 2 * time.Hour }))
-	h.a.Tick()
-	if s := h.appr.SinceCalls(); len(s) != 1 || !s[0].Equal(now.Add(-3*time.Hour)) {
-		t.Errorf("since = %v, want now minus 2h and an hour", s)
+	for _, tc := range []struct {
+		approval, access, want time.Duration
+	}{
+		{2 * time.Hour, time.Hour, 3 * time.Hour},
+		{30 * time.Minute, 10 * time.Hour, 11 * time.Hour},
+	} {
+		h := newHarness(t, agenttest.NewModel(), withConfig(func(c *agent.Config) {
+			c.ApprovalTimeout, c.AccessApprovalTimeout = tc.approval, tc.access
+		}))
+		h.a.Tick()
+		if s := h.appr.SinceCalls(); len(s) != 1 || !s[0].Equal(now.Add(-tc.want)) {
+			t.Errorf("approval %v, access %v: since = %v, want now minus %v", tc.approval, tc.access, s, tc.want)
+		}
 	}
 }

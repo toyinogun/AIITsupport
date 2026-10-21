@@ -43,6 +43,13 @@ const (
 	CodeNothingToClear  Code = "nothing_to_clear"
 	CodeOtherMethods    Code = "other_methods"
 	CodeApprovalPending Code = "approval_pending"
+	// Spec 0013.
+	CodeAlreadyMember    Code = "already_member"
+	CodeNoOwner          Code = "no_owner"
+	CodeOwnerIsRequester Code = "owner_is_requester"
+	CodeNotRequestable   Code = "not_requestable"
+	CodeTooManyPending   Code = "too_many_pending"
+	CodeOnePerThread     Code = "one_per_thread"
 )
 
 // Reasons stored in audit_log.error. Fixed text only, never request data.
@@ -100,6 +107,26 @@ const (
 	noHelpdeskAccountSentence = "This account has no helpdesk profile."
 	ambiguousSentence         = "More than one Noord account matches this Slack user's email."
 	notMatchedSentence        = "No single active Noord account matches this Slack user's email."
+
+	// Spec 0013.
+	reasonAlreadyMember         = "already a member"
+	reasonNoOwner               = "no group owner"
+	reasonOwnerIsRequester      = "owner is requester"
+	reasonNotRequestable        = "group not requestable"
+	reasonTooManyPending        = "too many pending"
+	reasonOnePerThread          = "one request per conversation"
+	reasonAccessPending         = "access request pending"
+	reasonRecheckFailed         = "recheck failed"
+	reasonAddNotConfirmed       = "add not confirmed"
+	alreadyMemberSentence       = "The requester already has this access; tell them to sign out and back in, then close the ticket."
+	noOwnerSentence             = "This group has no owner who can approve, so IT needs to handle it."
+	ownerIsRequesterSentence    = "The requester owns this group, so IT needs to confirm the change."
+	notRequestableSentence      = "This is not a group the assistant can request for this person."
+	tooManyPendingSentence      = "This person already has the maximum number of access requests waiting; they can ask again once one is decided."
+	onePerThreadSentence        = "This conversation already has an access request waiting. Ask for another group in a new conversation."
+	groupAlreadyPendingSentence = "A request for this group is already waiting for its owner in another conversation."
+	accessPendingSentence       = "This ticket is waiting on the group owner's decision; the assistant's code handles it when they decide."
+	groupPendingSentence        = "This request is waiting for the group owner's approval."
 )
 
 // refusal is one refusal table row a call can end on without failing.
@@ -133,7 +160,31 @@ var (
 	// refuseNotEligible ends an approved execution whose account no longer
 	// passes the recheck (spec 0012, AC-11); the model never sees it.
 	refuseNotEligible = refusal{CodeProtected, audit.OutcomeDeniedPolicy, reasonAccountNotEligible, protectedSentence}
+
+	// Spec 0013.
+	refuseAlreadyMember       = refusal{CodeAlreadyMember, audit.OutcomeDeniedPolicy, reasonAlreadyMember, alreadyMemberSentence}
+	refuseNoOwner             = refusal{CodeNoOwner, audit.OutcomeDeniedPolicy, reasonNoOwner, noOwnerSentence}
+	refuseOwnerIsRequester    = refusal{CodeOwnerIsRequester, audit.OutcomeDeniedPolicy, reasonOwnerIsRequester, ownerIsRequesterSentence}
+	refuseNotRequestable      = refusal{CodeNotRequestable, audit.OutcomeDeniedPolicy, reasonNotRequestable, notRequestableSentence}
+	refuseTooManyPending      = refusal{CodeTooManyPending, audit.OutcomeDeniedPolicy, reasonTooManyPending, tooManyPendingSentence}
+	refuseOnePerThread        = refusal{CodeOnePerThread, audit.OutcomeDeniedPolicy, reasonOnePerThread, onePerThreadSentence}
+	refuseGroupAlreadyPending = refusal{CodeAlreadyPending, audit.OutcomeDeniedPolicy, reasonAlreadyPending, groupAlreadyPendingSentence}
+	// refuseAccessPending is the close guard's refusal while an access
+	// request is open (spec 0013, AC-18): approval_pending with this tool's
+	// sentence, stored under its own reason so the two sentences stay apart.
+	refuseAccessPending = refusal{CodeApprovalPending, audit.OutcomeDeniedPolicy, reasonAccessPending, accessPendingSentence}
+	// refuseRecheckFailed ends an approved add whose group, owner, or
+	// requester no longer passes (spec 0013, AC-14); the model never sees it.
+	refuseRecheckFailed = refusal{CodeProtected, audit.OutcomeDeniedPolicy, reasonRecheckFailed, protectedSentence}
 )
+
+// alreadyPendingFor is the already_pending refusal in tool's words.
+func alreadyPendingFor(tool string) refusal {
+	if tool == ToolGroupAccessRequest {
+		return refuseGroupAlreadyPending
+	}
+	return refuseAlreadyPending
+}
 
 // handlerRefusals are the refusals a handler may return, found again by
 // their stored reason when the dispatcher builds the response.
@@ -145,7 +196,7 @@ func init() {
 		refuseNoTicket, refuseNotYours, refuseTicketClosed, refuseAlreadyEscalated, refuseEscalateFirst,
 		refuseAccountDisabled, refuseRateLimited,
 		refuseAlreadyPending, refuseNotInEntra, refuseNothingToClear, refuseOtherMethods, refuseNotEligible,
-		refuseApprovalPending,
+		refuseApprovalPending, refuseAccessPending,
 	} {
 		handlerRefusals[r.reason] = r
 	}

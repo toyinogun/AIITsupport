@@ -26,12 +26,16 @@ const (
 	// ReasonApprovalCancelled is a requester who denied their own request
 	// (spec 0012 AC-15, amended 2026-10-20).
 	ReasonApprovalCancelled = "approval_cancelled"
+	// ReasonNoGroupOwner is an access request no owner can decide (spec 0013,
+	// AC-19), for the model and for code. It tags the ticket escalated only.
+	ReasonNoGroupOwner = "no_group_owner"
 )
 
 var (
 	escalationReasons = []string{
 		ReasonPrivilegedRequest, ReasonOtherPerson, ReasonSecurityConcern, ReasonAssistantFailure, ReasonRestart,
 		ReasonManualAction, ReasonApprovalDenied, ReasonApprovalExpired, ReasonApprovalFailed, ReasonApprovalCancelled,
+		ReasonNoGroupOwner,
 	}
 	codeOnlyReasons = []string{ReasonAssistantFailure, ReasonRestart, ReasonApprovalDenied, ReasonApprovalExpired, ReasonApprovalFailed, ReasonApprovalCancelled}
 )
@@ -153,6 +157,12 @@ func readEscalation(ctx context.Context, d Deps, in Input) (escalation, *refusal
 	if esc.attempts, err = d.History.CountRecent(ctx, ToolPrivilegedAccessChange, in.Requester.SlackID, audit.OutcomeDeniedPolicy, since); err != nil {
 		return escalation{}, nil, err
 	}
+	// A protected group in an access request is a privileged attempt too (spec 0013, AC-5).
+	protected, err := d.History.CountRecentReason(ctx, ToolGroupAccessRequest, in.Requester.SlackID, audit.OutcomeDeniedPolicy, reasonProtected, since)
+	if err != nil {
+		return escalation{}, nil, err
+	}
+	esc.attempts += protected
 	esc.ticketID = in.Requester.TicketID
 	if esc.ticketID == 0 {
 		if esc.ticketID, err = d.History.ThreadTicketID(ctx, ch, th); err != nil {

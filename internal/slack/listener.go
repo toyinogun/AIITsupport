@@ -62,8 +62,9 @@ type Poster interface {
 	// off, so Slack never fetches a link in it (spec 0011, AC-5).
 	ReplyNoUnfurl(ctx context.Context, channel, threadTS, text string) error
 	// PostCard, UpdateCard, and Ephemeral are the approval card's calls
-	// (spec 0012, AC-7, AC-9, AC-16).
-	PostCard(ctx context.Context, channel string, c agent.Card) (string, error)
+	// (spec 0012, AC-7, AC-9, AC-16). PostCard returns the channel the card
+	// landed in, the owner's DM for a user id (spec 0013, AC-10), and its ts.
+	PostCard(ctx context.Context, channel string, c agent.Card) (string, string, error)
 	UpdateCard(ctx context.Context, channel, ts string, c agent.Card) error
 	Ephemeral(ctx context.Context, channel, userID, text string) error
 }

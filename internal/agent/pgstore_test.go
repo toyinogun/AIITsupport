@@ -331,7 +331,7 @@ func TestPgApprovalCards(t *testing.T) {
 	if got, _ = s.GetApprovalCard(ctx, adopted.ApprovalID); got.PostAttempts != 3 {
 		t.Errorf("attempts = %d, want the cap", got.PostAttempts)
 	}
-	if err := s.SetCardTS(ctx, first.ApprovalID, "1.5"); err != nil {
+	if err := s.SetCardPosted(ctx, first.ApprovalID, "1.5", first.ChannelID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := s.RecordCardPostAttempt(ctx, first.ApprovalID, 3, 0); ok {
@@ -353,5 +353,40 @@ func TestPgApprovalCards(t *testing.T) {
 	}
 	if list, _ = s.ListUnsettledApprovalCards(ctx, 100); len(list) != 1 || list[0].ApprovalID != adopted.ApprovalID {
 		t.Errorf("unsettled after the settle = %+v", list)
+	}
+}
+
+// covers: spec 0013 AC-9, AC-10 (migration 00006). A group owner card row
+// starts with no channel; the first post stores its DM channel, ts, and the
+// owner's Slack id together, and a later post changes none of them.
+func TestPgGroupOwnerCard(t *testing.T) {
+	tdb := dbtest.New(t)
+	s := agent.NewStore(tdb.Agent)
+	ctx := t.Context()
+	c, err := s.UpsertConversation(ctx, "D0NOOR", "1.0", "U0NOOR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := agent.ApprovalCard{ApprovalID: uuid.New(), ToolName: "group_access_request", ExpiresAt: time.Now().Add(8 * time.Hour)}
+	result := mustBlocks(t, anthropic.NewToolResultBlock("t1", "This request is waiting for the group owner's approval.", false))
+	if created, err := s.AppendToolResultWithCard(ctx, c.ID, result, card); err != nil || !created {
+		t.Fatalf("card = %v, %v", created, err)
+	}
+	if got, err := s.GetApprovalCard(ctx, card.ApprovalID); err != nil || got.ChannelID != "" || got.ApproverSlackID != "" {
+		t.Fatalf("new row = %+v, %v", got, err)
+	}
+	if err := s.SetCardPosted(ctx, card.ApprovalID, "2.0", "D0ILSE", "U0ILSE"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCardPosted(ctx, card.ApprovalID, "3.0", "D0OTHER", "U0OTHER"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetApprovalCard(ctx, card.ApprovalID)
+	if err != nil || got.CardTS != "2.0" || got.ChannelID != "D0ILSE" || got.ApproverSlackID != "U0ILSE" {
+		t.Errorf("posted row = %+v, %v", got, err)
+	}
+	adopted := agent.ApprovalCard{ApprovalID: uuid.New(), ToolName: "group_access_request", ExpiresAt: time.Now().Add(8 * time.Hour)}
+	if created, err := s.AdoptApprovalCard(ctx, adopted, "D0NOOR", "1.0"); err != nil || !created {
+		t.Errorf("adopt with no channel = %v, %v", created, err)
 	}
 }

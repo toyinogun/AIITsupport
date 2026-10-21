@@ -30,6 +30,13 @@ const (
 	ReasonDecided    = "decided"
 )
 
+// Approver kinds (spec 0003) and the one cancel reason (spec 0013, AC-11).
+const (
+	ApproverKindIT         = "it"
+	ApproverKindGroupOwner = "group_owner"
+	CancelOwnerUnreachable = "owner_unreachable"
+)
+
 // Approval statuses as the tool server reports them (spec 0003).
 const (
 	StatusPending  = "pending"
@@ -56,6 +63,22 @@ type ApprovalView struct {
 	TicketID         int64              `json:"ticket_id,omitempty"`
 	TicketURL        string             `json:"ticket_url,omitempty"`
 	Execution        *ApprovalExecution `json:"execution,omitempty"`
+	// Spec 0013, AC-10. ApproverKind and Target are on every view; the rest
+	// only on a single approval's view.
+	ApproverKind string `json:"approver_kind"`
+	Target       string `json:"target,omitempty"`
+	// CancelReason is CancelOwnerUnreachable for an approval the agent
+	// cancelled because the owner could not be reached in Slack.
+	CancelReason string `json:"cancel_reason,omitempty"`
+	// For a group owner approval: the owner's account, and their name and
+	// mail read live (both empty when that read failed or the owner is
+	// disabled), the groups an add also gives, and the requester's reason
+	// while the approval still holds it.
+	ApproverAccount string   `json:"approver_account,omitempty"`
+	ApproverName    string   `json:"approver_name,omitempty"`
+	ApproverEmail   string   `json:"approver_email,omitempty"`
+	NestedInto      []string `json:"nested_into,omitempty"`
+	Reason          string   `json:"reason,omitempty"`
 }
 
 // ApprovalExecution is how an executed or failed approval ended: the outcome,
@@ -66,11 +89,20 @@ type ApprovalExecution struct {
 	Result  map[string]any `json:"result,omitempty"`
 }
 
-// DecisionRequest is the body of POST /approvals/{id}/decision: exactly these
-// two keys. Clicker is the Slack id from the interaction payload.
+// DecisionRequest is the body of POST /approvals/{id}/decision: clicker and
+// approve, plus clicker_email for a group owner approval (spec 0013,
+// AC-13). Clicker is the Slack id from the interaction payload, and
+// ClickerEmail their confirmed Slack email.
 type DecisionRequest struct {
-	Clicker string `json:"clicker"`
-	Approve bool   `json:"approve"`
+	Clicker      string `json:"clicker"`
+	Approve      bool   `json:"approve"`
+	ClickerEmail string `json:"clicker_email,omitempty"`
+}
+
+// CancelRequest is the body of POST /approvals/{id}/cancel: exactly
+// {"reason": "owner_unreachable"} (spec 0013, AC-11).
+type CancelRequest struct {
+	Reason string `json:"reason"`
 }
 
 // DecisionResponse says whether the click moved the approval and, when it
@@ -119,11 +151,22 @@ func NewApprovalClient(endpoint, token string) (*ApprovalClient, error) {
 	return &ApprovalClient{base: u.Scheme + "://" + u.Host, http: c.http}, nil
 }
 
-// Decide sends one click. A refused click is a DecisionResponse with Moved
-// false, not an error.
-func (c *ApprovalClient) Decide(ctx context.Context, id uuid.UUID, clicker string, approve bool) (DecisionResponse, error) {
+// Decide sends one click; email is the clicker's confirmed Slack email, sent
+// only when set (a group owner card). A refused click is a DecisionResponse
+// with Moved false, not an error.
+func (c *ApprovalClient) Decide(ctx context.Context, id uuid.UUID, clicker, email string, approve bool) (DecisionResponse, error) {
 	var out DecisionResponse
-	err := c.do(ctx, http.MethodPost, ApprovalsPath+"/"+id.String()+"/decision", DecisionRequest{Clicker: clicker, Approve: approve}, &out)
+	body := DecisionRequest{Clicker: clicker, Approve: approve, ClickerEmail: email}
+	err := c.do(ctx, http.MethodPost, ApprovalsPath+"/"+id.String()+"/decision", body, &out)
+	return out, err
+}
+
+// Cancel ends a pending group owner approval whose owner cannot be reached
+// (spec 0013, AC-11). An approval that is no longer a pending group owner
+// approval is a StatusError 409.
+func (c *ApprovalClient) Cancel(ctx context.Context, id uuid.UUID) (ApprovalView, error) {
+	var out ApprovalView
+	err := c.do(ctx, http.MethodPost, ApprovalsPath+"/"+id.String()+"/cancel", CancelRequest{Reason: CancelOwnerUnreachable}, &out)
 	return out, err
 }
 

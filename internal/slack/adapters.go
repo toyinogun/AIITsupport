@@ -73,8 +73,23 @@ func (u users) UserInfo(ctx context.Context, id string) (agent.SlackUser, error)
 	return toSlackUser(user), nil
 }
 
+// LookupByEmail is users.lookupByEmail (spec 0013, AC-10): users_not_found
+// is agent.ErrSlackUserNotFound, every other error keeps its cause token.
+func (u users) LookupByEmail(ctx context.Context, email string) (agent.SlackUser, error) {
+	user, err := u.api.GetUserByEmailContext(ctx, email)
+	var resp slackapi.SlackErrorResponse
+	if errors.As(err, &resp) && resp.Err == "users_not_found" {
+		return agent.SlackUser{}, agent.ErrSlackUserNotFound
+	}
+	if err != nil {
+		return agent.SlackUser{}, wrapErr(err)
+	}
+	return toSlackUser(user), nil
+}
+
 func toSlackUser(u *slackapi.User) agent.SlackUser {
 	return agent.SlackUser{
+		ID:                u.ID,
 		TeamID:            u.TeamID,
 		Deleted:           u.Deleted,
 		IsBot:             u.IsBot,
@@ -129,16 +144,15 @@ func wrapErr(err error) error {
 	return err
 }
 
-// confirmText is the Approve button's confirm dialog (spec 0012, AC-7).
-const confirmText = "Clear this person's MFA methods?"
-
-// PostCard posts an approval card as a new channel message and returns its ts.
-func (p poster) PostCard(ctx context.Context, channel string, c agent.Card) (string, error) {
-	_, ts, err := p.api.PostMessageContext(ctx, channel, cardOptions(c)...)
+// PostCard posts an approval card as a new message and returns the channel
+// it landed in and its ts. A user id as channel opens that person's DM
+// (spec 0013, AC-10); chat:write covers it.
+func (p poster) PostCard(ctx context.Context, channel string, c agent.Card) (string, string, error) {
+	posted, ts, err := p.api.PostMessageContext(ctx, channel, cardOptions(c)...)
 	if err != nil {
-		return "", wrapErr(err)
+		return "", "", wrapErr(err)
 	}
-	return ts, nil
+	return posted, ts, nil
 }
 
 // UpdateCard replaces a posted card (chat.update).
@@ -160,7 +174,8 @@ func cardOptions(c agent.Card) []slackapi.MsgOption {
 
 // cardBlocks renders a card as Block Kit: one section with its lines, then,
 // while it can be decided, the Approve and Deny buttons in an actions block
-// whose id names the approval. Only code builds the lines (spec 0012, AC-7).
+// whose id names the approval, Approve behind the card's confirm text. Only
+// code builds the lines (spec 0012, AC-7).
 func cardBlocks(c agent.Card) []slackapi.Block {
 	blocks := []slackapi.Block{
 		slackapi.NewSectionBlock(slackapi.NewTextBlockObject(slackapi.MarkdownType, strings.Join(c.Lines, "\n"), false, true), nil, nil),
@@ -171,7 +186,7 @@ func cardBlocks(c agent.Card) []slackapi.Block {
 		approve.Style = slackapi.StylePrimary
 		approve.Confirm = slackapi.NewConfirmationBlockObject(
 			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Approve", false, false),
-			slackapi.NewTextBlockObject(slackapi.PlainTextType, confirmText, false, false),
+			slackapi.NewTextBlockObject(slackapi.PlainTextType, c.Confirm, false, false),
 			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Approve", false, false),
 			slackapi.NewTextBlockObject(slackapi.PlainTextType, "Cancel", false, false))
 		deny := slackapi.NewButtonBlockElement(agent.ActionDeny, c.ApprovalID,

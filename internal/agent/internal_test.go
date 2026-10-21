@@ -382,7 +382,7 @@ func TestTicketLinkEscapes(t *testing.T) {
 
 // covers: spec 0009 AC-9. The short post for already_escalated.
 func TestITShort(t *testing.T) {
-	got := itShort(escalateFailure, "U0JAN", "")
+	got := itShort(escalateFailure, "", "U0JAN", "")
 	if want := ":construction: *Assistant could not finish*\nRequester: <@U0JAN>\nTicket: already escalated; see the audit log for this thread."; got != want {
 		t.Errorf("itShort = %q, want %q", got, want)
 	}
