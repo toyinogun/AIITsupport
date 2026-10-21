@@ -90,8 +90,12 @@ spec:
         - {name: config, emptyDir: {}}
         - {name: logs, emptyDir: {}}
         - {name: tmp, emptyDir: {}}
+  # apiVersion and kind are set because Kubernetes adds them, and ArgoCD
+  # would show the StatefulSet OutOfSync forever otherwise.
   volumeClaimTemplates:
-    - metadata:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]

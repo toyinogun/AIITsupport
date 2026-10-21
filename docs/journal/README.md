@@ -89,5 +89,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0065](0065-gitleaks-flags-sealed-ciphertext.md) | 2026-10-21 | gitleaks flags the sealed ciphertext the installer commits | #17 One command GitOps install | ~15 min | post |
 | [0066](0066-the-sealed-allowlist-missed-dotted-keys.md) | 2026-10-21 | The sealed ciphertext allowlist missed dotted key names | #17 One command GitOps install | ~10 min | no |
 | [0067](0067-elasticsearch-cp-a-on-an-emptydir.md) | 2026-10-21 | Elasticsearch's config copy failed on the emptyDir | #17 One command GitOps install | ~10 min | no |
+| [0068](0068-statefulset-claim-templates-stay-outofsync.md) | 2026-10-22 | StatefulSet claim templates kept noord-client OutOfSync | #17 One command GitOps install | ~10 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
