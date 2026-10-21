@@ -9,14 +9,13 @@ repo:
   revision: main
 
 # Set by make release (AC-19); by hand until it exists: the first main
-# commit with the directory part (task 2).
+# commit with the helpdesk part (task 3).
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: b5c29f47956fd11ceae308da6612d015e6276eb7
+  tag: 7b0d795a262f912ab2b057ae934ebcfa0fcf55f0
 
-# The demo directory runs here since build plan task 2; the helpdesk
-# joins with task 3.
+# The demo directory (task 2) and helpdesk (task 3) run here.
 demo:
   enabled: true
 
