@@ -40,7 +40,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 13 | Password reset links | Slice 3 | done |
 | 14 | MFA re-registration with approval | Slice 4 | done |
 | 15 | Access requests via group owner | Slice 5 | done |
-| 16 | Knowledge base answers | Slice 6 | in-progress |
+| 16 | Knowledge base answers | Slice 6 | done |
 | 17 | One command GitOps install | Production | planned |
 | 18 | Observability & ops dashboard | Production | planned |
 | 19 | Eval ticket set | Evaluation | planned |
@@ -260,7 +260,7 @@ spec [0013](../specs/0013-access-requests-group-owner/index.md) · code in `inte
 
 ## Slice 6: Knowledge base answers
 
-### 16. Knowledge base answers · in-progress
+### 16. Knowledge base answers · done
 Answer common questions from the KB with links, and handle contradictory or outdated articles honestly instead of guessing.
 **Done when:** answers cite the article they came from; when articles contradict, the agent says so and escalates or prefers the newer one by a stated rule.
 - [x] Design it (spec): `/architect knowledge base answers`
@@ -269,8 +269,8 @@ Answer common questions from the KB with links, and handle contradictory or outd
   - [x] Honesty rules: the stale flag with `KB_STALE_AFTER_DAYS` and `KB_STALE_AS_OF`, `time/tzdata` in the tool server, the boolean field kind and `kb_review` on `ticket_update`, the conflict, stale only, named contact, and routing rules in the prompt, live runs on the planted articles (AC-1, AC-4, AC-6, AC-7, AC-7a, AC-9, AC-11, AC-14)
   - [x] Failure and safety proof: `unavailable` and skipped hits, no match, the fallback post after a close, the injection test, the logging allow list and canary, the budget reruns of access and MFA, amendment notes in specs 0006 and 0007 (AC-8, AC-12 to AC-15, AC-14a)
   - [x] Changes after the build: Zammad's matches ranked in code with `KB_SEARCH_CANDIDATES`, the published rule matching Zammad's, the budget counting cache reads at their price (amends spec 0008), and the live reruns with their counts (AC-2, AC-3, AC-12, AC-14, AC-16, AC-18)
-- [ ] Verify it: `/check verify knowledge base answers`
-- [ ] Test it: `/test knowledge base answers`
+- [x] Verify it: `/check verify knowledge base answers`
+- [x] Test it: `/test knowledge base answers`
 spec [0014](../specs/0014-knowledge-base-answers/index.md) · code in `internal/tools/kb_search.go`, `internal/tools/kb_rank.go`, `internal/agent/kbcite.go`, `eval/pricing.go` (`BudgetTokens`) · reworked 2026-10-21 after the live runs (journals 0059, 0060)
 
 ## Production

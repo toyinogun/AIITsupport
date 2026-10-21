@@ -1,7 +1,7 @@
 # 0014. Knowledge base answers: a read tool over Zammad's KB search, a newest wins rule with a code computed stale flag, and citation links that only code writes
 
 **Date**: 2026-10-21
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

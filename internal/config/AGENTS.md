@@ -26,6 +26,7 @@ The single source of every setting the agent and the tool server read. Each bina
 - `LoadToolServer` refuses tool layer values out of range (`checkToolLayer`: positive timeouts, limits of at least 1, at least one `TOOL_USER_OUS` and `TOOL_GROUP_OUS` entry) and an `LDAP_URL` that is not an `ldaps://` URL with a host (spec 0007, AC-16).
 - `TICKET_RETENTION_DAYS` (default `30`) is the `Retention` struct, embedded in `Common` and in `SeedHelpdesk`, so the agent's purge and the Zammad scheduler read one value. `checkRetention` refuses anything outside 1 to 365 in `LoadAgent`, `LoadToolServer`, and `LoadSeedHelpdesk` (spec 0010).
 - The medium tier settings (spec 0012) are the `Approvals` struct in `ToolServer` (`SLACK_IT_APPROVERS`, `APPROVAL_EXECUTE_TIMEOUT`, `APPROVAL_EXECUTE_GRACE`, `MFA_DENIED_GROUPS`); `APPROVAL_TIMEOUT` is the `ApprovalWindow` struct, embedded in both `Approvals` and `Agent`, so both binaries read one value (journal 0043). The agent adds `APPROVAL_POLL_INTERVAL` and `APPROVAL_DECIDE_TIMEOUT` (keep it above `APPROVAL_EXECUTE_TIMEOUT`). Spec 0013 adds `ACCESS_APPROVAL_TIMEOUT` to `ApprovalWindow` (the owner's window, 5m to 24h) and `ACCESS_MAX_PENDING` to `Approvals` (1 to 10).
+- The knowledge base settings (spec 0014) are `ToolServer` fields: `KB_SEARCH_LIMIT` (1 to 5), `KB_SEARCH_CANDIDATES` (from `KB_SEARCH_LIMIT` to 20), `KB_STALE_AFTER_DAYS` (30 to 3650), `KB_BODY_MAX_RUNES` (200 to 8000), and the optional `KB_STALE_AS_OF` (a `YYYY-MM-DD` date, unset in production). `LoadToolServer` refuses any value out of range or a bad date, naming the setting. `ZAMMAD_PUBLIC_URL` is reused for article links.
 - A setting starts optional with a `// feature #N` comment and flips to `required:"true"` when that feature's code starts using it.
 - Tests pass a map backed `LookupFunc`, never the real environment.
 
@@ -46,5 +47,6 @@ The single source of every setting the agent and the tool server read. Each bina
 - [0008 locked out user flow](../../docs/specs/0008-locked-out-user-flow/index.md) (the `LLM_*`, `ANTHROPIC_API_KEY`, and `AGENT_*` loop settings)
 - [0010 PII redaction and retention](../../docs/specs/0010-pii-redaction-retention/index.md) (`TICKET_RETENTION_DAYS`)
 - [0012 MFA re-registration with approval](../../docs/specs/0012-mfa-reregistration-approval/index.md) (the `APPROVAL_*`, `SLACK_IT_APPROVERS`, and `MFA_DENIED_GROUPS` settings)
+- [0014 Knowledge base answers](../../docs/specs/0014-knowledge-base-answers/index.md) (the `KB_*` settings)
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
