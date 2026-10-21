@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/toyinogun/AIITsupport/eval"
 	"github.com/toyinogun/AIITsupport/internal/db/queries"
 )
 
@@ -136,12 +137,12 @@ func (s *pgStore) InsertUsage(ctx context.Context, u Usage) error {
 	return nil
 }
 
-func (s *pgStore) SumTokens(ctx context.Context, id int64) (int64, error) {
-	n, err := s.q.SumConversationTokens(ctx, id)
+func (s *pgStore) SumUsage(ctx context.Context, id int64) (eval.Tokens, error) {
+	row, err := s.q.SumConversationUsage(ctx, id)
 	if err != nil {
-		return 0, fmt.Errorf("sum conversation tokens: %w", err)
+		return eval.Tokens{}, fmt.Errorf("sum conversation usage: %w", err)
 	}
-	return n, nil
+	return eval.Tokens{Input: row.InputTokens, Output: row.OutputTokens, CacheRead: row.CacheReadTokens, CacheWrite: row.CacheWriteTokens}, nil
 }
 
 func (s *pgStore) CountRecentConversations(ctx context.Context, requesterSlackID string, since time.Time) (int64, error) {

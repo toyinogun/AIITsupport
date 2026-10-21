@@ -170,6 +170,7 @@ func TestCanaryResetLink(t *testing.T) {
 		CallTimeout: 5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour, TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
 		PrivilegedWindow: 24 * time.Hour,
 		ExecuteTimeout:   5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
+		KB: tools.KBSettings{SearchLimit: 3, SearchCandidates: 10, StaleAfterDays: 730, BodyMaxRunes: 2000, Zone: time.UTC},
 	}, tools.Systems{
 		Directory: dir, Groups: dir, Reader: dir, Writer: dir, Helpdesk: helpdesk, Recorder: rec, KillSwitch: killSwitch,
 		Reset: &tools.ResetSystem{Links: links, DeniedGroups: denied, Settings: tools.ResetSettings{

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/toyinogun/AIITsupport/eval"
 	"github.com/toyinogun/AIITsupport/internal/agent"
 )
 
@@ -189,20 +190,23 @@ func (s *Store) InsertUsage(ctx context.Context, u agent.Usage) error {
 	return nil
 }
 
-// SumTokens adds up every token the conversation used.
-func (s *Store) SumTokens(ctx context.Context, id int64) (int64, error) {
+// SumUsage adds up each of the conversation's four token counts.
+func (s *Store) SumUsage(ctx context.Context, id int64) (eval.Tokens, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.check(ctx, "SumTokens"); err != nil {
-		return 0, err
+	if err := s.check(ctx, "SumUsage"); err != nil {
+		return eval.Tokens{}, err
 	}
-	var n int64
+	var sum eval.Tokens
 	for _, u := range s.usage {
 		if u.ConversationID == id {
-			n += u.Tokens.Input + u.Tokens.Output + u.Tokens.CacheRead + u.Tokens.CacheWrite
+			sum.Input += u.Tokens.Input
+			sum.Output += u.Tokens.Output
+			sum.CacheRead += u.Tokens.CacheRead
+			sum.CacheWrite += u.Tokens.CacheWrite
 		}
 	}
-	return n, nil
+	return sum, nil
 }
 
 // CountRecentConversations counts the requester's conversations created after since.

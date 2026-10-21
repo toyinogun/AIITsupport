@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -11,7 +12,8 @@ import (
 )
 
 // Field is one string argument, or, with List, a list of strings (spec
-// 0013). Bounds are counted in runes, per item for a list. The bounds and
+// 0013), or, with Bool, a JSON boolean (spec 0014). Bounds are counted in
+// runes, per item for a list. The bounds and
 // enums are code constants, not settings: they are part of the contract the
 // model sees, so they change through code review.
 type Field struct {
@@ -31,6 +33,11 @@ type Field struct {
 	// Each item is trimmed, then held to the string rules above.
 	List               bool
 	MinItems, MaxItems int
+	// Trim trims a string value before the rules above, and keeps it trimmed.
+	Trim bool
+	// Bool makes the field a JSON boolean, kept in Args as "true" or "false".
+	// The string rules do not apply.
+	Bool bool
 }
 
 // Lists are a call's list arguments after validation, items trimmed.
@@ -84,8 +91,22 @@ func (t *Tool) parseArgs(raw []byte, env CheckEnv) (Args, Lists, *invalid) {
 			lists[f.Name] = items
 			continue
 		}
+		if f.Bool {
+			var b bool
+			if json.Unmarshal(value, &b) != nil {
+				return nil, nil, &invalid{field: f.Name}
+			}
+			args[f.Name] = strconv.FormatBool(b)
+			continue
+		}
 		var s string
-		if json.Unmarshal(value, &s) != nil || !f.accepts(s) {
+		if json.Unmarshal(value, &s) != nil {
+			return nil, nil, &invalid{field: f.Name}
+		}
+		if f.Trim {
+			s = strings.TrimSpace(s)
+		}
+		if !f.accepts(s) {
 			return nil, nil, &invalid{field: f.Name}
 		}
 		args[f.Name] = s
@@ -139,7 +160,7 @@ func (f Field) accepts(s string) bool {
 }
 
 // InputSchema is the JSON schema tools/list shows: an object with exactly
-// these string properties and no others.
+// these properties and no others.
 func (t *Tool) InputSchema() map[string]any {
 	props := map[string]any{}
 	var required []string
@@ -156,6 +177,9 @@ func (t *Tool) InputSchema() map[string]any {
 		}
 		if f.List {
 			p = map[string]any{"type": "array", "items": p, "minItems": f.MinItems, "maxItems": f.MaxItems}
+		}
+		if f.Bool {
+			p = map[string]any{"type": "boolean"}
 		}
 		if f.Description != "" {
 			p["description"] = f.Description

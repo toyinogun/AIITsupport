@@ -9,14 +9,15 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 | File | Owns |
 |---|---|
 | `tools.go` | `Requester`, `Request`, `Args`, `Input`, `Result`, the handler types (`ReadHandler`, `AccountHandler`, `ResetHandler`, `MFAHandler`, `GroupHandler`), `Deps`, `AccountDeps`, `ResetDeps`, `MFADeps`, `GroupDeps`, and the narrow interfaces (`Directory`, `DirectoryWriter`, `GroupReader`, `HelpdeskAPI`, `History`, `KillSwitch`, `AccountReader`, `GraphAPI`, `ApprovalReads`) |
-| `registry.go` | `Tool`, `Registry`, `NewRegistry`, the construction checks, the tool names, the schema bounds, the six base tools plus `group_search` and `group_access_request` (always registered, spec 0013), `WithPasswordReset` (adds `password_reset_link` only when the `RESET_*` settings are set), and `WithMFAClear` (adds `mfa_clear` only when the `GRAPH_*` settings and `SLACK_IT_APPROVERS` are set) |
+| `registry.go` | `Tool`, `Registry`, `NewRegistry`, the construction checks, the tool names, the schema bounds, the six base tools plus `group_search` and `group_access_request` (always registered, spec 0013) and `kb_search` (always registered, spec 0014), `WithPasswordReset` (adds `password_reset_link` only when the `RESET_*` settings are set), and `WithMFAClear` (adds `mfa_clear` only when the `GRAPH_*` settings and `SLACK_IT_APPROVERS` are set) |
 | `dispatcher.go` | `Config` (and `Config.Check`, the startup OU checks), `Systems`, `Dispatcher`, `Call` (timeout, span, `tool_call` log line), the ordered pipeline, identity |
-| `schema.go` | `Field`, the argument validator (`parseArgs`), `InputSchema` for `tools/list` |
+| `schema.go` | `Field` (with `Bool`, a JSON boolean kept in `Args` as `"true"` or `"false"`, spec 0014), the argument validator (`parseArgs`), `InputSchema` for `tools/list` |
 | `refusal.go` | `Code`, the refusal table (code, outcome, stored reason, sentence), `failure`, and the LDAP, Zammad, and Graph error classification |
 | `killswitch.go` | `NewKillSwitch`, `FileSwitch` (read every call, only `read_write` allows) |
 | `fence.go` | `Fence.CheckGroup` (one group), `Fence.AllowedGroups` (the same check batched for `group_search`), `FloorDeniedGroups`, `ErrGroupProtected`; `AccountFence.CheckAccount` (spec 0011: the account itself is protected by group membership) |
-| `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group and the cached ticket states |
-| `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry); `ticket_update` holds the close guard (spec 0009, AC-6) |
+| `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group, the cached ticket states, and the cached KB id and category titles (spec 0014) |
+| `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry); `ticket_update` holds the close guard (spec 0009, AC-6) and, with `kb_review` true, adds the `kb-review` tag (`tagKBReview`) after the update succeeds (spec 0014, AC-11) |
+| `kb_search.go`, `kb_rank.go`, `kbtext.go` | `kb_search` (spec 0014): `KBSettings`, `LoadKBZone` (`Europe/Amsterdam`, from the embedded `time/tzdata` in `cmd/toolserver`), the candidates, the `GetAnswer` reads (at most 4 at a time), the published rule, the stale flag, the `url`; the word score and rank; the article HTML to plain text |
 | `escalate.go` | `escalate` (spec 0009): the escalation reasons, `checkEscalate` (code only reasons need the `_meta` initiator `code`), the audit reads first, then tag and note or create |
 | `mfa_clear.go` | `mfa_clear` (spec 0012): `Prechecked`, the AC-3 precheck order (refuse, reuse this thread's pending approval, or go ahead with the method counts and the ticket note), the clear (`mfaClear`: two kill switch reads, the account and Entra recheck, `clearOrder` with the default method last, `deleteSteps`) |
 | `group_access.go` | `group_search` and `group_access_request` (spec 0013): the batched search (five directory sessions), `groupPrecheck` in the AC-5 order, the owner checks, `groupAdd` (two kill switch reads, the full recheck, the add, the read back), and `GroupOwnerView` for the approval view |
@@ -40,6 +41,7 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 - Audit writes and reads outside the handler (refusals, `fail`, the rate limit count, `Defer`) run on `recordCtx(ctx)`, which drops the call's deadline, so a call that ran out of time still leaves its pair. If the checks used up the budget, the call fails before the handler.
 - The kill switch file is read with no cache, at dispatcher step 7 and again inside an account handler just before the write. With `KILL_SWITCH_FILE` unset, `READ_ONLY` decides.
 - `escalate` is a `ReadHandler` on purpose: the kill switch and `TOOL_WRITE_LIMIT` never stop it, and it is not `TicketLimited`. Every audit read comes before any Zammad call. `Requester.Initiator` comes only from the `_meta` key `noord.example/initiator`, which `internal/mcpserver` accepts only as exactly `code`.
+- `kb_search` is a `ReadHandler` (spec 0014). Zammad finds the matches; code picks and orders them (`kb_rank.go`), keeps only answers published by Zammad's own rule, and computes `stale`; the model never decides either. `kbtext.go` drops every href, image, and URL written as text, so no article URL reaches the model; the only links a user sees are the ones agent code builds from `url`.
 - Test only tools go through `NewTestRegistry` in `registry_test.go`, so they can never reach the binary.
 - `internal/tools` and `internal/mcpserver` are on both agent deny lists (depguard `agent-credential-boundary` and `cmd/agent/boundary_test.go`). The agent imports only `internal/mcpclient`.
 
@@ -49,6 +51,8 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 - The rate limits are soft: they count `ok` outcomes, so concurrent calls can all pass, and an unlock whose outcome row failed is not counted.
 - Zammad's plain `GET /api/v1/tickets/:id` omits `article_ids`; read `/api/v1/ticket_articles/by_ticket/:id` to see articles.
 - `TestLiveTicketsOnZammad` leaves a closed ticket in the dev Zammad, and `TestLiveEscalateOnZammad` two open ones; run `make helpdesk-reset` after them.
+- Zammad's KB search returns hits newest first, not by relevance, and every query word must prefix match, so `kb_search` reads up to `KB_SEARCH_CANDIDATES` hits and ranks them itself (journal 0060).
+- `TestLiveKBSearchOnZammad` pins its stale date to the seed's `as_of` (2026-10-16) in code and ignores `KB_STALE_AS_OF`; to see the setting move the flag, call `kb_search` on a tool server started with it.
 
 ## Commands
 
@@ -56,6 +60,7 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 go test -race ./internal/tools/... ./internal/mcpserver/ ./internal/mcpclient/   # unit tests, no Docker
 DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 TEST_DATABASE_URL=... go test -race ./internal/mcpserver/   # the whole pipe live
 set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run LiveTickets -v ./internal/tools/   # right after make helpdesk-reset
+set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run LiveKB -v ./internal/tools/   # kb_search on the seeded KB, reads only
 ```
 
 ## Related specs
@@ -66,5 +71,6 @@ set -a && . ./.env && set +a && TEST_ZAMMAD=1 go test -race -run LiveTickets -v 
 - [0011 password reset links](../../docs/specs/0011-password-reset-links/index.md) (`password_reset_link`, `AccountFence`, `RESET_DENIED_GROUPS`)
 - [0012 MFA re-registration with approval](../../docs/specs/0012-mfa-reregistration-approval/index.md) (`mfa_clear`, `Precheck`, `Execute`, `MFA_DENIED_GROUPS`)
 - [0013 Access requests via group owner](../../docs/specs/0013-access-requests-group-owner/index.md) (`group_search`, `group_access_request`, `GroupPrecheck`, `Fence.AllowedGroups`)
+- [0014 Knowledge base answers](../../docs/specs/0014-knowledge-base-answers/index.md) (`kb_search`, the published rule, the rank, the stale flag, `kb_review` on `ticket_update`)
 
 _Drafted by /develop from the introducing change, worth a quick human pass._

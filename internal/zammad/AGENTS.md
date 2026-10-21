@@ -12,7 +12,7 @@ A thin client for Zammad's REST API (spec 0006): tickets, articles, and the know
 | `errors.go` | `Error` (method, path, status, Zammad's message; never the token or the query), `Status`, `IsForbidden`, `IsUnauthorized` |
 | `users.go` | `User`, `Me`, `SearchUsers`, `UsersByLogin` (exact, active login, filtered client side; reads only) |
 | `tickets.go` | `NewTicket`, `NewArticle`, `TicketUpdate` (with an optional embedded article, so state and note are one request), `TicketState`, `CreateTicket`, `UpdateTicket`, `CreateArticle`, `GetTicket`, `TicketStates`, `AddTag` (`POST /api/v1/tags/add`, spec 0009) |
-| `kb.go` | `CreateCategory`, `CreateAnswer`, `PublishAnswer`, `GetAnswer` |
+| `kb.go` | `CreateCategory`, `CreateAnswer`, `PublishAnswer`, `GetAnswer` (with `include_contents`), `Answer.Translation`, and the reads `kb_search` uses (spec 0014): `KBInit` (KB id and category titles) and `SearchKB` (answer hits, answer id and locale taken from each hit's portal path) |
 | `zammadtest/fake.go` | an `httptest` fake Zammad (token and admin auth, tickets, articles, KB, 403s the assistant gets, request log with `From`, faults) |
 
 ## Conventions
@@ -26,6 +26,8 @@ A thin client for Zammad's REST API (spec 0006): tickets, articles, and the know
 ## Gotchas
 
 - Zammad's search index lags writes by seconds. A seed that starts before `zammad-init` has configured Elasticsearch leaves its LDAP users out of the index for good, so `helpdesk-up` waits for `zammad-init` to exit (journal 0028). Never use `SearchUsers` to confirm a write; the seed takes user ids from bootstrap's login map instead.
+- KB search (`POST /api/v1/knowledge_bases/search`) pins `updated_at` descending: hits come newest first, not by relevance, and every query word must prefix match (`lock` finds "locked", `lockout` finds nothing). Its `id` is the answer translation id, not the answer id (journal 0060; probe record in spec 0014's `verify.md`).
+- `GetAnswer` returns an answer's body only for `?include_contents=<content id>`; ask for the hit's translation id, then read again with the translation's `content_id` if that differs.
 - KB writes return `{id, assets}`, not the object. The assistant token gets 403 on any KB write and on `/api/v1/settings`, but it **can** create and edit customer users at the Zammad level; it cannot edit an Admin (403, probed 2026-10-18).
 
 ## Commands
@@ -37,5 +39,6 @@ go test -race ./internal/zammad/...   # unit tests against the fake, no network
 ## Related specs
 
 - [0006 helpdesk, KB, and Slack](../../docs/specs/0006-helpdesk-kb-slack/index.md) (the contract, with [verify.md](../../docs/specs/0006-helpdesk-kb-slack/verify.md))
+- [0014 Knowledge base answers](../../docs/specs/0014-knowledge-base-answers/index.md) (`KBInit`, `SearchKB`, `GetAnswer` contents, the probe record in its `verify.md`)
 
 _Drafted by /sync from the introducing change, worth a quick human pass._

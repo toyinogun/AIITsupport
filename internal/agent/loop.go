@@ -55,11 +55,11 @@ func (t *turn) loop() (string, *failure) {
 // request builds the next model request after the token budget and the
 // history check (spec 0008, The model loop).
 func (t *turn) request() (anthropic.MessageNewParams, *failure) {
-	used, err := t.a.deps.Store.SumTokens(t.ctx, t.conv.ID)
+	usage, err := t.a.deps.Store.SumUsage(t.ctx, t.conv.ID)
 	if err != nil {
 		return anthropic.MessageNewParams{}, t.storeFailure(err)
 	}
-	if used >= t.a.cfg.MaxTokensPerTicket {
+	if t.a.cfg.Price.BudgetTokens(usage) >= t.a.cfg.MaxTokensPerTicket {
 		return anthropic.MessageNewParams{}, fail(ReasonTokenBudget)
 	}
 	stored, err := t.a.deps.Store.ListMessages(t.ctx, t.conv.ID)
@@ -222,6 +222,9 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 	}
 	if !answered {
 		return &failure{reason: ReasonToolServerUnavailable, cause: cause(callErr), unknown: true}
+	}
+	if first.name == toolKBSearch && !res.IsError {
+		t.kbSearched = true
 	}
 	return nil
 }

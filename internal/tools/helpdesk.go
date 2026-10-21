@@ -17,8 +17,8 @@ const (
 	zammadMerged          = "merged"
 )
 
-// Helpdesk is the Zammad client plus what the tools add: the default group
-// and the ticket states, loaded once per process.
+// Helpdesk is the Zammad client plus what the tools add: the default group,
+// and the ticket states and knowledge base metadata, loaded once per process.
 type Helpdesk struct {
 	api       HelpdeskAPI
 	group     string // ZAMMAD_DEFAULT_GROUP
@@ -27,6 +27,7 @@ type Helpdesk struct {
 	mu     sync.Mutex
 	byName map[string]int
 	byID   map[int]string
+	kb     *zammad.KBMeta // the knowledge base id and category titles (spec 0014)
 }
 
 // NewHelpdesk wraps api; tickets go to group, and ticket links start with

@@ -120,6 +120,14 @@ var everyMethod = map[string]func(ctx context.Context, c *zammad.Client, custome
 		_, err = c.GetAnswer(ctx, 1, id)
 		return err
 	},
+	"KBInit": func(ctx context.Context, c *zammad.Client, _ int) error {
+		_, err := c.KBInit(ctx)
+		return err
+	},
+	"SearchKB": func(ctx context.Context, c *zammad.Client, _ int) error {
+		_, err := c.SearchKB(ctx, zammadtest.KBID, "en-us", "vpn", 20)
+		return err
+	},
 	"Do": func(ctx context.Context, c *zammad.Client, _ int) error {
 		return c.Do(ctx, zammad.Request{Method: http.MethodGet, Path: "/api/v1/users/me"})
 	},

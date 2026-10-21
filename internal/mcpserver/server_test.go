@@ -67,6 +67,7 @@ func startWith(t *testing.T, newLogger func(io.Writer) *slog.Logger) *env {
 		CallTimeout: 5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour, TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour,
 		PrivilegedWindow: 24 * time.Hour,
 		ExecuteTimeout:   5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
+		KB: tools.KBSettings{SearchLimit: 3, SearchCandidates: 10, StaleAfterDays: 730, BodyMaxRunes: 2000, Zone: time.UTC},
 	}, tools.Systems{
 		Directory: e.dir, Groups: e.dir, Reader: e.dir, Writer: e.dir, Helpdesk: tools.NewHelpdesk(zc, "IT Support", ""),
 		Recorder: rec, KillSwitch: tools.NewKillSwitch("", false),
@@ -269,7 +270,7 @@ func TestListTools(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{
-		"account_unlock", "escalate", "group_access_request", "group_search", "privileged_access_change",
+		"account_unlock", "escalate", "group_access_request", "group_search", "kb_search", "privileged_access_change",
 		"ticket_create", "ticket_update", "user_lookup",
 	}
 	if !slices.Equal(names, want) {

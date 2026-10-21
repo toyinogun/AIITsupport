@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata" // the zone data cmd/toolserver embeds
 
 	goldap "github.com/go-ldap/ldap/v3"
 
@@ -55,7 +56,18 @@ func testConfig() Config {
 		CallTimeout:  5 * time.Second, WriteLimit: 3, WriteWindow: time.Hour,
 		TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour, PrivilegedWindow: 24 * time.Hour,
 		ExecuteTimeout: 5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
+		KB: KBSettings{SearchLimit: 3, SearchCandidates: 10, StaleAfterDays: 730, BodyMaxRunes: 2000, Zone: amsterdam()},
 	}
+}
+
+// amsterdam is the knowledge base's zone (the embedded zone data, as in
+// cmd/toolserver).
+func amsterdam() *time.Location {
+	zone, err := LoadKBZone()
+	if err != nil {
+		panic(err)
+	}
+	return zone
 }
 
 func newHarness(t *testing.T, extra ...Tool) *harness {

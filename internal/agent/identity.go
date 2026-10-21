@@ -17,6 +17,7 @@ const (
 	toolPrivilegedAccess  = "privileged_access_change"
 	toolEscalate          = "escalate"
 	toolPasswordResetLink = "password_reset_link"
+	toolKBSearch          = "kb_search"
 )
 
 // escalate's reasons (spec 0009, AC-2; spec 0012 adds manual_action for the

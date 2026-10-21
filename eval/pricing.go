@@ -51,6 +51,20 @@ func (p ModelPrice) CostMicroUSD(t Tokens) int64 {
 	return (sum + priceScale/2) / priceScale
 }
 
+// BudgetTokens is the count AGENT_MAX_TOKENS_PER_TICKET is checked against
+// (spec 0014, AC-18): uncached input, output, and cache write tokens in
+// full, plus the cache read tokens weighted by the cache read price over the
+// input price, rounded down once. When the input price is 0, or the cache
+// read price is above it, cache reads count in full. t is a conversation's
+// summed counts, so the rounding happens once for the whole conversation.
+func (p ModelPrice) BudgetTokens(t Tokens) int64 {
+	full := t.Input + t.Output + t.CacheWrite
+	if p.Input == 0 || p.CacheRead > p.Input {
+		return full + t.CacheRead
+	}
+	return full + t.CacheRead*p.CacheRead/p.Input
+}
+
 // Price returns the prices for model from the embedded pricing.yaml. A
 // malformed file is an error for every model.
 func Price(model string) (ModelPrice, error) {

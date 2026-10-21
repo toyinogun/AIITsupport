@@ -30,6 +30,7 @@ type turn struct {
 
 	resetPosted     bool // the reset_link post went out (spec 0011, AC-5)
 	resetPostFailed bool // an ok password_reset_link whose link was not posted
+	kbSearched      bool // an ok kb_search ran in this turn (spec 0014, AC-14a)
 
 	modelCalls int
 	toolCalls  int
@@ -108,6 +109,8 @@ func (t *turn) run() string {
 	if f != nil {
 		return t.failurePath(f)
 	}
+	// Links are code's (spec 0014, AC-10): once, before any branch posts it.
+	answer, linked := t.citedReply(answer)
 	var footer, outcome string
 	switch {
 	case t.resolved && t.resetPostFailed:
@@ -120,7 +123,11 @@ func (t *turn) run() string {
 	default:
 		answer, footer, outcome = t.backstop(answer)
 	}
-	t.post(answer+"\n\n"+footer, "answer")
+	if linked {
+		t.postNoUnfurl(answer+"\n\n"+footer, "answer")
+	} else {
+		t.post(answer+"\n\n"+footer, "answer")
+	}
 	return outcome
 }
 
@@ -214,6 +221,16 @@ func (t *turn) setStatus(ch StatusChange) {
 }
 
 func (t *turn) post(text, kind string) { t.a.post(t.ctx, t.in, text, kind) }
+
+// postNoUnfurl posts in the thread with unfurling off, for a reply that
+// holds a link code built (spec 0014, AC-10).
+func (t *turn) postNoUnfurl(text, kind string) {
+	ctx, cancel := t.a.detached(t.ctx, t.a.cfg.PostTimeout)
+	defer cancel()
+	if err := t.a.deps.Poster.ReplyNoUnfurl(ctx, t.in.ChannelID, t.in.ThreadTS, text); err != nil {
+		t.a.deps.Logger.Warn("agent_post_failed", "event_id", t.in.EventID, "kind", kind, "cause", cause(err))
+	}
+}
 
 func (a *Agent) logTurnDone(ctx context.Context, in Inbound, outcome string, modelCalls, toolCalls int, start time.Time) {
 	latency := a.deps.Now().Sub(start)

@@ -1174,3 +1174,64 @@ func TestMFAEnabled(t *testing.T) {
 		}
 	}
 }
+
+// covers: AC-16 (spec 0014). The KB settings default to 3, 730, and 2000,
+// KB_STALE_AS_OF is optional, and LoadToolServer refuses a value out of
+// range or a malformed date, naming the setting.
+func TestLoadToolServerKBSettings(t *testing.T) {
+	cfg, err := LoadToolServer(envFrom(minimalToolServerEnv()))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	if cfg.KBSearchLimit != 3 || cfg.KBSearchCandidates != 10 || cfg.KBStaleAfterDays != 730 || cfg.KBBodyMaxRunes != 2000 || cfg.KBStaleAsOf != "" {
+		t.Errorf("defaults = %+v", cfg.KB)
+	}
+	if _, ok := cfg.StaleAsOf(); ok {
+		t.Error("StaleAsOf is set by default")
+	}
+	cases := map[string]struct {
+		key, value string
+		ok         bool
+	}{
+		"limit 1":        {"KB_SEARCH_LIMIT", "1", true},
+		"limit 5":        {"KB_SEARCH_LIMIT", "5", true},
+		"limit 0":        {"KB_SEARCH_LIMIT", "0", false},
+		"limit 6":        {"KB_SEARCH_LIMIT", "6", false},
+		"candidates 3":   {"KB_SEARCH_CANDIDATES", "3", true},
+		"candidates 20":  {"KB_SEARCH_CANDIDATES", "20", true},
+		"candidates 2":   {"KB_SEARCH_CANDIDATES", "2", false}, // below KB_SEARCH_LIMIT (3)
+		"candidates 21":  {"KB_SEARCH_CANDIDATES", "21", false},
+		"stale 30":       {"KB_STALE_AFTER_DAYS", "30", true},
+		"stale 29":       {"KB_STALE_AFTER_DAYS", "29", false},
+		"stale 3651":     {"KB_STALE_AFTER_DAYS", "3651", false},
+		"body 200":       {"KB_BODY_MAX_RUNES", "200", true},
+		"body 199":       {"KB_BODY_MAX_RUNES", "199", false},
+		"body 8001":      {"KB_BODY_MAX_RUNES", "8001", false},
+		"as of":          {"KB_STALE_AS_OF", "2026-10-16", true},
+		"as of time":     {"KB_STALE_AS_OF", "2026-10-16T00:00:00Z", false},
+		"as of day name": {"KB_STALE_AS_OF", "16-10-2026", false},
+		"as of no day":   {"KB_STALE_AS_OF", "2026-02-30", false},
+	}
+	for name, tc := range cases {
+		env := minimalToolServerEnv()
+		env[tc.key] = tc.value
+		cfg, err := LoadToolServer(envFrom(env))
+		if tc.ok && err != nil {
+			t.Errorf("%s: LoadToolServer = %v, want ok", name, err)
+		}
+		if !tc.ok && (err == nil || !strings.Contains(err.Error(), tc.key+" must")) {
+			t.Errorf("%s: LoadToolServer = %v, want an error naming %s", name, err, tc.key)
+		}
+		if name == "as of" {
+			if day, ok := cfg.StaleAsOf(); !ok || day.Format(time.DateOnly) != "2026-10-16" {
+				t.Errorf("StaleAsOf = %s, %t", day, ok)
+			}
+		}
+	}
+	// The candidate floor follows KB_SEARCH_LIMIT.
+	env := minimalToolServerEnv()
+	env["KB_SEARCH_LIMIT"], env["KB_SEARCH_CANDIDATES"] = "5", "4"
+	if _, err := LoadToolServer(envFrom(env)); err == nil || !strings.Contains(err.Error(), "KB_SEARCH_CANDIDATES must be between 5 and 20") {
+		t.Errorf("candidates below the limit: %v", err)
+	}
+}

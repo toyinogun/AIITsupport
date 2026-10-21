@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Credentials the fake accepts.
@@ -52,6 +53,10 @@ type Fake struct {
 	answers  map[int]map[string]any
 	cats     map[int]map[string]any
 	requests []Seen
+
+	// The knowledge base the read paths serve (init, search, GetAnswer).
+	kbCats    map[int]string
+	kbAnswers map[int]KBAnswer
 }
 
 // New starts a fake Zammad that stops when the test ends. User 1 is the
@@ -59,12 +64,14 @@ type Fake struct {
 func New(t testing.TB) *Fake {
 	t.Helper()
 	f := &Fake{
-		nextID:   100,
-		users:    map[int]map[string]any{},
-		tickets:  map[int]map[string]any{},
-		articles: map[int]map[string]any{},
-		answers:  map[int]map[string]any{},
-		cats:     map[int]map[string]any{},
+		nextID:    100,
+		users:     map[int]map[string]any{},
+		tickets:   map[int]map[string]any{},
+		articles:  map[int]map[string]any{},
+		answers:   map[int]map[string]any{},
+		cats:      map[int]map[string]any{},
+		kbCats:    map[int]string{},
+		kbAnswers: map[int]KBAnswer{},
 	}
 	f.users[1] = map[string]any{"id": 1, "login": "noord-assistant", "active": true}
 	f.users[2] = map[string]any{"id": 2, "login": AdminLogin, "active": true}
@@ -163,6 +170,12 @@ var (
 	publishPath  = regexp.MustCompile(`^/api/v1/knowledge_bases/(\d+)/answers/(\d+)/publish$`)
 )
 
+// KBID and KBLocaleID are the fake knowledge base's id and its one locale.
+const (
+	KBID       = 1
+	KBLocaleID = 1
+)
+
 func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if r.Body != nil {
@@ -235,7 +248,11 @@ func (f *Fake) route(w http.ResponseWriter, r *http.Request, who string, body ma
 	case r.Method == http.MethodPost && publishPath.MatchString(p):
 		f.kbWrite(w, who, func() map[string]any { return f.publish(idFrom(publishPath, p, 2)) })
 	case r.Method == http.MethodGet && answerPath.MatchString(p):
-		f.getAnswer(w, idFrom(answerPath, p, 2))
+		f.getAnswer(w, idFrom(answerPath, p, 2), r.URL.Query().Get("include_contents"))
+	case r.Method == http.MethodPost && p == "/api/v1/knowledge_bases/init":
+		f.kbInit(w)
+	case r.Method == http.MethodPost && p == "/api/v1/knowledge_bases/search":
+		f.searchKB(w, body)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no route " + r.Method + " " + p})
 	}
@@ -387,7 +404,11 @@ func (f *Fake) publish(id int) map[string]any {
 	return a
 }
 
-func (f *Fake) getAnswer(w http.ResponseWriter, id int) {
+func (f *Fake) getAnswer(w http.ResponseWriter, id int, includeContents string) {
+	if a, ok := f.kbAnswers[id]; ok {
+		f.getKBAnswer(w, a, includeContents)
+		return
+	}
 	a, ok := f.answers[id]
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no answer"})
@@ -433,4 +454,139 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// KBAnswer is an answer in the fake knowledge base's read paths. Unlike the
+// answers CreateAnswer stores, these are found by search and read in full.
+type KBAnswer struct {
+	CategoryID int
+	Title      string
+	Body       string // HTML
+	Updated    time.Time
+	// Published, Archived, and Internal are Zammad's publishing timestamps;
+	// nil is unset, so an answer with none is a draft.
+	Published, Archived, Internal *time.Time
+	Locale                        string // the portal locale; default en-us
+	KBLocaleID                    int    // default KBLocaleID
+
+	// Set by AddKBAnswer: the translation and content ids differ from the
+	// answer id, as they can in Zammad.
+	ID, TranslationID, ContentID int
+}
+
+// AddKBCategory adds a category title in the fake knowledge base's locale.
+func (f *Fake) AddKBCategory(id int, title string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.kbCats[id] = title
+}
+
+// AddKBAnswer adds an answer to the read paths and returns it with its ids.
+func (f *Fake) AddKBAnswer(a KBAnswer) KBAnswer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	a.ID, a.TranslationID, a.ContentID = f.nextID, f.nextID+1000, f.nextID+2000
+	if a.Locale == "" {
+		a.Locale = "en-us"
+	}
+	if a.KBLocaleID == 0 {
+		a.KBLocaleID = KBLocaleID
+	}
+	f.kbAnswers[a.ID] = a
+	return a
+}
+
+// RemoveKBAnswer deletes an answer, so reading it is a 404.
+func (f *Fake) RemoveKBAnswer(id int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.kbAnswers, id)
+}
+
+func (f *Fake) kbInit(w http.ResponseWriter) {
+	cats := map[string]any{}
+	for id, title := range f.kbCats {
+		cats[fmt.Sprint(id)] = map[string]any{"id": id, "title": title, "kb_locale_id": KBLocaleID, "category_id": id}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"KnowledgeBase":                    map[string]any{fmt.Sprint(KBID): map[string]any{"id": KBID, "active": true}},
+		"KnowledgeBaseLocale":              map[string]any{fmt.Sprint(KBLocaleID): map[string]any{"id": KBLocaleID, "system_locale_id": 1, "primary": true}},
+		"KnowledgeBaseCategoryTranslation": cats,
+	})
+}
+
+var htmlTag = regexp.MustCompile(`<[^>]*>`)
+
+// searchKB matches like Zammad's REST search: every query word must occur
+// (here as a substring of the title or the body text), hits come newest
+// first, and a positive limit cuts the list. Unlike Zammad's public flavor
+// it does not filter by publishing state, so a test sees the tool's own
+// filter. A category whose title holds the query is listed too, whatever
+// the index, so the client must drop it.
+func (f *Fake) searchKB(w http.ResponseWriter, body map[string]any) {
+	query, _ := body["query"].(string)
+	if toInt(body["knowledge_base_id"]) != KBID || strings.TrimSpace(query) == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "missing knowledge_base_id or query"})
+		return
+	}
+	words := strings.Fields(strings.ToLower(query))
+	var found []KBAnswer
+	for _, a := range f.kbAnswers {
+		text := strings.ToLower(a.Title + " " + htmlTag.ReplaceAllString(a.Body, " "))
+		if !slices.ContainsFunc(words, func(word string) bool { return !strings.Contains(text, word) }) {
+			found = append(found, a)
+		}
+	}
+	slices.SortFunc(found, func(a, b KBAnswer) int {
+		if c := b.Updated.Compare(a.Updated); c != 0 {
+			return c
+		}
+		return a.ID - b.ID
+	})
+	details := []map[string]any{}
+	for _, a := range found {
+		details = append(details, map[string]any{
+			"id": a.TranslationID, "type": "KnowledgeBase::Answer::Translation",
+			"url":   fmt.Sprintf("/help/%s/%d-%s/%d-%s", a.Locale, a.CategoryID, slug(f.kbCats[a.CategoryID]), a.ID, slug(a.Title)),
+			"title": a.Title, "date": a.Updated,
+		})
+	}
+	for id, title := range f.kbCats {
+		if strings.Contains(strings.ToLower(title), strings.ToLower(query)) {
+			details = append(details, map[string]any{
+				"id": id, "type": "KnowledgeBase::Category::Translation", "url": fmt.Sprintf("/help/en-us/%d-%s", id, slug(title)),
+			})
+		}
+	}
+	if limit := toInt(body["limit"]); limit > 0 && len(details) > limit {
+		details = details[:limit]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": []any{}, "details": details})
+}
+
+var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
+
+func slug(s string) string {
+	return strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(s), "-"), "-")
+}
+
+func (f *Fake) getKBAnswer(w http.ResponseWriter, a KBAnswer, includeContents string) {
+	assets := map[string]any{
+		"KnowledgeBaseAnswer": map[string]any{fmt.Sprint(a.ID): map[string]any{
+			"id": a.ID, "category_id": a.CategoryID,
+			"published_at": a.Published, "archived_at": a.Archived, "internal_at": a.Internal,
+			"translation_ids": []int{a.TranslationID},
+		}},
+		"KnowledgeBaseAnswerTranslation": map[string]any{fmt.Sprint(a.TranslationID): map[string]any{
+			"id": a.TranslationID, "title": a.Title, "kb_locale_id": a.KBLocaleID, "answer_id": a.ID,
+			"content_id": a.ContentID, "updated_at": a.Updated,
+		}},
+	}
+	if slices.Contains(strings.Split(includeContents, ","), fmt.Sprint(a.ContentID)) {
+		assets["KnowledgeBaseAnswerTranslationContent"] = map[string]any{
+			fmt.Sprint(a.ContentID): map[string]any{"id": a.ContentID, "body": a.Body},
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": a.ID, "assets": assets})
 }
