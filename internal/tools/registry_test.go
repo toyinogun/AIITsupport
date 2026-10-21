@@ -76,7 +76,7 @@ func TestProductionRegistry(t *testing.T) {
 	}
 	want := []string{
 		ToolUserLookup, ToolAccountUnlock, ToolTicketCreate, ToolTicketUpdate, ToolPrivilegedAccessChange, ToolEscalate,
-		ToolGroupSearch, ToolGroupAccessRequest,
+		ToolKBSearch, ToolGroupSearch, ToolGroupAccessRequest,
 	}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the image is distroless, with no zoneinfo (spec 0014, AC-4)
 
 	"golang.org/x/sync/errgroup"
 
@@ -55,7 +56,11 @@ func run() (err error) {
 	logger := logging.New(os.Stdout, cfg.LogLevel, service)
 
 	// Check every setting before dialing anything.
-	toolCfg := toolConfig(cfg)
+	zone, err := tools.LoadKBZone()
+	if err != nil {
+		return err
+	}
+	toolCfg := toolConfig(cfg, zone)
 	if err := toolCfg.Check(); err != nil {
 		return fmt.Errorf("toolserver config: %w", err)
 	}
@@ -127,8 +132,10 @@ func resetLimits(cfg config.ToolServer) server.Limits {
 	}
 }
 
-// toolConfig is the tool layer's part of the settings.
-func toolConfig(cfg config.ToolServer) tools.Config {
+// toolConfig is the tool layer's part of the settings; zone is where the
+// knowledge base's dates are read.
+func toolConfig(cfg config.ToolServer, zone *time.Location) tools.Config {
+	staleAsOf, _ := cfg.StaleAsOf()
 	return tools.Config{
 		BaseDN:            cfg.LDAPBaseDN,
 		UserOUs:           cfg.ToolUserOUs,
@@ -143,6 +150,14 @@ func toolConfig(cfg config.ToolServer) tools.Config {
 		ExecuteTimeout:    cfg.ApprovalExecuteTimeout,
 		ExecuteGrace:      cfg.ApprovalExecuteGrace,
 		AccessMaxPending:  cfg.AccessMaxPending,
+		KB: tools.KBSettings{
+			SearchLimit:      cfg.KBSearchLimit,
+			SearchCandidates: cfg.KBSearchCandidates,
+			StaleAfterDays:   cfg.KBStaleAfterDays,
+			BodyMaxRunes:     cfg.KBBodyMaxRunes,
+			StaleAsOf:        staleAsOf,
+			Zone:             zone,
+		},
 	}
 }
 

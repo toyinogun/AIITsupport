@@ -133,6 +133,7 @@ func startLive(t *testing.T, ldapURL string) *live {
 		CallTimeout:  15 * time.Second, WriteLimit: 3, WriteWindow: time.Hour,
 		TicketCreateLimit: 5, TicketMaxPending: 720 * time.Hour, PrivilegedWindow: 24 * time.Hour,
 		ExecuteTimeout: 5 * time.Second, ExecuteGrace: 5 * time.Minute, AccessMaxPending: 3,
+		KB: tools.KBSettings{SearchLimit: 3, SearchCandidates: 10, StaleAfterDays: 730, BodyMaxRunes: 2000, Zone: time.UTC},
 	}, tools.Systems{
 		Directory: ldap.NewClient(dir), Groups: ldap.NewClient(dir), Reader: ldap.NewClient(dir), Writer: ldap.NewWriter(dir),
 		Helpdesk: tools.NewHelpdesk(zc, "IT Support", ""), Recorder: rec,

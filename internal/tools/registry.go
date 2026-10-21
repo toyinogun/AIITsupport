@@ -192,6 +192,7 @@ const (
 	ToolMFAClear               = "mfa_clear"
 	ToolGroupSearch            = "group_search"
 	ToolGroupAccessRequest     = "group_access_request"
+	ToolKBSearch               = "kb_search"
 )
 
 // Argument bounds and values, part of the schema the model sees.
@@ -244,17 +245,23 @@ func productionTools() []Tool {
 		{
 			Name: ToolTicketUpdate,
 			Description: "Update this conversation's ticket: add an internal note, set the state (open, pending with " +
-				"pending_until, or closed), or both. Only this conversation's ticket can be changed.",
+				"pending_until, or closed), or both, and with kb_review tag it for a knowledge base review. Only this " +
+				"conversation's ticket can be changed.",
 			Tier: audit.TierLow,
 			Fields: []Field{
 				{Name: "state", Description: "open, pending, or closed.", MinRunes: 1, Enum: []string{stateOpen, statePending, stateClosed}},
 				{Name: "pending_until", Description: "RFC 3339 time; required exactly when state is pending.", MinRunes: 1, MaxRunes: 64, NoNewline: true},
 				{Name: "note", Description: "An internal note for IT.", MinRunes: 1, MaxRunes: maxNoteRunes, FreeText: true},
+				{
+					Name: "kb_review", Bool: true,
+					Description: "true when the answer used a stale knowledge base article or set one aside as older or " +
+						"conflicting, so IT reviews the KB. Needs a note naming the articles.",
+				},
 			},
 			Check:       checkTicketUpdate,
 			Target:      TargetTicket,
-			Store:       []string{"state", "pending_until"},
-			StoreResult: []string{"ticket_id", "state"},
+			Store:       []string{"state", "pending_until", "kb_review"},
+			StoreResult: []string{"ticket_id", "state", "kb_review_tagged"},
 			Handler:     ReadHandler(ticketUpdate),
 		},
 		{
@@ -299,5 +306,6 @@ func productionTools() []Tool {
 			},
 			Handler: ReadHandler(escalate),
 		},
+		kbSearchTool(),
 	}
 }

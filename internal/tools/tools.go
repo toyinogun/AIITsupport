@@ -14,6 +14,7 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/audit"
@@ -71,6 +72,9 @@ type Input struct {
 type Result struct {
 	audit.Result
 	Text string
+	// Hidden are Data keys the audit row may keep (through StoreResult) that
+	// the model never sees (kb_search's answer_ids and stale_ids, spec 0014).
+	Hidden []string
 }
 
 // Handler is a tool's code: a ReadHandler, an AccountHandler, a ResetHandler,
@@ -153,6 +157,10 @@ type HelpdeskAPI interface {
 	GetTicket(ctx context.Context, id int) (zammad.Ticket, error)
 	UpdateTicket(ctx context.Context, id int, u zammad.TicketUpdate, from string) (zammad.Ticket, error)
 	AddTag(ctx context.Context, ticketID int, tag string) error
+	// The knowledge base reads (spec 0014).
+	KBInit(ctx context.Context) (zammad.KBMeta, error)
+	SearchKB(ctx context.Context, kbID int, locale, query string, limit int) ([]zammad.KBHit, error)
+	GetAnswer(ctx context.Context, kbID, answerID int, contentIDs ...int) (zammad.Answer, error)
 }
 
 // History is what a handler may read back from the audit log.
@@ -184,6 +192,26 @@ type Deps struct {
 	Fence     *Fence
 	Limits    Limits
 	Scope     Scope
+	KB        KBSettings
+	// Logger is for a handler's own fixed lines (kb_review_tag_failed); the
+	// dispatcher logs every call itself.
+	Logger *slog.Logger
+}
+
+// KBSettings are kb_search's settings (spec 0014, AC-4 and AC-16).
+type KBSettings struct {
+	SearchLimit int // KB_SEARCH_LIMIT
+	// SearchCandidates is KB_SEARCH_CANDIDATES, how many of Zammad's hits
+	// one search reads and ranks (at least SearchLimit).
+	SearchCandidates int
+	StaleAfterDays   int // KB_STALE_AFTER_DAYS
+	BodyMaxRunes     int // KB_BODY_MAX_RUNES
+	// StaleAsOf is KB_STALE_AS_OF, the fixed "today" for the stale flag;
+	// zero means the dispatcher's clock.
+	StaleAsOf time.Time
+	// Zone is Europe/Amsterdam, where an updated date and today are read.
+	// cmd/toolserver refuses to start without it, never falling back to UTC.
+	Zone *time.Location
 }
 
 // Scope is where the tool layer may look in the directory (TOOL_USER_OUS

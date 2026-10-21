@@ -71,3 +71,29 @@ func TestCostMicroUSD(t *testing.T) {
 		t.Error("ErrUnknownModel should name the file")
 	}
 }
+
+// covers: spec 0014 AC-18. Cache reads count at their price over the input
+// price, rounded down once; equal prices, a free input, or a cache read
+// dearer than input count them in full.
+func TestBudgetTokens(t *testing.T) {
+	sonnet, err := Price("claude-sonnet-5-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := Tokens{Input: 1000, Output: 100, CacheRead: 2000, CacheWrite: 500}
+	if got := sonnet.BudgetTokens(rows); got != 1800 {
+		t.Errorf("sonnet = %d, want 1800", got)
+	}
+	if got := sonnet.BudgetTokens(Tokens{CacheRead: 19}); got != 1 {
+		t.Errorf("19 cache reads = %d, want 1 (rounded down)", got)
+	}
+	for name, p := range map[string]ModelPrice{
+		"equal prices":     {Input: 20000, CacheRead: 20000},
+		"free input":       {Input: 0, CacheRead: 2000},
+		"dearer than read": {Input: 1000, CacheRead: 2000},
+	} {
+		if got := p.BudgetTokens(rows); got != 3600 {
+			t.Errorf("%s = %d, want 3600 (cache reads in full)", name, got)
+		}
+	}
+}

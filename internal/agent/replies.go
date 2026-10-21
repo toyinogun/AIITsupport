@@ -39,6 +39,11 @@ func ResetLinkText(minutes int64, url string) string {
 	return "Here is your password reset link. It works once and expires in " + strconv.FormatInt(minutes, 10) + " minutes:\n" + url
 }
 
+// TextKBAnswerFallback is the reply when a turn failed after a knowledge
+// base answer closed the ticket (spec 0014, AC-14a); code adds the link to
+// the first result of the last kb_search.
+const TextKBAnswerFallback = "Your ticket is closed. The answer is in this article: "
+
 // Escalation texts (spec 0009, Fixed texts).
 const (
 	FooterEscalated    = "_IT has this now and will follow up. For anything else, send me a new message (not in this thread)._"

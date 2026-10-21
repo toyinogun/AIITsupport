@@ -200,7 +200,9 @@ type Store interface {
 	AppendToolResult(ctx context.Context, id int64, content json.RawMessage, ch *StatusChange) error
 	ListMessages(ctx context.Context, id int64) ([]StoredMessage, error)
 	InsertUsage(ctx context.Context, u Usage) error
-	SumTokens(ctx context.Context, id int64) (int64, error)
+	// SumUsage is the conversation's four token counts summed over every
+	// model call, for the token budget (spec 0014, AC-18).
+	SumUsage(ctx context.Context, id int64) (eval.Tokens, error)
 	CountRecentConversations(ctx context.Context, requesterSlackID string, since time.Time) (int64, error)
 	ListInterrupted(ctx context.Context, staleBefore time.Time) ([]Conversation, error)
 	GetConversation(ctx context.Context, id int64) (Conversation, error)

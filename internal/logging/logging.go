@@ -34,6 +34,7 @@ var allowed = map[string]bool{
 	// counts and flags
 	"attempt": true, "attempts": true, "backoff_ms": true, "latency_ms": true, "model_calls": true,
 	"tool_calls": true, "ticket": true, "removed": true, "read_only": true, "rows": true,
+	"dropped":      true, // markers or links removed from a reply (spec 0014, AC-10)
 	"input_tokens": true, "output_tokens": true, "cache_read_tokens": true, "cache_write_tokens": true,
 }
 

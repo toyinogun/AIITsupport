@@ -88,8 +88,11 @@ func TestPgUsageAndHourlyCount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n, err := s.SumTokens(ctx, c.ID); err != nil || n != 7200 {
-		t.Errorf("SumTokens = %d, %v; want 7200", n, err)
+	want := eval.Tokens{Input: 2000, Output: 200, CacheRead: 4000, CacheWrite: 1000}
+	if sum, err := s.SumUsage(ctx, c.ID); err != nil || sum != want {
+		t.Errorf("SumUsage = %+v, %v; want %+v", sum, err, want)
+	} else if n := price.BudgetTokens(sum); n != 3600 {
+		t.Errorf("BudgetTokens = %d, want 3600 (raw 7200)", n)
 	}
 	if n, err := s.CountRecentConversations(ctx, "U0JAN", time.Now().Add(-time.Hour)); err != nil || n != 2 {
 		t.Errorf("CountRecent = %d, %v; want 2", n, err)

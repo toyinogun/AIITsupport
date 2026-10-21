@@ -17,6 +17,8 @@ func (t *turn) failurePath(f *failure) string {
 			t.post(TextResetLinkFailed, "reset_link_failed")
 		case t.resetPosted:
 			t.post(TextResolvedLinkNoSummary, "resolved_link_no_summary")
+		case t.kbSearched:
+			t.postKBFallback()
 		default:
 			t.post(TextResolvedNoSummary, "resolved_no_summary")
 		}
@@ -55,6 +57,18 @@ func (t *turn) failurePath(f *failure) string {
 		t.post(TextEscalatedNoTicket, "escalated_no_ticket")
 	}
 	return OutcomeEscalated
+}
+
+// postKBFallback keeps a knowledge base answer from being lost after its
+// close (spec 0014, AC-14a): the fixed text with the link code built from
+// the last kb_search, or the plain resolved text when there is no result.
+func (t *turn) postKBFallback() {
+	link, ok := t.kbFallbackLink()
+	if !ok {
+		t.post(TextResolvedNoSummary, "resolved_no_summary")
+		return
+	}
+	t.postNoUnfurl(TextKBAnswerFallback+link, "kb_answer_fallback")
 }
 
 // backstop escalates a blocked privileged request the model left

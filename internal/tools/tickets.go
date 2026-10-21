@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,6 +13,10 @@ import (
 
 // assistantTag marks every ticket the assistant opens.
 const assistantTag = "noord-assistant"
+
+// tagKBReview marks a ticket whose answer used a stale or conflicting
+// knowledge base article, so IT can fix the KB (spec 0014, AC-11).
+const tagKBReview = "kb-review"
 
 // notePrefix starts every internal note the assistant adds.
 const notePrefix = "Added by the Noord assistant: "
@@ -128,10 +133,27 @@ func ticketUpdate(ctx context.Context, d Deps, in Input) (Result, error) {
 	if err != nil {
 		return Result{}, helpdeskFailure(err)
 	}
+	tagged := false
+	if in.Args["kb_review"] == "true" {
+		tagged = d.Helpdesk.tagKBReview(ctx, d.Logger, id)
+	}
 	return Result{
-		Result: resultData(map[string]any{"ticket_id": updated.ID, "state": stateFor(byID[updated.StateID])}),
-		Text:   "Ticket updated.",
+		Result: resultData(map[string]any{
+			"ticket_id": updated.ID, "state": stateFor(byID[updated.StateID]), "kb_review_tagged": tagged,
+		}),
+		Text: "Ticket updated.",
 	}, nil
+}
+
+// tagKBReview adds the kb-review tag after an update went through (spec
+// 0014, AC-11). A failed tag fails nothing: the update and note stand, and
+// one fixed line with the cause is logged.
+func (h *Helpdesk) tagKBReview(ctx context.Context, logger *slog.Logger, id int) bool {
+	if err := h.api.AddTag(ctx, id, tagKBReview); err != nil {
+		logger.WarnContext(ctx, "kb_review_tag_failed", "cause", cause(err))
+		return false
+	}
+	return true
 }
 
 // escalationOwed reports whether the thread holds a blocked privileged
@@ -184,14 +206,17 @@ func stateFor(zammadName string) string {
 	return zammadName
 }
 
-// checkTicketUpdate: at least one of state or note; pending_until present
-// exactly when state is pending, RFC 3339, in the future, and at most
-// TICKET_MAX_PENDING ahead.
+// checkTicketUpdate: at least one of state or note; kb_review true only
+// with a note (spec 0014, AC-11); pending_until present exactly when state
+// is pending, RFC 3339, in the future, and at most TICKET_MAX_PENDING ahead.
 func checkTicketUpdate(a Args, env CheckEnv) (string, bool) {
 	state, hasState := a["state"]
 	_, hasNote := a["note"]
 	if !hasState && !hasNote {
 		return "state", false
+	}
+	if a["kb_review"] == "true" && !hasNote {
+		return "kb_review", false
 	}
 	raw, hasPending := a["pending_until"]
 	if hasPending != (state == statePending) {

@@ -40,6 +40,8 @@ type Config struct {
 	ExecuteGrace   time.Duration // APPROVAL_EXECUTE_GRACE
 	// AccessMaxPending is ACCESS_MAX_PENDING (spec 0013, AC-5).
 	AccessMaxPending int
+	// KB is kb_search's settings (spec 0014, AC-16).
+	KB KBSettings
 }
 
 // Check refuses an OU list that is empty or holds an entry that is empty,
@@ -62,6 +64,9 @@ func (c Config) Check() error {
 	if c.CallTimeout <= 0 || c.WriteWindow <= 0 || c.TicketMaxPending <= 0 || c.WriteLimit < 1 || c.TicketCreateLimit < 1 ||
 		c.PrivilegedWindow < time.Hour || c.ExecuteTimeout <= 0 || c.ExecuteGrace <= 0 || c.AccessMaxPending < 1 {
 		errs = append(errs, errors.New("tool layer timeouts and limits must be positive, and the privileged attempt window at least 1h"))
+	}
+	if c.KB.SearchLimit < 1 || c.KB.SearchCandidates < c.KB.SearchLimit || c.KB.StaleAfterDays < 1 || c.KB.BodyMaxRunes < 1 || c.KB.Zone == nil {
+		errs = append(errs, errors.New("the knowledge base search needs a positive limit, at least as many candidates, a positive stale age and body length, and a time zone"))
 	}
 	return errors.Join(errs...)
 }
@@ -416,6 +421,8 @@ func (d *Dispatcher) deps() Deps {
 		Fence:     d.fence,
 		Limits:    Limits{TicketMaxPending: d.cfg.TicketMaxPending, PrivilegedWindow: d.cfg.PrivilegedWindow},
 		Scope:     Scope{BaseDN: d.cfg.BaseDN, UserOUs: d.cfg.UserOUs, GroupOUs: d.cfg.GroupOUs},
+		KB:        d.cfg.KB,
+		Logger:    d.logger,
 	}
 }
 
@@ -484,7 +491,19 @@ func (d *Dispatcher) run(ctx context.Context, t *Tool, call audit.Call, in Input
 		}
 		return refusalResponse(r.code, r.sentence), string(r.outcome)
 	}
-	return Response{Text: res.Text, Data: res.Data}, string(audit.OutcomeOK)
+	return Response{Text: res.Text, Data: withoutKeys(res.Data, res.Hidden)}, string(audit.OutcomeOK)
+}
+
+// withoutKeys is data without the hidden keys; data itself is left as it was.
+func withoutKeys(data map[string]any, hidden []string) map[string]any {
+	if len(hidden) == 0 {
+		return data
+	}
+	out := maps.Clone(data)
+	for _, k := range hidden {
+		delete(out, k)
+	}
+	return out
 }
 
 // recordCtx is the context for an audit write or read outside the handler:

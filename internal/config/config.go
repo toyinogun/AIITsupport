@@ -148,6 +148,8 @@ type ToolServer struct {
 	ZammadPublicURL  string        `env:"ZAMMAD_PUBLIC_URL"`
 	PrivilegedWindow time.Duration `env:"PRIVILEGED_ATTEMPT_WINDOW" default:"24h"`
 
+	KB
+
 	Reset
 
 	// Audit log writes (spec 0003). internal/audit validates the ranges.
@@ -260,6 +262,65 @@ func checkAgentApprovals(cfg Agent) error {
 // tool server's Entra app is fully set and someone can approve.
 func (cfg ToolServer) MFAEnabled() bool {
 	return cfg.GraphTenantID != "" && cfg.GraphClientID != "" && cfg.GraphClientSecret != "" && len(cfg.SlackITApprovers) > 0
+}
+
+// KB is kb_search (spec 0014, AC-16): how many articles one search returns,
+// how many of Zammad's matches it reads and ranks, when an article counts as
+// stale, and how much of a body the model reads. ZAMMAD_PUBLIC_URL, when
+// set, is the base of each article's link.
+type KB struct {
+	KBSearchLimit      int `env:"KB_SEARCH_LIMIT" default:"3"`
+	KBSearchCandidates int `env:"KB_SEARCH_CANDIDATES" default:"10"`
+	KBStaleAfterDays   int `env:"KB_STALE_AFTER_DAYS" default:"730"`
+	KBBodyMaxRunes     int `env:"KB_BODY_MAX_RUNES" default:"2000"`
+	// KBStaleAsOf pins "today" for the stale flag (YYYY-MM-DD), for the
+	// eval and the live verify; unset in production.
+	KBStaleAsOf string `env:"KB_STALE_AS_OF"`
+}
+
+const (
+	minKBSearchLimit    = 1
+	maxKBSearchLimit    = 5
+	maxKBCandidates     = 20 // the least is KB_SEARCH_LIMIT
+	minKBStaleAfterDays = 30
+	maxKBStaleAfterDays = 3650
+	minKBBodyMaxRunes   = 200
+	maxKBBodyMaxRunes   = 8000
+)
+
+// StaleAsOf is KB_STALE_AS_OF as a date; ok is false when it is unset.
+// LoadToolServer has already refused a malformed one.
+func (k KB) StaleAsOf() (day time.Time, ok bool) {
+	if k.KBStaleAsOf == "" {
+		return time.Time{}, false
+	}
+	day, err := time.Parse(time.DateOnly, k.KBStaleAsOf)
+	return day, err == nil
+}
+
+// checkKB refuses KB values out of range or a malformed KB_STALE_AS_OF.
+func checkKB(k KB) error {
+	var errs []error
+	ranges := []struct {
+		name          string
+		value, lo, hi int
+	}{
+		{"KB_SEARCH_LIMIT", k.KBSearchLimit, minKBSearchLimit, maxKBSearchLimit},
+		{"KB_SEARCH_CANDIDATES", k.KBSearchCandidates, max(k.KBSearchLimit, minKBSearchLimit), maxKBCandidates},
+		{"KB_STALE_AFTER_DAYS", k.KBStaleAfterDays, minKBStaleAfterDays, maxKBStaleAfterDays},
+		{"KB_BODY_MAX_RUNES", k.KBBodyMaxRunes, minKBBodyMaxRunes, maxKBBodyMaxRunes},
+	}
+	for _, r := range ranges {
+		if r.value < r.lo || r.value > r.hi {
+			errs = append(errs, fmt.Errorf("%s must be between %d and %d", r.name, r.lo, r.hi))
+		}
+	}
+	if k.KBStaleAsOf != "" {
+		if _, err := time.Parse(time.DateOnly, k.KBStaleAsOf); err != nil {
+			errs = append(errs, errors.New("KB_STALE_AS_OF must be a date in the form YYYY-MM-DD"))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Reset is the password reset link feature (spec 0011). The first four are
@@ -526,7 +587,7 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
 	err := load(&cfg, lookup)
 	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg), checkRetention(cfg.Retention),
-		checkReset(cfg.Reset, cfg.Retention), checkApprovals(cfg.Approvals))
+		checkReset(cfg.Reset, cfg.Retention), checkApprovals(cfg.Approvals), checkKB(cfg.KB))
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
