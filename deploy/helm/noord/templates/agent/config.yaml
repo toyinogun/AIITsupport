@@ -1,0 +1,30 @@
+{{- if eq .Values.component "agent" }}
+# The directory's CA, for the tool server's LDAPS (spec 0015, Value sourcing).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noord-ca
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  ca.crt: {{ required "ca.certificate is required (make install writes it)" .Values.ca.certificate | quote }}
+---
+# The kill switch (AC-9). Created once at read_only; its data is in the
+# Application's ignoreDifferences, so a kubectl flip survives self heal, and
+# Prune=false keeps it if the chart ever drops it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noord-kill-switch
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: Prune=false
+data:
+  mode: {{ .Values.killSwitch.initial | quote }}
+{{- end }}

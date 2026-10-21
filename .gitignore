@@ -21,3 +21,7 @@ docs/.agent-cache/
 seed/directory/overlay.local.yaml
 # The Entra demo users and their real MFA phone (spec 0005)
 seed/entra/demo.local.yaml
+# A cluster's secrets: every secret value of that install, local only (spec 0015, AC-6)
+deploy/clusters/*/secrets.env
+# ...except the template, which holds no value (CHANGE_ME and blanks only)
+!deploy/clusters/_template/secrets.env

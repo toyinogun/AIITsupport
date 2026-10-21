@@ -82,5 +82,7 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0058](0058-read-only-env-and-the-token-budget-ended-a-live-run.md) | 2026-10-21 | READ_ONLY in .env, then the token budget, ended a live run early | #15 Access requests via group owner | ~10 min | post |
 | [0059](0059-kb-answers-missed-the-token-budget-target.md) | 2026-10-21 | Every knowledge base answer used nearly the whole token budget | #16 Knowledge base answers | ~15 min | post |
 | [0060](0060-zammad-kb-search-is-newest-first-not-relevance.md) | 2026-10-21 | Zammad's KB search returns newest first, so an older conflicting article can drop out | #16 Knowledge base answers | ~30 min | post |
+| [0061](0061-ghcr-answers-403-for-a-missing-package.md) | 2026-10-21 | GHCR answers 403, not 404, for a package that does not exist yet | #17 One command GitOps install | ~10 min | no |
+| [0062](0062-go-run-hides-the-installers-exit-code.md) | 2026-10-21 | `go run` would hide the installer's exit code 2 | #17 One command GitOps install | ~5 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

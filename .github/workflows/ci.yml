@@ -13,9 +13,12 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to a pull request cancels its older run. Runs on main never
+# cancel each other: a seal or release commit right after a code push must
+# not cancel the run that pushes that commit's images (spec 0015, AC-19).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -120,39 +123,88 @@ jobs:
           cache-key: ${{ github.job }}
       - run: make secrets
 
+  # The four images (spec 0015, AC-19): built for both arches on every run,
+  # pushed to ghcr.io/<owner>/aiitsupport-<name>:<full SHA> only on a push to
+  # main. A change only under deploy/clusters/ (a seal or release commit)
+  # builds nothing; the job still succeeds, so ci-ok stays green.
   images:
     runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
-        cmd: [agent, toolserver]
+        include:
+          - name: agent
+            target: app
+          - name: toolserver
+            target: app
+          - name: seed
+            target: seed
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          fetch-depth: 0
+      - id: plan
+        name: Skip a change only under deploy/clusters, name the image
+        env:
+          BASE: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+          OWNER: ${{ github.repository_owner }}
+        run: .github/scripts/image-plan.sh "$BASE" "$GITHUB_SHA" "$OWNER" "${{ matrix.name }}"
+      - if: steps.plan.outputs.build == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.plan.outputs.build == 'true' && github.event_name == 'push'
+        name: Log in to GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       # The Dockerfile cross compiles from $BUILDPLATFORM, so no QEMU is needed.
-      # Pushing to GHCR is feature #17's job.
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - if: steps.plan.outputs.build == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
-          build-args: CMD=${{ matrix.cmd }}
-          push: false
+          build-args: CMD=${{ matrix.name }}
+          tags: ${{ steps.plan.outputs.image }}
+          push: ${{ github.event_name == 'push' }}
 
   samba-image:
     runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: plan
+        name: Skip a change only under deploy/clusters, name the image
+        env:
+          BASE: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+          OWNER: ${{ github.repository_owner }}
+        run: .github/scripts/image-plan.sh "$BASE" "$GITHUB_SHA" "$OWNER" samba
       # The image's apt step runs per arch, so arm64 is built under QEMU (AC-18).
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - if: steps.plan.outputs.build == 'true'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - if: steps.plan.outputs.build == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.plan.outputs.build == 'true' && github.event_name == 'push'
+        name: Log in to GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - if: steps.plan.outputs.build == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: seed/directory/samba
           file: seed/directory/samba/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: false
+          tags: ${{ steps.plan.outputs.image }}
+          push: ${{ github.event_name == 'push' }}
           cache-from: type=gha,scope=samba
           cache-to: type=gha,scope=samba,mode=max
 

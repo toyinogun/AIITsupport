@@ -1,0 +1,28 @@
+{{- if eq .Values.part "platform" }}
+# What the platform part may create: the enabled operators' charts into their
+# own namespaces, plus the cluster scoped kinds operators need (AC-4).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: noord-platform
+  namespace: argocd
+  labels:
+    {{- include "apps.labels" . | nindent 4 }}
+spec:
+  description: Operators for the Noord install on {{ .Values.cluster.name }}
+  sourceRepos:
+    - {{ .Values.repo.url }}
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: {{ .Values.platform.cnpg.namespace }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ .Values.platform.sealedSecrets.namespace }}
+  clusterResourceWhitelist:
+    - {group: "", kind: Namespace}
+    - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRole}
+    - {group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}
+    - {group: admissionregistration.k8s.io, kind: MutatingWebhookConfiguration}
+    - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration}
+    - {group: cert-manager.io, kind: ClusterIssuer}
+{{- end }}

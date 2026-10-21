@@ -1,0 +1,44 @@
+{{- if eq .Values.component "agent" }}
+# Waits for the owner and the managed roles, then applies the embedded
+# migrations (AC-9). A Sync hook, so the tool server and agent (wave 2)
+# start only on a migrated database.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: noord-migrate
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    app.kubernetes.io/name: noord-migrate
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: noord-migrate
+    spec:
+      restartPolicy: Never
+      {{- include "noord.podSecurity" . | nindent 6 }}
+      containers:
+        - name: migrate
+          image: {{ include "noord.image" (list . "seed") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            - name: MIGRATE_WAIT_TIMEOUT
+              value: {{ .Values.migrate.waitTimeout | quote }}
+          envFrom:
+            - secretRef:
+                name: noord-migrate
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          {{- include "noord.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            {{- include "noord.pgCAMount" . | nindent 12 }}
+      volumes:
+        {{- include "noord.pgCAVolume" . | nindent 8 }}
+{{- end }}

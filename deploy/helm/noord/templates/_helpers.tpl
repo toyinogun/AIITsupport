@@ -1,0 +1,110 @@
+{{/* The Secret table shared with the installer (files/secrets.yaml). */}}
+{{- define "noord.table" -}}
+{{- .Files.Get "files/secrets.yaml" -}}
+{{- end -}}
+
+{{/* image: the full reference for one of our images; pass (list $ "agent"). */}}
+{{- define "noord.image" -}}
+{{- $root := index . 0 -}}
+{{- $name := index . 1 -}}
+{{- $img := $root.Values.image -}}
+{{- printf "%s/%s/aiitsupport-%s:%s" $img.registry (required "image.owner is required" $img.owner) $name (required "image.tag is required (a full git SHA)" $img.tag) -}}
+{{- end -}}
+
+{{- define "noord.labels" -}}
+app.kubernetes.io/part-of: noord
+app.kubernetes.io/managed-by: argocd
+noord.example/cluster: {{ .Values.cluster.name | quote }}
+{{- end -}}
+
+{{/*
+sealedSecrets: one SealedSecret per table entry of this component, from
+.Values.sealed. Fails when a required key (for this demo setting) is missing.
+*/}}
+{{- define "noord.sealedSecrets" -}}
+{{- $root := . -}}
+{{- $table := include "noord.table" . | fromYaml -}}
+{{- range $name, $s := $table.secrets }}
+{{- if eq $s.component $root.Values.component }}
+{{- $data := index $root.Values.sealed $name | default dict }}
+{{- range $key, $k := $s.keys }}
+{{- $applies := or (not (hasKey $k "demo")) (eq $k.demo $root.Values.demo.enabled) }}
+{{- if and $applies (not $k.optional) (not (hasKey $data $key)) }}
+{{- fail (printf "sealed-values.yaml has no %s in %s; run make install or make seal" $key $name) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: {{ $name }}
+  namespace: {{ $s.namespace }}
+  labels:
+    {{- include "noord.labels" $root | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  encryptedData:
+    {{- toYaml $data | nindent 4 }}
+  template:
+    metadata:
+      name: {{ $name }}
+      namespace: {{ $s.namespace }}
+      labels:
+        {{- include "noord.labels" $root | nindent 8 }}
+    type: {{ $s.type | default "Opaque" }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/* checksum of one Secret's sealed block, so a reseal rolls only its readers (AC-8). */}}
+{{- define "noord.sealedChecksum" -}}
+{{- $root := index . 0 -}}
+{{- $name := index . 1 -}}
+{{- index $root.Values.sealed $name | default dict | toYaml | sha256sum -}}
+{{- end -}}
+
+{{/* Pod level security for the restricted Pod Security level (AC-12). */}}
+{{- define "noord.podSecurity" -}}
+automountServiceAccountToken: false
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+{{- end -}}
+
+{{- define "noord.containerSecurity" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+{{- end -}}
+
+{{/* The CNPG CA volume every database client mounts (sslmode=verify-full). */}}
+{{- define "noord.pgCAVolume" -}}
+- name: pg-ca
+  secret:
+    secretName: noord-pg-ca
+    items:
+      - key: ca.crt
+        path: ca.crt
+{{- end -}}
+
+{{- define "noord.pgCAMount" -}}
+{{- $table := include "noord.table" . | fromYaml -}}
+- name: pg-ca
+  mountPath: {{ dir $table.database.caPath }}
+  readOnly: true
+{{- end -}}
+
+{{/* env: a map of setting name to value, as an env list. */}}
+{{- define "noord.env" -}}
+{{- range $k, $v := . -}}
+- name: {{ $k }}
+  value: {{ $v | toString | quote }}
+{{ end -}}
+{{- end -}}

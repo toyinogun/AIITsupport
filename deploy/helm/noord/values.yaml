@@ -1,0 +1,70 @@
+# Defaults for every cluster. A cluster's own deploy/clusters/<name>/values.yaml
+# and sealed-values.yaml are layered on top by its ArgoCD Applications; edit
+# those, not this file, to tune one cluster (spec 0015).
+
+# Which part this render holds: agent, directory, or client. Set by the
+# Application, never by hand.
+component: ""
+
+cluster:
+  name: ""
+
+image:
+  registry: ghcr.io
+  owner: ""
+  tag: ""        # the full git SHA CI pushed (AC-19); never latest
+  pullPolicy: IfNotPresent
+
+demo:
+  enabled: true
+
+# The CA that signs the directory's LDAPS certificate: ours in demo mode,
+# the client's otherwise. Public; rendered as the ConfigMap noord-ca.
+ca:
+  certificate: ""
+
+# The sealed blocks, one per Secret in files/secrets.yaml (sealed-values.yaml).
+sealed: {}
+
+# Shared by the agent's purge and the helpdesk seed (spec 0010, AC-13).
+ticketRetentionDays: 30
+logLevel: info
+
+postgres:
+  image: ghcr.io/cloudnative-pg/postgresql:17.6-system-trixie@sha256:6ae4a22c14bdc66e5feaafd38d12c3956fabf9ce9582189e6aa4ee767d981d1b
+  instances: 1
+  storage:
+    size: 5Gi
+  storageClass: ""   # empty: the cluster's default StorageClass
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+# The kill switch starts read only; flip it with kubectl (AC-9), never in git.
+killSwitch:
+  initial: read_only
+
+migrate:
+  waitTimeout: 5m
+  backoffLimit: 6
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+toolserver:
+  replicas: 1
+  zammadDefaultGroup: IT Support
+  # Other non secret settings by name, defaults from internal/config.
+  env: {}
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+agent:
+  replicas: 1
+  # Above AGENT_SHUTDOWN_GRACE (25s) so a running turn can finish (spec 0008).
+  terminationGracePeriodSeconds: 40
+  env: {}
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}

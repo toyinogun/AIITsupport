@@ -1,7 +1,7 @@
 // Command seed builds Noord's fictional directory (spec 0004) and helpdesk
-// (spec 0006). It is a dev and
-// ops tool, never a long running service, and it is the only code that binds
-// as the domain Administrator.
+// (spec 0006), migrates the database, and installs the system into a
+// cluster (spec 0015). It is a dev and ops tool, never a long running
+// service, and it is the only code that binds as the domain Administrator.
 //
 //	seed certs [--dir D] [--host H]...   make the dev CA and the Samba server cert
 //	seed validate                        check the seed file, no network
@@ -11,6 +11,8 @@
 //	seed entra sync [--only U]           make Entra match SYNC-Entra-Users (spec 0005)
 //	seed entra mfa [--clear] <user>      list or clear a user's phone methods (tool server app)
 //	seed helpdesk                        fill a fresh Zammad from seed/helpdesk/ (spec 0006)
+//	seed migrate                         wait for the database, then apply the migrations (spec 0015)
+//	seed install --cluster C             install or update a cluster through ArgoCD (spec 0015)
 package main
 
 import (
@@ -21,6 +23,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/toyinogun/AIITsupport/internal/install"
 )
 
 const service = "seed"
@@ -33,7 +37,9 @@ const usage = `usage:
   seed lock <username>
   seed entra sync [--only <username>]
   seed entra mfa [--clear] <username>
-  seed helpdesk`
+  seed helpdesk
+  seed migrate
+  seed install --cluster <name>`
 
 // errUsage marks a mistake in how the command was called.
 var errUsage = errors.New(usage)
@@ -41,7 +47,7 @@ var errUsage = errors.New(usage)
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", service, err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }
 
@@ -68,7 +74,20 @@ func run(args []string, out io.Writer) error {
 		return runEntra(ctx, rest, out)
 	case "helpdesk":
 		return runHelpdesk(ctx, rest, out)
+	case "migrate":
+		return runMigrate(ctx, rest, out)
+	case "install":
+		return runInstall(ctx, rest, out)
 	default:
 		return fmt.Errorf("unknown command %q\n%w", cmd, errUsage)
 	}
+}
+
+// exitCode is 1, or the installer's own code: 2 when its preflight found a
+// problem and nothing was changed (spec 0015).
+func exitCode(err error) int {
+	if exit, ok := errors.AsType[*install.ExitError](err); ok {
+		return exit.Code
+	}
+	return 1
 }

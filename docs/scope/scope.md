@@ -287,7 +287,7 @@ Package everything and deploy through GitOps to an EU hosted cluster, with Postg
   - [ ] The proof on a throwaway VM: recorded install, Slack unlock, reset link, restore drill, teardown, journal (AC-1, AC-27, AC-29)
 - [ ] Verify it: `/check verify gitops install`
 - [ ] Test it: `/test gitops install`
-spec [0015](../specs/0015-gitops-install/index.md)
+spec [0015](../specs/0015-gitops-install/index.md) · code in `internal/install/`, `internal/migrate/`, `cmd/seed/`, `deploy/`, `Dockerfile`, `.github/`
 
 ### 18. Observability & ops dashboard · needs a decision
 One trace per conversation and a simple dashboard the IT person can read: tickets handled, escalations, approvals waiting, errors, cost.

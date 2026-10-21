@@ -1,0 +1,96 @@
+{{- if eq .Values.component "agent" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toolserver
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    app.kubernetes.io/name: toolserver
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: {{ .Values.toolserver.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: toolserver
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: toolserver
+      annotations:
+        checksum/sealed: {{ include "noord.sealedChecksum" (list . "noord-toolserver") }}
+        checksum/ca: {{ .Values.ca.certificate | sha256sum }}
+    spec:
+      {{- include "noord.podSecurity" . | nindent 6 }}
+      containers:
+        - name: toolserver
+          image: {{ include "noord.image" (list . "toolserver") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            {{- $env := dict
+              "TOOLSERVER_HTTP_ADDR" ":8080"
+              "LOG_LEVEL" .Values.logLevel
+              "TICKET_RETENTION_DAYS" .Values.ticketRetentionDays
+              "LDAP_CA_CERT" "/etc/noord/ca/ca.crt"
+              "KILL_SWITCH_FILE" "/etc/noord/kill-switch/mode"
+              "ZAMMAD_DEFAULT_GROUP" .Values.toolserver.zammadDefaultGroup }}
+            {{- if .Values.demo.enabled }}
+            {{- $_ := set $env "LDAP_URL" "ldaps://samba.noord-directory.svc.cluster.local:636" }}
+            {{- end }}
+            {{- include "noord.env" (merge (deepCopy .Values.toolserver.env) $env) | trim | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: noord-toolserver
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.toolserver.resources | nindent 12 }}
+          {{- include "noord.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            {{- include "noord.pgCAMount" . | nindent 12 }}
+            - name: ca
+              mountPath: /etc/noord/ca
+              readOnly: true
+            # A whole directory, never subPath, so kubelet refreshes it (AC-9).
+            - name: kill-switch
+              mountPath: /etc/noord/kill-switch
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "noord.pgCAVolume" . | nindent 8 }}
+        - name: ca
+          configMap:
+            name: noord-ca
+        - name: kill-switch
+          configMap:
+            name: noord-kill-switch
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toolserver
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app.kubernetes.io/name: toolserver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

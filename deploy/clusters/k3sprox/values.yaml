@@ -1,0 +1,58 @@
+# k3sprox, the homelab cluster (spec 0015). Committed: no secret and no
+# private value goes here; those are in secrets.env and sealed-values.yaml.
+
+cluster:
+  name: k3sprox
+
+repo:
+  url: https://github.com/toyinogun/AIITsupport.git
+  revision: main
+
+# Set by make release (AC-19); the tracer run uses the first main commit
+# that has all four images.
+image:
+  registry: ghcr.io
+  owner: toyinogun
+  tag: CHANGE_ME
+
+# The tracer thread runs the agent stack only (build plan task 1); the
+# directory and helpdesk join with tasks 2 and 3.
+demo:
+  enabled: false
+
+# k3sprox already runs Sealed Secrets, cert-manager, CNPG, and the Tailscale
+# operator. The Barman Cloud plugin joins with backups (task 7).
+platform:
+  sealedSecrets:
+    enabled: false
+    namespace: kube-system
+    name: sealed-secrets-controller
+  certManager:
+    enabled: false
+  cnpg:
+    enabled: false
+    namespace: cnpg-system
+  barmanPlugin:
+    enabled: false
+  tailscale:
+    enabled: false
+
+postgres:
+  storage:
+    size: 5Gi
+
+# Noord's demo CA, made in ~/.noord/k3sprox/ (its key never leaves there).
+ca:
+  certificate: |
+    -----BEGIN CERTIFICATE-----
+    MIIBvjCCAWOgAwIBAgIQNgqaLG5ZU8sThu4mPbh0tTAKBggqhkjOPQQDAjA9MSQw
+    IgYDVQQKExtOb29yZCBMb2dpc3RpY3MgKGZpY3Rpb25hbCkxFTATBgNVBAMTDE5v
+    b3JkIGRldiBDQTAeFw0yNjEwMjExNjQxNDlaFw0zMTEwMjAxNzQxNDlaMD0xJDAi
+    BgNVBAoTG05vb3JkIExvZ2lzdGljcyAoZmljdGlvbmFsKTEVMBMGA1UEAxMMTm9v
+    cmQgZGV2IENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmIr7b6Xyldq8goIM
+    Sc5wwIrA9fDr5x/2Xm9X7shJh+H2BJYIrG+AVj6oRBoZVoKO4ciZiIZ/MEDxlQub
+    yQuwy6NFMEMwDgYDVR0PAQH/BAQDAgEGMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYD
+    VR0OBBYEFH0cpgPmtxHz6FgJ4HqW5g79PbXyMAoGCCqGSM49BAMCA0kAMEYCIQD1
+    uBdiV5474DG/ofSk4PSAIoh8kxfCdfJiyP72qca77wIhANgRcD5IgpmqxA3WfYUT
+    l/D4frsFSM6faGZKqnPaGAh2
+    -----END CERTIFICATE-----
