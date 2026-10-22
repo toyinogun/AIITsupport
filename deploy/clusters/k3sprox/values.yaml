@@ -20,11 +20,11 @@ repo:
   revision: main
 
 # Set by make release (AC-19); by hand until it exists: the first main
-# commit with the reset page and the Entra certificate (task 4).
+# commit with /readyz, seed smoke, and backups (tasks 5 to 7).
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: a31cd627b8752286586e0f7283b9dfe277359d2f
+  tag: 2581f5e6bc01ad609f79690680b7724a980e4d83
 
 # The demo directory (task 2) and helpdesk (task 3) run here.
 demo:
@@ -60,13 +60,13 @@ postgres:
   storage:
     size: 5Gi
 
-# Backups to the R2 bucket in the EU jurisdiction (AC-18). Turn on once the
-# bucket exists and its token is in secrets.env. Not secret: the endpoint
-# holds the Cloudflare account id; the token and region are sealed.
+# Backups to the R2 bucket in the EU jurisdiction (AC-18), its token in
+# secrets.env. Not secret: the endpoint holds the Cloudflare account id;
+# the token and region are sealed.
 backup:
-  enabled: false
-  endpoint: ""   # https://<account>.eu.r2.cloudflarestorage.com
-  bucket: ""
+  enabled: true
+  endpoint: https://46cc20661b5d8547874081f7a5e40b39.eu.r2.cloudflarestorage.com
+  bucket: noord-k3sprox-backups
 
 # Noord's demo CA, made in ~/.noord/k3sprox/ (its key never leaves there).
 ca:
