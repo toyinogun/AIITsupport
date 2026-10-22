@@ -1,0 +1,134 @@
+{{- if eq .Values.component "client" }}
+{{- /* noord-client's allows (AC-14): Zammad's pods among themselves (web,
+Rails, websocket, scheduler, its Postgres, Redis, Memcached, and the init
+and reindex Jobs), to our Elasticsearch and to Samba; the helpdesk seed Job
+to what its Rails process uses; the web UI from the tool server and the
+tailnet proxy. */}}
+{{ include "noord.netBase" (list . "noord-client") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zammad
+  namespace: noord-client
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    {{- include "noord.zammadPods" . | nindent 4 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            {{- include "noord.zammadPods" . | nindent 12 }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seed-helpdesk
+      ports:
+        - {protocol: TCP, port: 8080}   # web
+        - {protocol: TCP, port: 5432}   # Postgres
+        - {protocol: TCP, port: 6379}   # Redis
+        - {protocol: TCP, port: 11211}  # Memcached
+  egress:
+    - to:
+        - podSelector:
+            {{- include "noord.zammadPods" . | nindent 12 }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: elasticsearch
+      ports:
+        - {protocol: TCP, port: 9200}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-directory
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: samba
+      ports:
+        - {protocol: TCP, port: 636}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zammad-web
+  namespace: noord-client
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: zammad-nginx
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-agent
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: toolserver
+        {{- include "noord.tailscaleProxy" (list . "noord-client" "helpdesk") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: elasticsearch
+  namespace: noord-client
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: elasticsearch
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            {{- include "noord.zammadPods" . | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 9200}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: seed-helpdesk
+  namespace: noord-client
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: seed-helpdesk
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            {{- include "noord.zammadPods" . | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 6379}
+        - {protocol: TCP, port: 11211}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-directory
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: samba
+      ports:
+        - {protocol: TCP, port: 636}
+{{- end }}

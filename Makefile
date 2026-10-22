@@ -16,7 +16,7 @@ ZAMMAD_VOLUMES := noord_elasticsearch-data noord_postgresql-data noord_redis-dat
 .PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
-	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install
+	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install smoke
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -175,6 +175,12 @@ install:
 	@test -n "$(CLUSTER)" || { echo "usage: make install CLUSTER=<name>" >&2; exit 1; }
 	@go build -o bin/seed ./cmd/seed  # built, not go run, so exit 2 reaches you
 	./bin/seed install --cluster "$(CLUSTER)"
+
+## smoke: run the smoke check on an installed cluster, CLUSTER=<name> (spec 0015, AC-17)
+smoke:
+	@test -n "$(CLUSTER)" || { echo "usage: make smoke CLUSTER=<name>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed
+	./bin/seed smoke --cluster "$(CLUSTER)"
 
 clean:
 	rm -rf bin

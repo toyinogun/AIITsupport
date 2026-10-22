@@ -1,0 +1,53 @@
+{{- if and (eq .Values.component "agent") .Values.backup.enabled }}
+{{- $b := .Values.backup }}
+# Where noord-pg's WAL and base backups go (AC-18), through the Barman Cloud
+# plugin. The Cluster archives WAL here (postgres.yaml, isWALArchiver).
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: noord-backup
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  retentionPolicy: {{ $b.retention | quote }}
+  configuration:
+    destinationPath: {{ printf "s3://%s/%s/" (required "backup.bucket is required with backup.enabled" $b.bucket) .Values.cluster.name | quote }}
+    endpointURL: {{ required "backup.endpoint is required with backup.enabled" $b.endpoint | quote }}
+    s3Credentials:
+      accessKeyId:
+        name: noord-backup
+        key: BACKUP_S3_ACCESS_KEY_ID
+      secretAccessKey:
+        name: noord-backup
+        key: BACKUP_S3_SECRET_ACCESS_KEY
+      region:
+        name: noord-backup
+        key: BACKUP_S3_REGION
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: noord-pg-daily
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: {{ $b.schedule | quote }}
+  # The first backup runs at once, before the first real audit rows (AC-18).
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: noord-pg
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+{{- end }}

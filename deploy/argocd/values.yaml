@@ -28,6 +28,10 @@ platform:
     namespace: cnpg-system
   barmanPlugin:
     enabled: false
+    # CNPG-I's Barman Cloud plugin (v0.15.1); needs cert-manager.
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: plugin-barman-cloud
+    version: 0.8.1
   tailscale:
     enabled: false
 

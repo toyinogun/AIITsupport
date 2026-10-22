@@ -24,6 +24,7 @@ var loaders = map[string]any{
 	"agent":        &config.Agent{},
 	"toolserver":   &config.ToolServer{},
 	"migrate":      &config.Migrate{},
+	"smoke":        &config.Smoke{},
 	"seed":         &config.Seed{},
 	"seedhelpdesk": &config.SeedHelpdesk{},
 }

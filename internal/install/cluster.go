@@ -52,11 +52,24 @@ type Values struct {
 		Enabled       *bool  `yaml:"enabled"`
 		TailscaleHost string `yaml:"tailscaleHost"`
 	} `yaml:"reset"`
+	// Helpdesk is the demo Zammad's tailnet host (AC-15).
+	Helpdesk struct {
+		TailscaleHost string `yaml:"tailscaleHost"`
+	} `yaml:"helpdesk"`
+	// Backup is the database's backups to object storage (AC-18).
+	Backup struct {
+		Enabled  *bool  `yaml:"enabled"`
+		Endpoint string `yaml:"endpoint"`
+		Bucket   string `yaml:"bucket"`
+	} `yaml:"backup"`
 	Platform struct {
 		SealedSecrets struct {
 			Namespace string `yaml:"namespace"`
 			Name      string `yaml:"name"`
 		} `yaml:"sealedSecrets"`
+		BarmanPlugin struct {
+			Enabled bool `yaml:"enabled"`
+		} `yaml:"barmanPlugin"`
 	} `yaml:"platform"`
 	CA struct {
 		Certificate string `yaml:"certificate"`
@@ -79,9 +92,22 @@ func (v Values) ResetHost() string {
 	return "noord-" + v.Cluster.Name + "-reset"
 }
 
+// HelpdeskHost is the demo Zammad's tailnet host: helpdesk.tailscaleHost,
+// else noord-<cluster>-helpdesk (the chart's default agrees).
+func (v Values) HelpdeskHost() string {
+	if v.Helpdesk.TailscaleHost != "" {
+		return v.Helpdesk.TailscaleHost
+	}
+	return "noord-" + v.Cluster.Name + "-helpdesk"
+}
+
+// BackupEnabled is backup.enabled, off unless the folder turns it on (the
+// chart's default agrees).
+func (v Values) BackupEnabled() bool { return v.Backup.Enabled != nil && *v.Backup.Enabled }
+
 // Conditions are the switches this folder sets.
 func (v Values) Conditions() Conditions {
-	return Conditions{Demo: v.DemoEnabled(), Reset: v.ResetEnabled()}
+	return Conditions{Demo: v.DemoEnabled(), Reset: v.ResetEnabled(), Backup: v.BackupEnabled()}
 }
 
 // Folder is one cluster's folder in the clone.

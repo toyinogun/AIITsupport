@@ -216,6 +216,28 @@ func (c *Client) InChainMemberOf(ctx context.Context, name string, parents []str
 	return found, err
 }
 
+// Ping dials and binds as the service account, then closes: the tool
+// server's ldap readiness check (spec 0015, AC-16). A refused bind or an
+// LDAP level failure carries a fixed ldap_<result code> cause token.
+func (c *Client) Ping(ctx context.Context) error {
+	err := c.session(ctx, func(*goldap.Conn) error { return nil })
+	var lerr *goldap.Error
+	if errors.As(err, &lerr) && lerr.ResultCode != goldap.ErrorNetwork { // a dial failure keeps its network token
+		return pingError{err: err, code: lerr.ResultCode}
+	}
+	return err
+}
+
+// pingError gives cause.Of a fixed token for an LDAP failure, never its text.
+type pingError struct {
+	err  error
+	code uint16
+}
+
+func (e pingError) Error() string { return e.err.Error() }
+func (e pingError) Unwrap() error { return e.err }
+func (e pingError) Cause() string { return "ldap_" + strconv.Itoa(int(e.code)) }
+
 // session dials, binds as the service account, runs fn, and closes.
 func (c *Client) session(ctx context.Context, fn func(*goldap.Conn) error) error {
 	return session(ctx, c.cfg, fn)

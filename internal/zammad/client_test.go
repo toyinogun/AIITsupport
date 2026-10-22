@@ -1,11 +1,13 @@
 package zammad_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/toyinogun/AIITsupport/internal/cause"
 	"github.com/toyinogun/AIITsupport/internal/zammad"
 	"github.com/toyinogun/AIITsupport/internal/zammad/zammadtest"
 )
@@ -190,5 +192,14 @@ func TestAddTag(t *testing.T) {
 	}
 	if err := c.AddTag(t.Context(), 99999, "escalated"); zammad.Status(err) != http.StatusUnprocessableEntity {
 		t.Errorf("unknown ticket: err = %v, want 422", err)
+	}
+}
+
+// covers: AC-16 (spec 0015). A Zammad error logs as zammad_<status>, never
+// its message.
+func TestErrorCause(t *testing.T) {
+	err := fmt.Errorf("read me: %w", &zammad.Error{Method: "GET", Path: "/api/v1/users/me", Status: 401, Message: "secret detail"})
+	if got := cause.Of(err); got != "zammad_401" {
+		t.Errorf("cause.Of = %q, want zammad_401", got)
 	}
 }

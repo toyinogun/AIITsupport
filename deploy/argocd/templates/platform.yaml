@@ -12,6 +12,9 @@ spec:
   description: Operators for the Noord install on {{ .Values.cluster.name }}
   sourceRepos:
     - {{ .Values.repo.url }}
+    {{- if .Values.platform.barmanPlugin.enabled }}
+    - {{ .Values.platform.barmanPlugin.repoURL }}
+    {{- end }}
   destinations:
     - server: https://kubernetes.default.svc
       namespace: {{ .Values.platform.cnpg.namespace }}
@@ -25,4 +28,32 @@ spec:
     - {group: admissionregistration.k8s.io, kind: MutatingWebhookConfiguration}
     - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration}
     - {group: cert-manager.io, kind: ClusterIssuer}
+{{- with .Values.platform.barmanPlugin }}
+{{- if .enabled }}
+---
+# The Barman Cloud plugin, beside the CNPG operator, which finds it by its
+# Service there (AC-4, AC-18).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: noord-{{ $.Values.cluster.name }}-barman
+  namespace: argocd
+  labels:
+    {{- include "apps.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: noord-platform
+  source:
+    repoURL: {{ .repoURL }}
+    chart: {{ .chart }}
+    targetRevision: {{ .version }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $.Values.platform.cnpg.namespace }}
+  {{- include "apps.syncPolicy" $ | nindent 2 }}
+{{- end }}
+{{- end }}
 {{- end }}

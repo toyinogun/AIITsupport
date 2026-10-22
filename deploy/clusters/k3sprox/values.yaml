@@ -3,6 +3,17 @@
 
 cluster:
   name: k3sprox
+  # By hand until make cluster-init exists (task 8): the k3s pod and service
+  # defaults, the four nodes, and the control plane's API.
+  podCIDR: 10.42.0.0/16
+  serviceCIDR: 10.43.0.0/16
+  nodeCIDR: 172.16.70.0/24
+  apiServerCIDR: 172.16.70.20/32
+
+# k3sprox runs Cilium (kube proxy replacement), so FQDN egress rules work.
+cilium:
+  enabled: true
+  fqdnEgress: true
 
 repo:
   url: https://github.com/toyinogun/AIITsupport.git
@@ -29,7 +40,7 @@ reset:
 seedRun: 1
 
 # k3sprox already runs Sealed Secrets, cert-manager, CNPG, and the Tailscale
-# operator. The Barman Cloud plugin joins with backups (task 7).
+# operator; the install adds only the Barman Cloud plugin (AC-4).
 platform:
   sealedSecrets:
     enabled: false
@@ -41,13 +52,21 @@ platform:
     enabled: false
     namespace: cnpg-system
   barmanPlugin:
-    enabled: false
+    enabled: true
   tailscale:
     enabled: false
 
 postgres:
   storage:
     size: 5Gi
+
+# Backups to the R2 bucket in the EU jurisdiction (AC-18). Turn on once the
+# bucket exists and its token is in secrets.env. Not secret: the endpoint
+# holds the Cloudflare account id; the token and region are sealed.
+backup:
+  enabled: false
+  endpoint: ""   # https://<account>.eu.r2.cloudflarestorage.com
+  bucket: ""
 
 # Noord's demo CA, made in ~/.noord/k3sprox/ (its key never leaves there).
 ca:

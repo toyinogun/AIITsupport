@@ -233,3 +233,24 @@ func TestErrorCause(t *testing.T) {
 		}
 	}
 }
+
+// covers: AC-16 (spec 0015). Ping only gets a token; a failure has the
+// fixed cause token graph_token and still names the setting.
+func TestPingGetsAToken(t *testing.T) {
+	var calls atomic.Int32
+	c, _ := testClient(t, func(http.ResponseWriter, *http.Request) { calls.Add(1) }, 0)
+	if err := c.Ping(t.Context()); err != nil {
+		t.Fatalf("Ping = %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Errorf("Ping made %d Graph requests, want none", calls.Load())
+	}
+	c.token = failingToken{}
+	err := c.Ping(t.Context())
+	if got := cause.Of(err); got != "graph_token" {
+		t.Errorf("cause.Of(Ping) = %q, want graph_token", got)
+	}
+	if err == nil || !strings.Contains(err.Error(), "SEED_GRAPH_CLIENT_ID") {
+		t.Errorf("Ping = %v, want the setting named", err)
+	}
+}

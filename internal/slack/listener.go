@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -101,7 +102,31 @@ type Listener struct {
 	sleep func(context.Context, time.Duration) error
 	// teamID is set by CheckBotToken.
 	teamID string
+	// connected follows Socket Mode's connected and disconnected events,
+	// for the agent's /readyz (spec 0015, AC-16).
+	connected atomic.Bool
 }
+
+// Connected reports whether the Socket Mode connection is up.
+func (l *Listener) Connected() bool { return l.connected.Load() }
+
+// Ready is the agent's slack readiness check: nil while the socket is up,
+// else ErrNotConnected.
+func (l *Listener) Ready(context.Context) error {
+	if l.Connected() {
+		return nil
+	}
+	return ErrNotConnected
+}
+
+// ErrNotConnected means the Socket Mode connection is down; its cause token
+// is slack_not_connected.
+var ErrNotConnected error = notConnectedError{}
+
+type notConnectedError struct{}
+
+func (notConnectedError) Error() string { return "slack: the socket mode connection is down" }
+func (notConnectedError) Cause() string { return "slack_not_connected" }
 
 // New builds a listener on the real Slack APIs. Set Handler before Run.
 func New(botToken, appToken string, dedup Dedup, logger *slog.Logger, ttl time.Duration) *Listener {
@@ -200,8 +225,10 @@ func (l *Listener) handle(ctx context.Context, evt socketmode.Event) {
 			l.Logger.Warn("slack_connect_failed", "api", "apps.connections.open", "attempt", e.Attempt, "backoff_ms", e.Backoff.Milliseconds(), "cause", cause.Of(wrapErr(e.ErrorObj)))
 		}
 	case socketmode.EventTypeConnected:
+		l.connected.Store(true)
 		l.Logger.Info("slack_connected")
 	case socketmode.EventTypeDisconnect:
+		l.connected.Store(false)
 		l.Logger.Warn("slack_disconnected")
 	case socketmode.EventTypeEventsAPI:
 		if evt.Request != nil {

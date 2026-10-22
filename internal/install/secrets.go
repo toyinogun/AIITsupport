@@ -40,7 +40,7 @@ type Sources struct {
 func (t Table) Build(env *EnvFile, src Sources, components []string, c Conditions) (Plain, error) {
 	plain := Plain{}
 	var missing []string
-	for _, name := range t.Enabled(components) {
+	for _, name := range t.Active(components, c) {
 		s := t.Secrets[name]
 		data := map[string]string{}
 		for _, key := range slices.Sorted(maps.Keys(s.Keys)) {
@@ -129,7 +129,7 @@ func (d Database) url(role, password string) string {
 // It returns the names it filled, sorted, and never their values.
 func (t Table) Generate(ctx context.Context, env *EnvFile, live Live, components []string, c Conditions) (filled []string, err error) {
 	inputs := map[string]bool{}
-	for _, name := range t.Enabled(components) {
+	for _, name := range t.Active(components, c) {
 		for key, k := range t.Secrets[name].Keys {
 			if c.holds(k) {
 				inputs[k.source(key)] = true

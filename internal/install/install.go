@@ -44,6 +44,7 @@ type Options struct {
 	TempDir  string // for the sealing certificate
 	Poll     time.Duration
 	LookPath func(string) (string, error)
+	Now      func() time.Time // names the smoke Job
 }
 
 // Defaults fills what a production run leaves unset.
@@ -59,6 +60,9 @@ func (o Options) Defaults() Options {
 	}
 	if o.LookPath == nil {
 		o.LookPath = exec.LookPath
+	}
+	if o.Now == nil {
+		o.Now = time.Now
 	}
 	return o
 }
@@ -85,7 +89,7 @@ type state struct {
 }
 
 // Run installs or updates the cluster: preflight, platform, certs,
-// generate, seal, commit and push, apply, wait, report. Each step is a no op
+// generate, seal, commit and push, apply, wait, smoke, report. Each step is a no op
 // when its work is already done, so a rerun with unchanged inputs commits
 // nothing and restarts nothing (AC-8).
 func Run(ctx context.Context, opts Options) error {
@@ -108,6 +112,7 @@ func Run(ctx context.Context, opts Options) error {
 		{"apply", s.apply},
 		{"overlays", s.overlays},
 		{"wait", s.wait},
+		{"smoke", s.smoke},
 	}
 	for _, step := range steps {
 		s.say("%s", step.name)
@@ -195,6 +200,9 @@ func (s *state) checkSettings(context.Context) error {
 	}
 	if err := s.checkGraphCert(); err != nil {
 		errs = append(errs, err)
+	}
+	if s.conds.Backup && (s.values.Backup.Endpoint == "" || s.values.Backup.Bucket == "") {
+		errs = append(errs, errors.New("backup.enabled needs backup.endpoint and backup.bucket in values.yaml"))
 	}
 	for _, name := range slices.Sorted(slices.Values(s.env.Names())) {
 		if s.env.Get(name) == placeholder {
@@ -313,10 +321,20 @@ func (s *state) platform(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.waitApps(ctx, []string{s.platformApp()}, rev, nil)
+	return s.waitApps(ctx, s.platformApps(), rev, nil)
 }
 
 func (s *state) platformApp() string { return "noord-" + s.Cluster + "-platform" }
+
+// platformApps are the platform Application and each enabled operator's
+// own, which the parent's health does not include.
+func (s *state) platformApps() []string {
+	apps := []string{s.platformApp()}
+	if s.values.Platform.BarmanPlugin.Enabled {
+		apps = append(apps, "noord-"+s.Cluster+"-barman")
+	}
+	return apps
+}
 
 func (s *state) appsApp() string { return "noord-" + s.Cluster }
 
@@ -386,7 +404,7 @@ func (s *state) apply(ctx context.Context) error {
 
 // appNames are the Applications of this install, bootstrap ones first.
 func (s *state) appNames() []string {
-	names := []string{s.platformApp(), s.appsApp()}
+	names := append(s.platformApps(), s.appsApp())
 	for _, c := range s.comps {
 		names = append(names, "noord-"+c)
 	}
@@ -399,7 +417,7 @@ func (s *state) wait(ctx context.Context) error {
 		return err
 	}
 	var want []string
-	for _, name := range s.table.Enabled(s.comps) {
+	for _, name := range s.table.Active(s.comps, s.conds) {
 		want = append(want, s.table.Secrets[name].Namespace+"/"+name)
 	}
 	return s.waitApps(ctx, s.appNames(), rev, want)
@@ -479,7 +497,15 @@ func short(rev string) string {
 }
 
 func (s *state) report() {
-	s.say("done; every Application is Synced and Healthy")
+	s.say("done; every Application is Synced and Healthy and the smoke check passed")
+	if s.cfg.Tailnet != "" {
+		if s.demo {
+			s.say("the helpdesk: https://%s.%s", s.values.HelpdeskHost(), s.cfg.Tailnet)
+		}
+		if s.conds.Reset {
+			s.say("the reset page: https://%s.%s", s.values.ResetHost(), s.cfg.Tailnet)
+		}
+	}
 	s.say("the kill switch starts read only; to allow account changes run:")
 	s.say("  kubectl -n noord-agent patch configmap noord-kill-switch --type merge -p '{\"data\":{\"mode\":\"read_write\"}}'")
 }
