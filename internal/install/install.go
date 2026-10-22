@@ -329,7 +329,14 @@ func (s *state) platformApp() string { return "noord-" + s.Cluster + "-platform"
 // platformApps are the platform Application and each enabled operator's
 // own, which the parent's health does not include.
 func (s *state) platformApps() []string {
-	apps := []string{s.platformApp()}
+	return append([]string{s.platformApp()}, s.operatorApps()...)
+}
+
+// operatorApps are the enabled operators' Applications. Each follows a
+// pinned chart version, so its revision is that version, never a commit:
+// the wait checks only that it is Synced and Healthy.
+func (s *state) operatorApps() []string {
+	var apps []string
 	if s.values.Platform.BarmanPlugin.Enabled {
 		apps = append(apps, "noord-"+s.Cluster+"-barman")
 	}
@@ -460,12 +467,13 @@ func (s *state) pending(ctx context.Context, apps []string, rev string, sealed [
 		return nil, err
 	}
 	var out []string
+	operators := s.operatorApps()
 	for _, name := range apps {
 		a, ok := status[name]
 		switch {
 		case !ok:
 			out = append(out, "Application "+name+" missing")
-		case a.Revision != rev:
+		case a.Revision != rev && !slices.Contains(operators, name):
 			out = append(out, "Application "+name+" not at "+short(rev))
 			if err := s.kube.Refresh(ctx, name); err != nil {
 				return nil, err
