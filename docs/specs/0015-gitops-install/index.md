@@ -305,7 +305,7 @@ Tracer Bullet for an install feature means the install pipe end to end first (gi
 - [ ] **Spec 0001:** close the week 1 EU residency follow up with the outcome above, and log it in the journal; tick the #8/#17 and #17 follow ups; note the amendments (installer pushes, `seed` and `samba` images, the local CA, the demo switch, two bootstrap Applications instead of `kubectl apply -f deploy/argocd/bootstrap.yaml`).
 - [ ] **Spec 0003:** tick the #17 follow up (managed roles, migration Job, backups) and note that roles come from CNPG, not `db/roles.sql`, in the cluster.
 - [ ] **Spec 0004:** amend the k3s note (local CA, hashed seed Jobs instead of PostSync, a one replica Deployment with `hostname: samba` instead of a StatefulSet) and tick its #17 follow up.
-- [ ] **Spec 0005:** tick the certificate follow up for the tool server app only; the seed app keeps its client secret.
+- [x] **Spec 0005:** tick the certificate follow up for the tool server app only; the seed app keeps its client secret.
 - [ ] **Spec 0006:** close the two phase token and Zammad chart follow ups.
 - [ ] **Specs 0007, 0008, 0010, 0011, 0012, 0013:** tick their #17 follow ups (kill switch mount and NetworkPolicy; `Recreate` and grace; one retention value; the reset ingress; approval routes off any ingress; `ACCESS_*` and the approval settings as chart values).
 - [ ] **#22 data processing note:** the R2 bucket (EU jurisdiction, 14 days), Slack, and Anthropic's global endpoint as processors, with what each sees.

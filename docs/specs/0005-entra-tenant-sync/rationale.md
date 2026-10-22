@@ -110,6 +110,10 @@ The rerun with `+44 7700900017` got the same `400 invalidPhoneNumber`. A check w
 
 A live probe then set `+1 2025550117` on `eva.peters` through the seed app, and Graph accepted it (`phones_set: 1`). Chosen: `+1 20255501NN` with a 2 digit position, which holds 99 staff (Noord has 85). Lesson for the spec: check a fictional range against the real validator before writing it into acceptance criteria.
 
+## Update (Oct 22, 2026): the tool server app's certificate
+
+The Credential call above ("client secret now, certificate in #17") is closed for the tool server app. Spec 0015 (AC-24) moved it to a certificate when Sealed Secrets arrived: the PEM is sealed into the tool server's Secret and mounted as a file, and the app's client secret was deleted in Entra after the k3sprox cutover. Spec 0015 keeps the seed app on its client secret, so the #17 follow up in `index.md` is ticked for the tool server app only.
+
 ## Cross check (Oct 18, 2026)
 
 An independent read only review on a different model found 12 gaps, all applied with your approval: the demo users moved out of the 0004 overlay into their own file (the overlay requires `mail` and its hash is the directory marker); the reads behind "zero writes" (`$expand=manager`, `deletedItems` with `$select`, phone GETs) and the compare rules are now named; phone writes are read then PATCH or POST; the tool server app was narrowed to phone only writes, because `UserAuthenticationMethod.ReadWrite.All` would let it issue a Temporary Access Pass (a takeover path); the password generator forces character classes and the demo password is validated; `--only`, per request timeouts, serial calls, create conflicts, duplicate nicknames, and the manager skip log are defined; the checkpoint covers AC-1 to AC-16; and the manager pass moved last, as the first cut.
