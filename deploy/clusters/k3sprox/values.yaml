@@ -9,21 +9,20 @@ repo:
   revision: main
 
 # Set by make release (AC-19); by hand until it exists: the first main
-# commit with the helpdesk part (task 3).
+# commit with the reset page and the Entra certificate (task 4).
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: 7b0d795a262f912ab2b057ae934ebcfa0fcf55f0
+  tag: a31cd627b8752286586e0f7283b9dfe277359d2f
 
 # The demo directory (task 2) and helpdesk (task 3) run here.
 demo:
   enabled: true
 
-# The reset page (task 4) stays off until the cutover: Samba makes
-# svc-pwreset only when it provisions the domain, so turning it on here
-# goes with a directory reset and make install (AC-28).
+# The reset page (task 4). Samba makes svc-pwreset only when it provisions
+# the domain, so turning it on went with a directory reset (AC-28).
 reset:
-  enabled: false
+  enabled: true
 
 # k3sprox already runs Sealed Secrets, cert-manager, CNPG, and the Tailscale
 # operator. The Barman Cloud plugin joins with backups (task 7).
