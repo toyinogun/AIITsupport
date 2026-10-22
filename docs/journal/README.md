@@ -95,5 +95,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0071](0071-ci-ok-stranded-by-a-listener-restart.md) | 2026-10-22 | Lost runners and a listener restart stranded ci-ok on main | #17 One command GitOps install | ~20 min | post |
 | [0072](0072-cilium-ipblock-skips-node-addresses.md) | 2026-10-22 | Cilium ignores an ipBlock to a node, so the kube API allow blocked it | #17 One command GitOps install | ~10 min | post |
 | [0073](0073-objectstore-endpoint-cannot-be-sealed.md) | 2026-10-22 | The backup endpoint and bucket cannot be sealed: plain ObjectStore fields | #17 One command GitOps install | ~10 min | post |
+| [0074](0074-platform-project-synced-after-its-operator.md) | 2026-10-22 | The platform sync waited forever: an operator Application synced before its AppProject | #17 One command GitOps install | ~15 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
