@@ -45,7 +45,7 @@ func TestSecretKeysMatchConfigTags(t *testing.T) {
 		seen[s.Loader] = true
 		var got []string
 		for key, k := range s.Keys {
-			if !k.Rails {
+			if !k.Rails && !k.Mounted() {
 				got = append(got, key)
 			}
 		}
@@ -108,7 +108,7 @@ func TestEveryInputIsAKnownSetting(t *testing.T) {
 
 func TestRequiredLeavesOutGeneratedAndOptional(t *testing.T) {
 	tbl := realTable(t)
-	got := tbl.Required([]string{componentAgent}, false)
+	got := tbl.Required([]string{componentAgent}, Conditions{})
 	for _, want := range []string{"LDAP_URL", "LDAP_BIND_PASSWORD", "ZAMMAD_URL", "ZAMMAD_TOKEN", "LDAP_BASE_DN"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("Required(demo off) misses %s: %v", want, got)
@@ -119,7 +119,7 @@ func TestRequiredLeavesOutGeneratedAndOptional(t *testing.T) {
 			t.Errorf("Required(demo off) holds %s (generated or optional)", not)
 		}
 	}
-	demo := tbl.Required([]string{componentAgent}, true)
+	demo := tbl.Required([]string{componentAgent}, Conditions{Demo: true})
 	for _, not := range []string{"LDAP_URL", "ZAMMAD_URL", "ZAMMAD_TOKEN", "LDAP_BIND_PASSWORD"} {
 		if slices.Contains(demo, not) {
 			t.Errorf("Required(demo on) holds %s (chart value or generated in demo)", not)

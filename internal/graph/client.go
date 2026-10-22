@@ -15,10 +15,12 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
@@ -45,13 +47,13 @@ type StaticToken string
 // Token returns the fixed token.
 func (s StaticToken) Token(context.Context) (string, error) { return string(s), nil }
 
-// secretSource gets app only tokens with a client secret. The credential
-// caches tokens until they expire.
-type secretSource struct {
-	cred *azidentity.ClientSecretCredential
+// credSource gets app only tokens with the app's secret or certificate. The
+// credential caches tokens until they expire.
+type credSource struct {
+	cred azcore.TokenCredential
 }
 
-func (s secretSource) Token(ctx context.Context) (string, error) {
+func (s credSource) Token(ctx context.Context) (string, error) {
 	tok, err := s.cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{graphScope}})
 	if err != nil {
 		return "", err
@@ -73,9 +75,10 @@ type Options struct {
 	ClientIDSetting string
 }
 
-// Credentials are one app registration's client secret credentials.
+// Credentials are one app registration's credentials: a client secret, or
+// CertFile, the path of a PEM with its certificate and key (spec 0015, AC-24).
 type Credentials struct {
-	TenantID, ClientID, ClientSecret string
+	TenantID, ClientID, ClientSecret, CertFile string
 }
 
 // Client sends one Graph request at a time.
@@ -121,14 +124,30 @@ func New(opts Options) (*Client, error) {
 	return c, nil
 }
 
-// NewWithSecret builds a client that authenticates as the app registration.
-func NewWithSecret(creds Credentials, opts Options) (*Client, error) {
-	cred, err := azidentity.NewClientSecretCredential(creds.TenantID, creds.ClientID, creds.ClientSecret, nil)
+// NewWithCredentials builds a client that authenticates as the app
+// registration: with its certificate when CertFile is set, else its secret.
+func NewWithCredentials(creds Credentials, opts Options) (*Client, error) {
+	cred, err := credential(creds)
 	if err != nil {
 		return nil, fmt.Errorf("graph credential for %s: %w", opts.ClientIDSetting, err)
 	}
-	opts.Token = secretSource{cred: cred}
+	opts.Token = credSource{cred: cred}
 	return New(opts)
+}
+
+func credential(creds Credentials) (azcore.TokenCredential, error) {
+	if creds.CertFile == "" {
+		return azidentity.NewClientSecretCredential(creds.TenantID, creds.ClientID, creds.ClientSecret, nil)
+	}
+	raw, err := os.ReadFile(creds.CertFile)
+	if err != nil {
+		return nil, fmt.Errorf("read the client certificate: %w", err)
+	}
+	certs, key, err := azidentity.ParseCertificates(raw, nil)
+	if err != nil {
+		return nil, fmt.Errorf("parse the client certificate %s: %w", creds.CertFile, err)
+	}
+	return azidentity.NewClientCertificateCredential(creds.TenantID, creds.ClientID, certs, key, nil)
 }
 
 // Base is the Graph root this client talks to, for building @odata.id references.

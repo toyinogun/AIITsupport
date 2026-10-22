@@ -19,6 +19,12 @@ image:
 demo:
   enabled: true
 
+# The reset page (task 4) stays off until the cutover: Samba makes
+# svc-pwreset only when it provisions the domain, so turning it on here
+# goes with a directory reset and make install (AC-28).
+reset:
+  enabled: false
+
 # k3sprox already runs Sealed Secrets, cert-manager, CNPG, and the Tailscale
 # operator. The Barman Cloud plugin joins with backups (task 7).
 platform:

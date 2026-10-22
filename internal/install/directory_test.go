@@ -67,10 +67,10 @@ func TestBuildDirectory(t *testing.T) {
 	tbl := realTable(t)
 	env := tracerEnv(t)
 	comps := components(true)
-	_, err := tbl.Generate(t.Context(), env, fakeLive{}, comps, true)
+	_, err := tbl.Generate(t.Context(), env, fakeLive{}, comps, Conditions{Demo: true})
 	must(t, err)
 	files := map[string]string{certs.ServerFile: "CERT", certs.ServerKeyFile: "KEY"}
-	plain, err := tbl.Build(env, files, comps, true)
+	plain, err := tbl.Build(env, Sources{Files: files}, comps, Conditions{Demo: true})
 	must(t, err)
 	samba := plain["noord-samba"]
 	if samba["tls.crt"] != "CERT" || samba["tls.key"] != "KEY" || samba["SAMBA_ADMIN_PASSWORD"] != env.Get("SEED_ADMIN_PASSWORD") ||
@@ -83,7 +83,7 @@ func TestBuildDirectory(t *testing.T) {
 	if _, ok := plain["noord-toolserver"]["LDAP_URL"]; ok {
 		t.Error("demo on still sealed LDAP_URL; the chart sets it")
 	}
-	if _, err := tbl.Build(env, nil, comps, true); err == nil || !strings.Contains(err.Error(), "the cert file server.pem") {
+	if _, err := tbl.Build(env, Sources{}, comps, Conditions{Demo: true}); err == nil || !strings.Contains(err.Error(), "the cert file server.pem") {
 		t.Errorf("no cert files: err = %v, want server.pem named", err)
 	}
 }

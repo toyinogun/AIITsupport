@@ -212,8 +212,8 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 	}
 	if cfg.MFAEnabled() {
 		// mfa_clear (spec 0012): the tool server's own Entra app, never the seed app.
-		g, err := graph.NewWithSecret(graph.Credentials{
-			TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret,
+		g, err := graph.NewWithCredentials(graph.Credentials{
+			TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret, CertFile: cfg.GraphClientCert,
 		}, graph.Options{MaxRetries: cfg.GraphMaxRetries, Timeout: cfg.GraphTimeout, ClientIDSetting: "GRAPH_CLIENT_ID"})
 		if err != nil {
 			return layer{}, err

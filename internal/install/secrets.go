@@ -7,6 +7,8 @@ import (
 	"maps"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,11 +26,18 @@ type Live interface {
 	Secret(ctx context.Context, namespace, name string) (data map[string]string, ok bool, err error)
 }
 
+// Sources are where Build finds values besides secrets.env.
+type Sources struct {
+	Files map[string]string // the cluster's cert dir, by file name
+	Hosts map[string]string // the tailnet host names, by role ("reset")
+	Root  string            // a relative fromFile path is under the clone
+}
+
 // Build makes the plaintext of every enabled Secret from secrets.env and
-// files, the cluster's cert dir by file name. Optional keys with no value
-// are left out; a missing required value is an error naming the setting or
-// the file (preflight reports settings first).
-func (t Table) Build(env *EnvFile, files map[string]string, components []string, demo bool) (Plain, error) {
+// the other sources. Optional keys with no value are left out; a missing
+// required value is an error naming the setting or the file (preflight
+// reports settings first).
+func (t Table) Build(env *EnvFile, src Sources, components []string, c Conditions) (Plain, error) {
 	plain := Plain{}
 	var missing []string
 	for _, name := range t.Enabled(components) {
@@ -36,10 +45,13 @@ func (t Table) Build(env *EnvFile, files map[string]string, components []string,
 		data := map[string]string{}
 		for _, key := range slices.Sorted(maps.Keys(s.Keys)) {
 			k := s.Keys[key]
-			if !applies(k.Demo, demo) {
+			if !c.holds(k) {
 				continue
 			}
-			v := t.value(key, k, env, files)
+			v, err := t.value(key, k, env, src)
+			if err != nil {
+				return nil, err
+			}
 			switch {
 			case v != "":
 				data[key] = v
@@ -58,21 +70,46 @@ func (t Table) Build(env *EnvFile, files map[string]string, components []string,
 	return plain, nil
 }
 
-func (t Table) value(key string, k Key, env *EnvFile, files map[string]string) string {
+func (t Table) value(key string, k Key, env *EnvFile, src Sources) (string, error) {
 	switch {
 	case k.Value != "":
-		return k.Value
+		return k.Value, nil
 	case k.File != "":
-		return files[k.File]
+		return src.Files[k.File], nil
+	case k.FromFile != "":
+		return readLocal(k.FromFile, env.Get(k.FromFile), src.Root)
 	case k.Derive == deriveDatabaseURL:
 		password := env.Get(k.Password)
 		if password == "" {
-			return ""
+			return "", nil
 		}
-		return t.Database.url(k.Role, password)
+		return t.Database.url(k.Role, password), nil
+	case k.Derive == deriveTailnetURL:
+		tailnet, host := env.Get(tailnetSetting), src.Hosts[k.Host]
+		if tailnet == "" || host == "" {
+			return "", nil
+		}
+		return "https://" + host + "." + tailnet, nil
 	default:
-		return env.Get(k.source(key))
+		return env.Get(k.source(key)), nil
 	}
+}
+
+// readLocal reads the file a secrets.env setting names, relative to the
+// clone when not absolute; an unset setting is no value. Errors name the
+// setting, never the content.
+func readLocal(setting, path, root string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: a path you set in your own secrets.env
+	if err != nil {
+		return "", fmt.Errorf("read the file %s names: %w", setting, err)
+	}
+	return string(raw), nil
 }
 
 // url is one role's connection URL, verified against the CNPG CA (AC-9).
@@ -90,18 +127,18 @@ func (d Database) url(role, password string) string {
 // Generate fills every generated value secrets.env lacks: from the live
 // Secret that holds it when there is one, else a new random value (AC-5).
 // It returns the names it filled, sorted, and never their values.
-func (t Table) Generate(ctx context.Context, env *EnvFile, live Live, components []string, demo bool) (filled []string, err error) {
+func (t Table) Generate(ctx context.Context, env *EnvFile, live Live, components []string, c Conditions) (filled []string, err error) {
 	inputs := map[string]bool{}
 	for _, name := range t.Enabled(components) {
 		for key, k := range t.Secrets[name].Keys {
-			if applies(k.Demo, demo) {
+			if c.holds(k) {
 				inputs[k.source(key)] = true
 			}
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(t.Generated)) {
 		g := t.Generated[name]
-		if !inputs[name] || !applies(g.Demo, demo) || env.Get(name) != "" {
+		if !inputs[name] || !applies(g.Demo, c.Demo) || env.Get(name) != "" {
 			continue
 		}
 		v, err := t.recover(ctx, live, name)

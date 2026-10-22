@@ -20,6 +20,13 @@ image:
 demo:
   enabled: true
 
+# The password reset page (spec 0011), on the tailnet at
+# https://<tailscaleHost>.<TAILNET> (empty host: noord-<cluster>-reset).
+# With demo off, it needs your directory's svc-pwreset account.
+reset:
+  enabled: true
+  tailscaleHost: ""
+
 # Operators the install adds (AC-4). Keep a part off when the cluster has it.
 platform:
   sealedSecrets:

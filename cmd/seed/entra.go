@@ -126,7 +126,7 @@ func readScope(cfg config.Seed, m directory.Model) ([]entra.ADUser, error) {
 }
 
 func seedGraphClient(cfg config.Seed) (*graph.Client, error) {
-	return graph.NewWithSecret(
+	return graph.NewWithCredentials(
 		graph.Credentials{TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret},
 		graph.Options{MaxRetries: cfg.GraphMaxRetries, Timeout: cfg.GraphTimeout, ClientIDSetting: "SEED_GRAPH_CLIENT_ID"},
 	)
@@ -148,8 +148,8 @@ func runEntraMFA(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	client, err := graph.NewWithSecret(
-		graph.Credentials{TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret},
+	client, err := graph.NewWithCredentials(
+		graph.Credentials{TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret, CertFile: cfg.GraphClientCert},
 		graph.Options{MaxRetries: cfg.GraphMaxRetries, Timeout: cfg.GraphTimeout, ClientIDSetting: "GRAPH_CLIENT_ID"},
 	)
 	if err != nil {

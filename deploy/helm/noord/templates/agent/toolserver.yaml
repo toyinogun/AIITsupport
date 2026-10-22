@@ -21,6 +21,7 @@ spec:
       annotations:
         checksum/sealed: {{ include "noord.sealedChecksum" (list . "noord-toolserver") }}
         checksum/ca: {{ .Values.ca.certificate | sha256sum }}
+    {{- $graphCert := hasKey (index .Values.sealed "noord-toolserver" | default dict) "graph-client.pem" }}
     spec:
       {{- include "noord.podSecurity" . | nindent 6 }}
       containers:
@@ -30,6 +31,10 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            {{- if .Values.reset.enabled }}
+            - name: reset
+              containerPort: {{ .Values.reset.port }}
+            {{- end }}
           env:
             {{- $env := dict
               "TOOLSERVER_HTTP_ADDR" ":8080"
@@ -44,10 +49,14 @@ spec:
             (read from chart 20.0.0, the client part). */}}
             {{- $_ := set $env "ZAMMAD_URL" "http://zammad-nginx.noord-client.svc:8080" }}
             {{- end }}
+            {{- if .Values.reset.enabled }}
+            {{- $_ := set $env "RESET_HTTP_ADDR" (printf ":%v" .Values.reset.port) }}
+            {{- end }}
+            {{- if $graphCert }}
+            {{- $_ := set $env "GRAPH_CLIENT_CERT" "/etc/noord/graph/client.pem" }}
+            {{- end }}
             {{- include "noord.env" (merge (deepCopy .Values.toolserver.env) $env) | trim | nindent 12 }}
-          envFrom:
-            - secretRef:
-                name: noord-toolserver
+            {{- include "noord.secretEnv" (list . "noord-toolserver") | nindent 12 }}
           readinessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 10
@@ -67,6 +76,11 @@ spec:
             - name: kill-switch
               mountPath: /etc/noord/kill-switch
               readOnly: true
+            {{- if $graphCert }}
+            - name: graph
+              mountPath: /etc/noord/graph
+              readOnly: true
+            {{- end }}
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -77,6 +91,16 @@ spec:
         - name: kill-switch
           configMap:
             name: noord-kill-switch
+        {{- if $graphCert }}
+        # The Graph app's certificate and key as a file, never in the
+        # environment (AC-24).
+        - name: graph
+          secret:
+            secretName: noord-toolserver
+            defaultMode: 0440 # read by fsGroup, the tool server's group
+            items:
+              - {key: graph-client.pem, path: client.pem}
+        {{- end }}
         - name: tmp
           emptyDir: {}
 ---
@@ -96,4 +120,9 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+    {{- if .Values.reset.enabled }}
+    - name: reset
+      port: {{ .Values.reset.port }}
+      targetPort: reset
+    {{- end }}
 {{- end }}

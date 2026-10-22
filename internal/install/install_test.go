@@ -45,6 +45,7 @@ func newFixture(t *testing.T) *fixture {
 		"repo: {url: https://example.invalid/r.git, revision: main}",
 		"image: {registry: REG, owner: o, tag: " + testRev + "}",
 		"demo: {enabled: false}",
+		"reset: {enabled: false}",
 		"platform: {sealedSecrets: {namespace: kube-system, name: sealed-secrets-controller}}",
 		"ca:",
 		"  certificate: |",
@@ -202,7 +203,7 @@ func TestRunThenRerun(t *testing.T) {
 	}
 
 	// The cluster now holds what was sealed.
-	plain, err := realTable(t).Build(env, nil, []string{componentAgent}, false)
+	plain, err := realTable(t).Build(env, Sources{}, []string{componentAgent}, Conditions{})
 	must(t, err)
 	for name, data := range plain {
 		f.live[realTable(t).Secrets[name].Namespace+"/"+name] = data

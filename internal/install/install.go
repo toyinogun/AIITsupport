@@ -77,6 +77,7 @@ type state struct {
 	kube      Kube
 	git       Git
 	demo      bool
+	conds     Conditions
 	comps     []string
 	files     map[string]string // the cluster's cert dir, by file name, for sealing
 	bootstrap []byte
@@ -146,7 +147,8 @@ func (s *state) preflight(ctx context.Context) error {
 	if s.bootstrap, err = os.ReadFile(s.folder.path(bootstrapFile)); err != nil {
 		return fmt.Errorf("read %s/%s: %w", s.folder.Dir, bootstrapFile, err)
 	}
-	s.demo = s.values.DemoEnabled()
+	s.conds = s.values.Conditions()
+	s.demo = s.conds.Demo
 	s.comps = components(s.demo)
 	s.kube = Kube{run: s.Run, context: s.cfg.KubeContext}
 	s.git = Git{run: s.Run}
@@ -186,10 +188,13 @@ func (s *state) checkSettings(context.Context) error {
 	if !s.demo && strings.TrimSpace(s.values.CA.Certificate) == "" {
 		errs = append(errs, errors.New("ca.certificate is empty; with demo off it must hold your directory's CA certificate"))
 	}
-	for _, name := range s.table.Required(s.comps, s.demo) {
+	for _, name := range s.table.Required(s.comps, s.conds) {
 		if s.env.Get(name) == "" {
 			errs = append(errs, fmt.Errorf("%s is not set in secrets.env", name))
 		}
+	}
+	if err := s.checkGraphCert(); err != nil {
+		errs = append(errs, err)
 	}
 	for _, name := range slices.Sorted(slices.Values(s.env.Names())) {
 		if s.env.Get(name) == placeholder {
@@ -197,6 +202,23 @@ func (s *state) checkSettings(context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// checkGraphCert refuses a Graph certificate and secret at once, which the
+// tool server would refuse at boot (AC-24), and a certificate file it
+// cannot read.
+func (s *state) checkGraphCert() error {
+	const certSetting, secretSetting = "GRAPH_CERT_FILE", "GRAPH_CLIENT_SECRET" //nolint:gosec // G101: setting names, not credentials
+	if s.env.Get(certSetting) == "" {
+		return nil
+	}
+	if s.env.Get(secretSetting) != "" {
+		return fmt.Errorf("set %s or %s in secrets.env, not both", certSetting, secretSetting)
+	}
+	if _, err := readLocal(certSetting, s.env.Get(certSetting), s.Root); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *state) checkContext(ctx context.Context) error {
@@ -299,7 +321,7 @@ func (s *state) platformApp() string { return "noord-" + s.Cluster + "-platform"
 func (s *state) appsApp() string { return "noord-" + s.Cluster }
 
 func (s *state) generate(ctx context.Context) error {
-	filled, err := s.table.Generate(ctx, s.env, s.kube, s.comps, s.demo)
+	filled, err := s.table.Generate(ctx, s.env, s.kube, s.comps, s.conds)
 	if len(filled) > 0 {
 		if werr := s.env.Write(s.folder.path(secretsFile)); werr != nil {
 			return errors.Join(err, werr)
@@ -310,7 +332,7 @@ func (s *state) generate(ctx context.Context) error {
 }
 
 func (s *state) seal(ctx context.Context) error {
-	plain, err := s.table.Build(s.env, s.files, s.comps, s.demo)
+	plain, err := s.table.Build(s.env, s.sources(), s.comps, s.conds)
 	if err != nil {
 		return err
 	}
@@ -335,6 +357,11 @@ func (s *state) seal(ctx context.Context) error {
 	}
 	s.say("%d values kept, %d sealed, %d dropped (file changed: %t)", plan.Kept, plan.Resealed, plan.Dropped, written)
 	return nil
+}
+
+// sources are the values Build reads besides secrets.env.
+func (s *state) sources() Sources {
+	return Sources{Files: s.files, Hosts: map[string]string{hostReset: s.values.ResetHost()}, Root: s.Root}
 }
 
 func (s *state) commitAndPush(ctx context.Context) error {

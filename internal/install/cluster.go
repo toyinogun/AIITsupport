@@ -46,6 +46,12 @@ type Values struct {
 	Demo struct {
 		Enabled *bool `yaml:"enabled"`
 	} `yaml:"demo"`
+	// Reset is the password reset page (spec 0011) and its tailnet host
+	// (AC-15).
+	Reset struct {
+		Enabled       *bool  `yaml:"enabled"`
+		TailscaleHost string `yaml:"tailscaleHost"`
+	} `yaml:"reset"`
 	Platform struct {
 		SealedSecrets struct {
 			Namespace string `yaml:"namespace"`
@@ -59,6 +65,24 @@ type Values struct {
 
 // DemoEnabled is demo.enabled, on unless the folder turns it off.
 func (v Values) DemoEnabled() bool { return v.Demo.Enabled == nil || *v.Demo.Enabled }
+
+// ResetEnabled is reset.enabled, on unless the folder turns it off (the
+// chart's default agrees).
+func (v Values) ResetEnabled() bool { return v.Reset.Enabled == nil || *v.Reset.Enabled }
+
+// ResetHost is the reset page's tailnet host: reset.tailscaleHost, else
+// noord-<cluster>-reset, so two clusters on one tailnet never collide.
+func (v Values) ResetHost() string {
+	if v.Reset.TailscaleHost != "" {
+		return v.Reset.TailscaleHost
+	}
+	return "noord-" + v.Cluster.Name + "-reset"
+}
+
+// Conditions are the switches this folder sets.
+func (v Values) Conditions() Conditions {
+	return Conditions{Demo: v.DemoEnabled(), Reset: v.ResetEnabled()}
+}
 
 // Folder is one cluster's folder in the clone.
 type Folder struct {

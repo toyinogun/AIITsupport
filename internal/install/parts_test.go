@@ -95,7 +95,7 @@ func TestGenerate(t *testing.T) {
 	env := tracerEnv(t)
 	env.Set("PG_EVAL_PASSWORD", "kept")
 	live := fakeLive{"noord-agent/noord-pg-agent": {"username": "noord_agent", "password": "fromlive"}}
-	filled, err := tbl.Generate(t.Context(), env, live, []string{componentAgent}, false)
+	filled, err := tbl.Generate(t.Context(), env, live, []string{componentAgent}, Conditions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,10 +132,10 @@ func TestRandomValueClasses(t *testing.T) {
 func TestBuild(t *testing.T) {
 	tbl := realTable(t)
 	env := tracerEnv(t)
-	if _, err := tbl.Generate(t.Context(), env, fakeLive{}, []string{componentAgent}, false); err != nil {
+	if _, err := tbl.Generate(t.Context(), env, fakeLive{}, []string{componentAgent}, Conditions{}); err != nil {
 		t.Fatal(err)
 	}
-	plain, err := tbl.Build(env, nil, []string{componentAgent}, false)
+	plain, err := tbl.Build(env, Sources{}, []string{componentAgent}, Conditions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestBuild(t *testing.T) {
 		t.Error("the owner Secret lost its fixed username")
 	}
 	env.Set("LDAP_BIND_PASSWORD", "")
-	if _, err := tbl.Build(env, nil, []string{componentAgent}, false); err == nil || !strings.Contains(err.Error(), "LDAP_BIND_PASSWORD") {
+	if _, err := tbl.Build(env, Sources{}, []string{componentAgent}, Conditions{}); err == nil || !strings.Contains(err.Error(), "LDAP_BIND_PASSWORD") {
 		t.Errorf("err = %v, want LDAP_BIND_PASSWORD named", err)
 	}
 }

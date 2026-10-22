@@ -18,6 +18,14 @@ image:
 demo:
   enabled: true
 
+# The password reset page (spec 0011): the tool server's reset listener on
+# its own port, reachable only through a tailnet Ingress (AC-15).
+reset:
+  enabled: true
+  # The page's tailnet host; empty means noord-<cluster>-reset.
+  tailscaleHost: ""
+  port: 8081
+
 # The CA that signs the directory's LDAPS certificate: ours in demo mode,
 # the client's otherwise. Public; rendered as the ConfigMap noord-ca.
 ca:
