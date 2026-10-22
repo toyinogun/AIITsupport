@@ -74,14 +74,14 @@ func newLive(t *testing.T) *live {
 		t.Fatalf("ReadScope: %v", err)
 	}
 
-	seedClient, err := graph.NewWithSecret(
+	seedClient, err := graph.NewWithCredentials(
 		graph.Credentials{TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret},
 		graph.Options{MaxRetries: cfg.GraphMaxRetries, Timeout: cfg.GraphTimeout, ClientIDSetting: "SEED_GRAPH_CLIENT_ID"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	toolClient, err := graph.NewWithSecret(
-		graph.Credentials{TenantID: toolCfg.GraphTenantID, ClientID: toolCfg.GraphClientID, ClientSecret: toolCfg.GraphClientSecret},
+	toolClient, err := graph.NewWithCredentials(
+		graph.Credentials{TenantID: toolCfg.GraphTenantID, ClientID: toolCfg.GraphClientID, ClientSecret: toolCfg.GraphClientSecret, CertFile: toolCfg.GraphClientCert},
 		graph.Options{MaxRetries: toolCfg.GraphMaxRetries, Timeout: toolCfg.GraphTimeout, ClientIDSetting: "GRAPH_CLIENT_ID"})
 	if err != nil {
 		t.Fatal(err)

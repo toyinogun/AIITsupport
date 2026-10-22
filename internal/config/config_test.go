@@ -616,6 +616,48 @@ func TestLoadGraph(t *testing.T) {
 	}
 }
 
+// covers: AC-24 (spec 0015). The Graph app authenticates with a secret or a
+// certificate path, never both; the refusal names both settings.
+func TestGraphCertificateOrSecret(t *testing.T) {
+	base := map[string]string{"GRAPH_TENANT_ID": "tenant", "GRAPH_CLIENT_ID": "client"}
+	withCert := maps.Clone(base)
+	withCert["GRAPH_CLIENT_CERT"] = "/etc/noord/graph/client.pem"
+	if g, err := LoadGraph(envFrom(withCert)); err != nil || g.GraphClientCert == "" {
+		t.Fatalf("LoadGraph with a certificate = %+v, %v", g, err)
+	}
+
+	both := maps.Clone(withCert)
+	both["GRAPH_CLIENT_SECRET"] = "a-secret-value"
+	_, err := LoadGraph(envFrom(both))
+	if err == nil || !strings.Contains(err.Error(), "GRAPH_CLIENT_SECRET") || !strings.Contains(err.Error(), "GRAPH_CLIENT_CERT") {
+		t.Errorf("LoadGraph with both = %v, want an error naming both", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "a-secret-value") {
+		t.Errorf("the error holds the value: %v", err)
+	}
+
+	env := minimalToolServerEnv()
+	maps.Copy(env, both)
+	if _, err := LoadToolServer(envFrom(env)); err == nil || !strings.Contains(err.Error(), "GRAPH_CLIENT_CERT") {
+		t.Errorf("LoadToolServer with both = %v, want an error naming GRAPH_CLIENT_CERT", err)
+	}
+
+	if _, err := LoadGraph(envFrom(base)); err == nil || !strings.Contains(err.Error(), "GRAPH_CLIENT_SECRET or GRAPH_CLIENT_CERT") {
+		t.Errorf("LoadGraph with neither = %v, want an error naming both choices", err)
+	}
+
+	env = minimalToolServerEnv()
+	maps.Copy(env, withCert)
+	env["SLACK_IT_APPROVERS"] = "U0123456789"
+	cfg, err := LoadToolServer(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadToolServer with a certificate: %v", err)
+	}
+	if !cfg.MFAEnabled() {
+		t.Error("MFAEnabled is false with a certificate and an approver")
+	}
+}
+
 // covers: AC-13 (spec 0006). Both Slack tokens or neither; each with its prefix.
 func TestLoadAgentSlackTokens(t *testing.T) {
 	cases := []struct {

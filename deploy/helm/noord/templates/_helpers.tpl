@@ -19,7 +19,8 @@ noord.example/cluster: {{ .Values.cluster.name | quote }}
 
 {{/*
 sealedSecrets: one SealedSecret per table entry of this component, from
-.Values.sealed. Fails when a required key (for this demo setting) is missing.
+.Values.sealed. Fails when a required key (for this demo and reset setting)
+is missing.
 */}}
 {{- define "noord.sealedSecrets" -}}
 {{- $root := . -}}
@@ -28,7 +29,7 @@ sealedSecrets: one SealedSecret per table entry of this component, from
 {{- if eq $s.component $root.Values.component }}
 {{- $data := index $root.Values.sealed $name | default dict }}
 {{- range $key, $k := $s.keys }}
-{{- $applies := or (not (hasKey $k "demo")) (eq $k.demo $root.Values.demo.enabled) }}
+{{- $applies := and (or (not (hasKey $k "demo")) (eq $k.demo $root.Values.demo.enabled)) (or (not (hasKey $k "reset")) (eq $k.reset $root.Values.reset.enabled)) }}
 {{- if and $applies (not $k.optional) (not (hasKey $data $key)) }}
 {{- fail (printf "sealed-values.yaml has no %s in %s; run make install or make seal" $key $name) }}
 {{- end }}
@@ -53,6 +54,27 @@ spec:
       labels:
         {{- include "noord.labels" $root | nindent 8 }}
     type: {{ $s.type | default "Opaque" }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+secretEnv: one secretKeyRef env entry per key of a Secret that its sealed
+block holds. Mounted keys (fromFile, like the Graph certificate) are left
+out, so a key never lands in the environment. Pass (list $ "noord-toolserver").
+*/}}
+{{- define "noord.secretEnv" -}}
+{{- $root := index . 0 -}}
+{{- $name := index . 1 -}}
+{{- $table := include "noord.table" $root | fromYaml -}}
+{{- $data := index $root.Values.sealed $name | default dict -}}
+{{- range $key, $k := (index $table.secrets $name).keys }}
+{{- if and (hasKey $data $key) (not $k.fromFile) }}
+- name: {{ $key }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $name }}
+      key: {{ $key }}
 {{- end }}
 {{- end }}
 {{- end -}}

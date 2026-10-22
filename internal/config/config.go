@@ -267,7 +267,7 @@ func checkAgentApprovals(cfg Agent) error {
 // MFAEnabled reports whether mfa_clear registers (spec 0012, AC-2): the
 // tool server's Entra app is fully set and someone can approve.
 func (cfg ToolServer) MFAEnabled() bool {
-	return cfg.GraphTenantID != "" && cfg.GraphClientID != "" && cfg.GraphClientSecret != "" && len(cfg.SlackITApprovers) > 0
+	return cfg.GraphTenantID != "" && cfg.GraphClientID != "" && cfg.hasGraphCredential() && len(cfg.SlackITApprovers) > 0
 }
 
 // KB is kb_search (spec 0014, AC-16): how many articles one search returns,
@@ -404,11 +404,15 @@ func isResetURL(raw string) bool {
 // users and their MFA methods and change only phone methods. The tool server
 // boots with it empty (the AD only fallback); LoadGraph requires it.
 type Graph struct {
-	GraphTenantID     string        `env:"GRAPH_TENANT_ID" private:"true"`
-	GraphClientID     string        `env:"GRAPH_CLIENT_ID" private:"true"`
-	GraphClientSecret string        `env:"GRAPH_CLIENT_SECRET" secret:"true"`
-	GraphMaxRetries   int           `env:"GRAPH_MAX_RETRIES" default:"5"`
-	GraphTimeout      time.Duration `env:"GRAPH_TIMEOUT" default:"30s"`
+	GraphTenantID     string `env:"GRAPH_TENANT_ID" private:"true"`
+	GraphClientID     string `env:"GRAPH_CLIENT_ID" private:"true"`
+	GraphClientSecret string `env:"GRAPH_CLIENT_SECRET" secret:"true"`
+	// GraphClientCert is the path of a PEM holding the app's certificate and
+	// its key, in place of the secret (spec 0015, AC-24). The cluster mounts
+	// it; the path itself is no secret.
+	GraphClientCert string        `env:"GRAPH_CLIENT_CERT"`
+	GraphMaxRetries int           `env:"GRAPH_MAX_RETRIES" default:"5"`
+	GraphTimeout    time.Duration `env:"GRAPH_TIMEOUT" default:"30s"`
 }
 
 // Zammad is the helpdesk's REST API as the noord-assistant user (spec 0006).
@@ -692,7 +696,7 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
 	err := load(&cfg, lookup)
 	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg), checkRetention(cfg.Retention),
-		checkReset(cfg.Reset, cfg.Retention), checkApprovals(cfg.Approvals), checkKB(cfg.KB))
+		checkReset(cfg.Reset, cfg.Retention), checkApprovals(cfg.Approvals), checkKB(cfg.KB), checkGraphCredential(cfg.Graph))
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
@@ -896,10 +900,15 @@ func LoadSeedEntraMFA(lookup LookupFunc) (SeedEntraMFA, error) {
 
 func checkGraph(cfg Graph) error {
 	errs := missing(map[string]string{
-		"GRAPH_TENANT_ID":     cfg.GraphTenantID,
-		"GRAPH_CLIENT_ID":     cfg.GraphClientID,
-		"GRAPH_CLIENT_SECRET": cfg.GraphClientSecret,
+		"GRAPH_TENANT_ID": cfg.GraphTenantID,
+		"GRAPH_CLIENT_ID": cfg.GraphClientID,
 	})
+	if !cfg.hasGraphCredential() {
+		errs = append(errs, errors.New("GRAPH_CLIENT_SECRET or GRAPH_CLIENT_CERT is required but not set"))
+	}
+	if err := checkGraphCredential(cfg); err != nil {
+		errs = append(errs, err)
+	}
 	if cfg.GraphMaxRetries < 0 {
 		errs = append(errs, errors.New("GRAPH_MAX_RETRIES must not be negative"))
 	}
@@ -907,6 +916,20 @@ func checkGraph(cfg Graph) error {
 		errs = append(errs, errors.New("GRAPH_TIMEOUT must be positive"))
 	}
 	return errors.Join(errs...)
+}
+
+// hasGraphCredential reports whether the app has a secret or a certificate.
+func (cfg Graph) hasGraphCredential() bool {
+	return cfg.GraphClientSecret != "" || cfg.GraphClientCert != ""
+}
+
+// checkGraphCredential refuses a secret and a certificate at once (AC-24):
+// the app authenticates one way, so a leftover secret is a mistake.
+func checkGraphCredential(cfg Graph) error {
+	if cfg.GraphClientSecret != "" && cfg.GraphClientCert != "" {
+		return errors.New("set GRAPH_CLIENT_SECRET or GRAPH_CLIENT_CERT, not both")
+	}
+	return nil
 }
 
 // missing returns one error per blank value, sorted by setting name.

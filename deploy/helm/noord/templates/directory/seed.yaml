@@ -1,26 +1,30 @@
-{{- /* The directory seed Job's spec, rendered once: its hash names the Job
-(AC-10), so any change to what it runs (an image, a value, seedRun) makes a
-new Job, and a self heal never does. A plain Job, not a sync hook. The seed
-files are in the image, so the tag covers them. */}}
+{{- /* One directory seed step's Job spec, rendered once: its hash names the
+Job (AC-10), so any change to what it runs (an image, a value, seedRun)
+makes a new Job, and a self heal never does. A plain Job, not a sync hook.
+The seed files are in the image, so the tag covers them. Pass
+(list $ "<name>" (list <args>)). */}}
 {{- define "noord.seedDirectorySpec" -}}
-{{- $seed := .Values.directory.seed }}
+{{- $root := index . 0 }}
+{{- $name := index . 1 }}
+{{- $args := index . 2 }}
+{{- $seed := $root.Values.directory.seed }}
 spec:
   backoffLimit: {{ $seed.backoffLimit }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: seed-directory
+        app.kubernetes.io/name: {{ $name }}
       annotations:
         # make resume bumps it, so the hash changes and the seed runs again.
-        noord.example/seed-run: {{ .Values.seedRun | quote }}
+        noord.example/seed-run: {{ $root.Values.seedRun | quote }}
     spec:
       restartPolicy: Never
-      {{- include "noord.podSecurity" . | nindent 6 }}
+      {{- include "noord.podSecurity" $root | nindent 6 }}
       containers:
         - name: seed
-          image: {{ include "noord.image" (list . "seed") }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["directory"]
+          image: {{ include "noord.image" (list $root "seed") }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          args: {{ toJson $args }}
           env:
             - name: SEED_LDAP_URL
               value: ldaps://samba.noord-directory.svc.cluster.local:636
@@ -37,7 +41,7 @@ spec:
                 name: noord-seed-directory
           resources:
             {{- toYaml $seed.resources | nindent 12 }}
-          {{- include "noord.containerSecurity" . | nindent 10 }}
+          {{- include "noord.containerSecurity" $root | nindent 10 }}
           volumeMounts:
             - name: ca
               mountPath: /etc/noord/ca
@@ -56,20 +60,34 @@ spec:
             secretName: noord-seed-overlays
 {{- end -}}
 
-{{- if eq .Values.component "directory" }}
-{{- $spec := include "noord.seedDirectorySpec" . }}
-{{- /* The spec, plus what it reads but does not show: the Secret's sealed
-block and the directory values Samba was provisioned with. */}}
-{{- $hash := list $spec (index .Values.sealed "noord-seed-directory") .Values.directory | toYaml | sha256sum | trunc 10 }}
+{{- /* The Job named by its spec's hash, plus what it reads but does not
+show: the Secret's sealed block and the directory values Samba was
+provisioned with. Pass (list $ "<name>" (list <args>) "<wave>"). */}}
+{{- define "noord.seedDirectoryJob" -}}
+{{- $root := index . 0 }}
+{{- $name := index . 1 }}
+{{- $spec := include "noord.seedDirectorySpec" (list $root $name (index . 2)) }}
+{{- $hash := list $spec (index $root.Values.sealed "noord-seed-directory") $root.Values.directory | toYaml | sha256sum | trunc 10 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: seed-directory-{{ $hash }}
+  name: {{ $name }}-{{ $hash }}
   namespace: noord-directory
   labels:
-    {{- include "noord.labels" . | nindent 4 }}
-    app.kubernetes.io/name: seed-directory
+    {{- include "noord.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: {{ index . 3 | quote }}
 {{ $spec }}
+{{- end -}}
+
+{{- if eq .Values.component "directory" }}
+{{- include "noord.seedDirectoryJob" (list . "seed-directory" (list "directory") "2") }}
+{{- /* seed entra sync (spec 0005) after seed directory, one wave later: it
+reads the users seed directory made. Only with the seed app's settings
+sealed; without them the step would only skip. */}}
+{{- if hasKey (index .Values.sealed "noord-seed-directory" | default dict) "SEED_GRAPH_CLIENT_ID" }}
+---
+{{ include "noord.seedDirectoryJob" (list . "seed-entra" (list "entra" "sync") "3") }}
+{{- end }}
 {{- end }}

@@ -40,8 +40,8 @@ func TestLiveAuthenticatorProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadGraph: %v", err)
 	}
-	c, err := graph.NewWithSecret(
-		graph.Credentials{TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret},
+	c, err := graph.NewWithCredentials(
+		graph.Credentials{TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret, CertFile: cfg.GraphClientCert},
 		graph.Options{MaxRetries: cfg.GraphMaxRetries, Timeout: cfg.GraphTimeout, ClientIDSetting: "GRAPH_CLIENT_ID"})
 	if err != nil {
 		t.Fatal(err)

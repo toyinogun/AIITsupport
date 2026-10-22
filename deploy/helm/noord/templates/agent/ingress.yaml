@@ -1,0 +1,25 @@
+{{- if and (eq .Values.component "agent") .Values.reset.enabled }}
+# The reset page on the tailnet only (AC-15): https://<host>.<TAILNET>, per
+# cluster so two clusters on one tailnet never collide. Its backend is the
+# tool server's reset port alone, so /mcp, the approval routes, and /readyz
+# stay inside the cluster. The Tailscale proxy records no request paths.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reset
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: toolserver
+      port:
+        number: {{ .Values.reset.port }}
+  tls:
+    - hosts:
+        - {{ .Values.reset.tailscaleHost | default (printf "noord-%s-reset" .Values.cluster.name) }}
+{{- end }}
