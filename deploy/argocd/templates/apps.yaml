@@ -18,6 +18,10 @@ spec:
     - {server: https://kubernetes.default.svc, namespace: noord-agent}
     - {server: https://kubernetes.default.svc, namespace: noord-directory}
     - {server: https://kubernetes.default.svc, namespace: noord-client}
+    {{- if .Values.platform.tailscale.enabled }}
+    # Only the Tailscale operator's SealedSecret goes here.
+    - {server: https://kubernetes.default.svc, namespace: {{ .Values.tailscale.proxyNamespace }}}
+    {{- end }}
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}
 ---

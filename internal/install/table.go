@@ -50,8 +50,10 @@ type Secret struct {
 	Loader    string `yaml:"loader"` // the config struct it carries (AC-7); empty for deploy only Secrets
 	Type      string `yaml:"type"`
 	// Backup marks a Secret that exists only with backup.enabled (AC-18).
-	Backup bool           `yaml:"backup"`
-	Keys   map[string]Key `yaml:"keys"`
+	Backup bool `yaml:"backup"`
+	// Tailscale marks a Secret that exists only with platform.tailscale.enabled (AC-4).
+	Tailscale bool           `yaml:"tailscale"`
+	Keys      map[string]Key `yaml:"keys"`
 }
 
 // Key is one key of a Secret and where its value comes from.
@@ -89,9 +91,10 @@ const (
 
 // Conditions are the install wide switches a key may depend on.
 type Conditions struct {
-	Demo   bool // demo.enabled
-	Reset  bool // reset.enabled
-	Backup bool // backup.enabled
+	Demo      bool // demo.enabled
+	Reset     bool // reset.enabled
+	Backup    bool // backup.enabled
+	Tailscale bool // platform.tailscale.enabled
 }
 
 // holds reports whether a key applies to an install with these conditions.
@@ -219,7 +222,7 @@ func (t Table) Enabled(components []string) []string {
 func (t Table) Active(components []string, c Conditions) []string {
 	var names []string
 	for _, name := range t.Enabled(components) {
-		if !t.Secrets[name].Backup || c.Backup {
+		if (!t.Secrets[name].Backup || c.Backup) && (!t.Secrets[name].Tailscale || c.Tailscale) {
 			names = append(names, name)
 		}
 	}

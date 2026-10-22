@@ -14,18 +14,39 @@ repo:
 demo:
   enabled: true
 
-# Operators this install may add (AC-4). Off by default: k3sprox already runs
-# them. Pinned chart versions arrive with the fresh cluster path.
+# ArgoCD itself, installed by make install only when the cluster has none
+# (AC-3). Read by the installer, never by a template.
+argocd:
+  repoURL: https://argoproj.github.io/argo-helm
+  chart: argo-cd
+  version: 10.10.5
+
+# Where the Tailscale operator's proxies run (our chart's tailscale value).
+tailscale:
+  proxyNamespace: tailscale
+
+# Operators this install may add (AC-4), each a pinned chart. Off by default:
+# k3sprox already runs them.
 platform:
   sealedSecrets:
     enabled: false
     namespace: kube-system
     name: sealed-secrets-controller
+    repoURL: https://bitnami.github.io/sealed-secrets
+    chart: sealed-secrets
+    version: 2.20.0
   certManager:
     enabled: false
+    namespace: cert-manager
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    version: v1.21.2
   cnpg:
     enabled: false
     namespace: cnpg-system
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    version: 0.29.1
   barmanPlugin:
     enabled: false
     # CNPG-I's Barman Cloud plugin (v0.15.1); needs cert-manager.
@@ -34,6 +55,9 @@ platform:
     version: 0.8.1
   tailscale:
     enabled: false
+    repoURL: https://pkgs.tailscale.com/helmcharts
+    chart: tailscale-operator
+    version: 1.104.2
 
 # Every Application this chart renders shares these.
 sync:

@@ -16,7 +16,8 @@ ZAMMAD_VOLUMES := noord_elasticsearch-data noord_postgresql-data noord_redis-dat
 .PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
-	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install smoke
+	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install smoke \
+	release pause resume uninstall seal-key-backup cluster-init
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -181,6 +182,42 @@ smoke:
 	@test -n "$(CLUSTER)" || { echo "usage: make smoke CLUSTER=<name>" >&2; exit 1; }
 	@go build -o bin/seed ./cmd/seed
 	./bin/seed smoke --cluster "$(CLUSTER)"
+
+## cluster-init: make deploy/clusters/<name>/ from the template and the live cluster, CLUSTER=<name> (spec 0015)
+cluster-init:
+	@test -n "$(CLUSTER)" || { echo "usage: make cluster-init CLUSTER=<name>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed
+	./bin/seed cluster-init --cluster "$(CLUSTER)"
+
+## release: roll a cluster to the images of a commit, CLUSTER=<name> SHA=<sha> (spec 0015, AC-19)
+release:
+	@test -n "$(CLUSTER)" -a -n "$(SHA)" || { echo "usage: make release CLUSTER=<name> SHA=<sha>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed
+	./bin/seed release --cluster "$(CLUSTER)" --sha "$(SHA)"
+
+## pause: stop the agent and the seed Jobs, CLUSTER=<name> (AC-20)
+pause:
+	@test -n "$(CLUSTER)" || { echo "usage: make pause CLUSTER=<name>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed
+	./bin/seed pause --cluster "$(CLUSTER)"
+
+## resume: start the agent again and rerun every seed step, CLUSTER=<name> (AC-20)
+resume:
+	@test -n "$(CLUSTER)" || { echo "usage: make resume CLUSTER=<name>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed
+	./bin/seed resume --cluster "$(CLUSTER)"
+
+## uninstall: delete a cluster's Applications and volumes, CLUSTER=<name> (AC-21)
+uninstall:
+	@test -n "$(CLUSTER)" || { echo "usage: make uninstall CLUSTER=<name>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed
+	./bin/seed uninstall --cluster "$(CLUSTER)"
+
+## seal-key-backup: save the Sealed Secrets keys to ~/.noord/<name>/, CLUSTER=<name> (AC-22)
+seal-key-backup:
+	@test -n "$(CLUSTER)" || { echo "usage: make seal-key-backup CLUSTER=<name>" >&2; exit 1; }
+	@go build -o bin/seed ./cmd/seed
+	./bin/seed seal-key-backup --cluster "$(CLUSTER)"
 
 clean:
 	rm -rf bin

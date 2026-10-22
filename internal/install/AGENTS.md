@@ -15,6 +15,9 @@ The one command cluster installer behind `make install CLUSTER=<name>` (`seed in
 | `directory.go` | the demo components (`components`), the `certs` step (CA and Samba server pair in `~/.noord/<cluster>/`), the `overlays` step (`noord-seed-overlays`, applied straight to the cluster) |
 | `cluster.go` | `OpenFolder`, `Values` (the part of a cluster's `values.yaml` the installer reads), `SetCACertificate` |
 | `env.go` | `EnvFile`: parse and write `secrets.env` (mode 0600, errors name the line, never a value) |
+| `ops.go` | the day two commands: `Release`, `Pause`, `Resume`, `Uninstall`, `SealKeyBackup`, and the key backup notice `install` prints (AC-19 to AC-22) |
+| `fresh.go` | the fresh cluster path: the `argocd` step (installs the pinned chart only when `argocd-server` is missing), the demo memory check, the pull request push path (exit 3), `Record` use in sealing |
+| `clusterinit.go` | `ClusterInit` (`make cluster-init`): the folder from the template, the ranges and operators read from the live cluster, the newest commit with all four images, the generated `bootstrap.yaml` |
 | `git.go` | `Changed`, `Unexpected`, `Track`, `Commit` (only `values.yaml` and `sealed-values.yaml`, hooks off), `Push` |
 | `images.go` | `Registry.Exists`: anonymous checks that the four images exist for `image.tag` |
 | `kube.go` | `Runner`, `ExecRunner`, `Kube` (every `kubectl` call names its context), `CmdError` |
@@ -32,6 +35,9 @@ The one command cluster installer behind `make install CLUSTER=<name>` (`seed in
 - `internal/install` is on both agent deny lists (`.golangci.yml` `agent-credential-boundary` and `cmd/agent/boundary_test.go`).
 
 ## Gotchas
+
+- With Tailscale on, its operator Application only turns healthy after the apps part delivers its OAuth Secret, so the platform wait leaves it and the platform Application out; the last wait covers both.
+- A pull request push (exit 3) puts the local branch back on its upstream. `~/.noord/<cluster>/sealed-record.json` (hashes, mode 0600) lets the rerun after the merge keep the sealed ciphertext instead of sealing again and opening another pull request.
 
 - `make install` builds `bin/seed` and runs it, because `go run` hides the exit code (journal 0062).
 - The wait step waits for every Application to reach the commit it pushed or found. If ArgoCD has already moved to a newer commit, the run times out; rerun it (journal 0069 has a case).

@@ -35,16 +35,18 @@ func (e *ExitError) Unwrap() error { return e.Err }
 
 // Options is one run of the installer.
 type Options struct {
-	Root     string // the clone's root
-	Cluster  string
-	Out      io.Writer
-	Run      Runner
-	Registry Registry
-	Home     string // holds .noord/<cluster>/; the user's home in production
-	TempDir  string // for the sealing certificate
-	Poll     time.Duration
-	LookPath func(string) (string, error)
-	Now      func() time.Time // names the smoke Job
+	Root         string // the clone's root
+	Cluster      string
+	Out          io.Writer
+	In           io.Reader // answers uninstall's question
+	Run          Runner
+	Registry     Registry
+	RegistryHost string // the image registry cluster-init records; ghcr.io when empty
+	Home         string // holds .noord/<cluster>/; the user's home in production
+	TempDir      string // for the sealing certificate
+	Poll         time.Duration
+	LookPath     func(string) (string, error)
+	Now          func() time.Time // names the smoke Job
 }
 
 // Defaults fills what a production run leaves unset.
@@ -66,6 +68,11 @@ func (o Options) Defaults() Options {
 	}
 	return o
 }
+
+// prError means the sealed values wait in a pull request (AC-5).
+type prError struct{ url string }
+
+func (e *prError) Error() string { return "the branch is protected; the sealed values are in " + e.url }
 
 // tools are the commands the installer runs (AC-2).
 var tools = []string{"kubectl", "helm", "kubeseal", "git"}
@@ -104,6 +111,7 @@ func Run(ctx context.Context, opts Options) error {
 		name string
 		fn   func(context.Context) error
 	}{
+		{"argocd", s.argocd},
 		{"platform", s.platform},
 		{"certs", s.certs},
 		{"generate", s.generate},
@@ -117,10 +125,16 @@ func Run(ctx context.Context, opts Options) error {
 	for _, step := range steps {
 		s.say("%s", step.name)
 		if err := step.fn(ctx); err != nil {
+			if pr, ok := errors.AsType[*prError](err); ok {
+				s.say("pull request: %s", pr.url)
+				s.say("merge it, run git pull, then make install CLUSTER=%s again", s.Cluster)
+				return &ExitError{Code: ExitPR, Step: step.name, Err: pr}
+			}
 			return &ExitError{Code: ExitFailed, Step: step.name, Err: err}
 		}
 	}
 	s.report()
+	s.keyNotice(ctx)
 	return nil
 }
 
@@ -247,10 +261,8 @@ func (s *state) checkCluster(ctx context.Context) error {
 	} else if !ok {
 		errs = append(errs, errors.New("the cluster has no default StorageClass"))
 	}
-	if ok, err := s.kube.Exists(ctx, argocdNamespace, "deployment", argocdServerName); err != nil {
-		errs = append(errs, fmt.Errorf("look for ArgoCD: %w", err))
-	} else if !ok {
-		errs = append(errs, errors.New("ArgoCD is not installed in the argocd namespace; installing it is not built yet"))
+	if err := s.checkMemory(ctx); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -321,7 +333,7 @@ func (s *state) platform(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.waitApps(ctx, s.platformApps(), rev, nil)
+	return s.waitApps(ctx, s.platformWait(), rev, nil)
 }
 
 func (s *state) platformApp() string { return "noord-" + s.Cluster + "-platform" }
@@ -332,13 +344,42 @@ func (s *state) platformApps() []string {
 	return append([]string{s.platformApp()}, s.operatorApps()...)
 }
 
+// platformWait is what the platform step waits for. Tailscale's operator
+// needs its OAuth Secret, which arrives with the apps part, so neither it
+// nor the platform Application (unhealthy while it waits) is waited for
+// here; the last wait covers both.
+func (s *state) platformWait() []string {
+	if !s.values.Platform.Tailscale.Enabled {
+		return s.platformApps()
+	}
+	var apps []string
+	for _, a := range s.operatorApps() {
+		if a != "noord-"+s.Cluster+"-tailscale" {
+			apps = append(apps, a)
+		}
+	}
+	return apps
+}
+
 // operatorApps are the enabled operators' Applications. Each follows a
 // pinned chart version, so its revision is that version, never a commit:
 // the wait checks only that it is Synced and Healthy.
 func (s *state) operatorApps() []string {
 	var apps []string
-	if s.values.Platform.BarmanPlugin.Enabled {
-		apps = append(apps, "noord-"+s.Cluster+"-barman")
+	p := s.values.Platform
+	for _, op := range []struct {
+		on   bool
+		name string
+	}{
+		{p.SealedSecrets.Enabled, "sealed-secrets"},
+		{p.CertManager.Enabled, "cert-manager"},
+		{p.CNPG.Enabled, "cnpg"},
+		{p.BarmanPlugin.Enabled, "barman"},
+		{p.Tailscale.Enabled, "tailscale"},
+	} {
+		if op.on {
+			apps = append(apps, "noord-"+s.Cluster+"-"+op.name)
+		}
 	}
 	return apps
 }
@@ -372,9 +413,13 @@ func (s *state) seal(ctx context.Context) error {
 		return err
 	}
 	defer cleanup()
-	next, plan, err := s.table.Reseal(ctx, plain, old, s.kube, sealer)
+	recPath := filepath.Join(s.certDir(), "sealed-record.json")
+	next, plan, err := s.table.Reseal(ctx, plain, old, s.kube, sealer, ReadRecord(recPath))
 	if err != nil {
 		return err
+	}
+	if err := WriteRecord(recPath, s.table.Remember(plain)); err != nil {
+		return fmt.Errorf("save the seal record: %w", err)
 	}
 	written, err := s.folder.WriteSealed(next)
 	if err != nil {
@@ -399,6 +444,14 @@ func (s *state) commitAndPush(ctx context.Context) error {
 		return nil
 	}
 	if err := s.git.Push(ctx, s.track); err != nil {
+		var rej *PushRejectedError
+		if errors.As(err, &rej) && rej.Protected {
+			url, perr := s.pullRequest(ctx)
+			if perr != nil {
+				return fmt.Errorf("the push was blocked by a branch rule: %w", perr)
+			}
+			return &prError{url: url}
+		}
 		return fmt.Errorf("the push was rejected, nothing was applied: %w", err)
 	}
 	s.say("committed and pushed")

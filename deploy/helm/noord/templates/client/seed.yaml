@@ -78,7 +78,7 @@ spec:
               - {key: ca.crt, path: ca.pem}
 {{- end -}}
 
-{{- if eq .Values.component "client" }}
+{{- if and (eq .Values.component "client") (not .Values.paused) }}
 {{- if not .Values.zammad.enabled }}
 {{- fail "the client part needs zammad.enabled=true (the noord-client Application sets it)" }}
 {{- end }}

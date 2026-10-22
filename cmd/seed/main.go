@@ -85,6 +85,10 @@ func run(args []string, out io.Writer) error {
 		return runSmoke(ctx, rest, out)
 	case "install":
 		return runInstall(ctx, rest, out)
+	case "cluster-init":
+		return runOps(ctx, cmd, rest, out)
+	case "release", "pause", "resume", "uninstall", "seal-key-backup":
+		return runOps(ctx, cmd, rest, out)
 	default:
 		return fmt.Errorf("unknown command %q\n%w", cmd, errUsage)
 	}

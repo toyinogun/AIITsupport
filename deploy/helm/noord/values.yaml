@@ -51,6 +51,16 @@ ca:
 # The sealed blocks, one per Secret in files/secrets.yaml (sealed-values.yaml).
 sealed: {}
 
+# The operators the bootstrap chart installs; the chart reads only whether
+# Tailscale is on, for its operator's Secret (AC-4).
+platform:
+  tailscale:
+    enabled: false
+
+# make pause sets this: the agent at 0 replicas and no seed Jobs rendered
+# (AC-20). make resume clears it.
+paused: false
+
 # make resume bumps this so every seed step runs once more (AC-20).
 seedRun: 0
 
