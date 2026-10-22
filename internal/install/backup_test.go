@@ -2,11 +2,16 @@ package install
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // backupOn renders with backups on, the way a cluster folder turns them on.
@@ -151,5 +156,39 @@ func TestPlatformWaitsForThePlugin(t *testing.T) {
 	first := f.run.calls[slices.IndexFunc(f.run.calls, func(c Cmd) bool { return slices.Contains(c.Args, "applications.argoproj.io") })]
 	if !slices.Contains(first.Args, "noord-k3sprox-barman") || !slices.Contains(first.Args, "noord-k3sprox-platform") {
 		t.Errorf("the platform wait read %v, want the platform and the plugin Applications", first.Args)
+	}
+}
+
+// covers: AC-4 (spec 0015). The platform AppProject syncs before every
+// operator Application, since ArgoCD waits for each one's health and one
+// whose repo the project does not yet permit never turns healthy.
+func TestPlatformProjectSyncsFirst(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+	out, err := exec.CommandContext(t.Context(), "helm", "template", "p", filepath.Join(repoRoot, "deploy/argocd"), //nolint:gosec // G204: fixed arguments
+		"-f", filepath.Join(repoRoot, ClustersDir, "k3sprox", valuesFile), "--set", "part=platform").Output()
+	if err != nil {
+		t.Fatalf("helm template: %v", err)
+	}
+	project, lowest := 0, 0
+	var apps int
+	for doc := range strings.SplitSeq(string(out), "\n---") {
+		var d map[string]any
+		must(t, yaml.Unmarshal([]byte(doc), &d))
+		wave, _ := strconv.Atoi(fmt.Sprint(dig(d, "metadata", "annotations", "argocd.argoproj.io/sync-wave")))
+		switch d["kind"] {
+		case "AppProject":
+			project = wave
+		case "Application":
+			apps++
+			lowest = min(lowest, wave)
+		}
+	}
+	if apps == 0 {
+		t.Fatal("k3sprox's platform part renders no operator Application")
+	}
+	if project >= lowest {
+		t.Errorf("AppProject wave %d, want below every operator Application (lowest %d)", project, lowest)
 	}
 }

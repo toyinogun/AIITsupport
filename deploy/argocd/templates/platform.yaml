@@ -8,6 +8,11 @@ metadata:
   namespace: argocd
   labels:
     {{- include "apps.labels" . | nindent 4 }}
+  annotations:
+    # Before every operator Application (the lowest is -30): ArgoCD waits
+    # for each one's health, and one whose repo the project does not yet
+    # permit never turns healthy, so the sync would wait forever.
+    argocd.argoproj.io/sync-wave: "-40"
 spec:
   description: Operators for the Noord install on {{ .Values.cluster.name }}
   sourceRepos:
