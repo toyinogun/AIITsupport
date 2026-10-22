@@ -20,11 +20,12 @@ repo:
   revision: main
 
 # Set by make release (AC-19); by hand until it exists: the first main
-# commit with /readyz, seed smoke, and backups (tasks 5 to 7).
+# commit with /readyz, seed smoke, backups (tasks 5 to 7), and the seed's
+# Zammad services step (journal 0076).
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: 2581f5e6bc01ad609f79690680b7724a980e4d83
+  tag: 78e3a7f511c4877aeafd3ad546549907dac29e38
 
 # The demo directory (task 2) and helpdesk (task 3) run here.
 demo:
