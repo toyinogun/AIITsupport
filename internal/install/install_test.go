@@ -132,9 +132,13 @@ func (f *fixture) staged(Cmd) ([]byte, error) {
 func (f *fixture) apps(c Cmd) ([]byte, error) {
 	var items []map[string]any
 	for _, name := range c.Args[slices.Index(c.Args, "--ignore-not-found")+1:] {
+		rev := testRev
+		if strings.HasSuffix(name, "-barman") {
+			rev = "0.8.1" // an operator Application is at its chart's version, as on k3sprox
+		}
 		items = append(items, map[string]any{
 			"metadata": map[string]any{"name": name},
-			"status":   map[string]any{"sync": map[string]any{"status": "Synced", "revision": testRev}, "health": map[string]any{"status": "Healthy"}},
+			"status":   map[string]any{"sync": map[string]any{"status": "Synced", "revision": rev}, "health": map[string]any{"status": "Healthy"}},
 		})
 	}
 	return json.Marshal(map[string]any{"kind": "List", "items": items})

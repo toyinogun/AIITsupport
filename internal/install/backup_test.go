@@ -1,6 +1,7 @@
 package install
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -142,7 +144,8 @@ func TestPreflightNeedsTheBucket(t *testing.T) {
 }
 
 // covers: AC-4 (spec 0015). With the Barman plugin on, the platform step
-// waits for the plugin's own Application, not only its parent.
+// waits for the plugin's own Application, not only its parent, and accepts
+// it at its chart's version: an operator Application is never at a commit.
 func TestPlatformWaitsForThePlugin(t *testing.T) {
 	f := newFixture(t)
 	path := filepath.Join(f.root, ClustersDir, "k3sprox", valuesFile)
@@ -150,8 +153,13 @@ func TestPlatformWaitsForThePlugin(t *testing.T) {
 	must(t, err)
 	values := strings.Replace(string(raw), "platform: {sealedSecrets:", "platform: {barmanPlugin: {enabled: true}, sealedSecrets:", 1)
 	must(t, os.WriteFile(path, []byte(values), 0o600)) //nolint:gosec // a fixed path in t.TempDir
-	if err := Run(t.Context(), f.options()); err != nil {
-		t.Fatalf("Run: %v\n%s", err, f.out.String())
+	s := &state{Options: f.options().Defaults()}
+	must(t, s.preflight(t.Context()))
+	// A short deadline, so a wait that never ends fails here instead of hanging.
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.platform(ctx); err != nil {
+		t.Fatalf("platform: %v", err)
 	}
 	first := f.run.calls[slices.IndexFunc(f.run.calls, func(c Cmd) bool { return slices.Contains(c.Args, "applications.argoproj.io") })]
 	if !slices.Contains(first.Args, "noord-k3sprox-barman") || !slices.Contains(first.Args, "noord-k3sprox-platform") {
