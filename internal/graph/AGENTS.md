@@ -8,7 +8,7 @@ A thin client for Microsoft Graph, Entra ID's REST API (spec 0005): the token, a
 
 | File | Owns |
 |---|---|
-| `client.go` | `New`, `NewWithSecret`, `Options`, `Credentials`, `Client.Do` (per request timeout, retries), `List` / `ListAll` (follow `@odata.nextLink`, same host only) |
+| `client.go` | `New`, `NewWithCredentials` (a certificate when `CertFile` is set, else the client secret), `Options`, `Credentials`, `Client.Do` (per request timeout, retries), `List` / `ListAll` (follow `@odata.nextLink`, same host only) |
 | `errors.go` | `ErrNotFound`, `ErrNotManaged`, `Error` (its `Cause` gives the fixed `graph_<status>` token for `cause.Of`), `Status`, `IsNotFound`, `IsForbidden`, `IsConflict` |
 | `users.go` | `ManagedMarker` (`noord-sync`), `User`, `ManagedUser`, `Managed`, `UserByUsername`, `UsersByNickname`, `Query`, `UserPath` |
 | `methods.go` | `AuthMethods`, `PhoneMethods`, `DeletePhoneMethod`, `AuthenticatorMethods`, `DeleteAuthenticatorMethod`, `SignInPreference` (spec 0012), `MaskPhone` |
@@ -20,6 +20,7 @@ A thin client for Microsoft Graph, Entra ID's REST API (spec 0005): the token, a
 - **The fence.** Every user lookup resolves by `mailNickname` only and goes through `Managed`: a user without `employeeType` = `noord-sync` is `ErrNotManaged`, an unknown one `ErrNotFound`, before any auth method call. Methods take a `ManagedUser`, so code here cannot reach an unmarked user (your tenant admin included).
 - Two app registrations, never mixed: the tool server app (`GRAPH_*`, `config.Graph`) may read users and auth methods, change phone methods, and delete Microsoft Authenticator methods (spec 0012) only; the seed app (`SEED_GRAPH_*`, `config.Seed`) writes users and is used only by `cmd/seed`. Pass `ClientIDSetting` so errors name the setting, never a value.
 - `GRAPH_BASE_URL` and `GRAPH_AUTHORITY_HOST` (spec 0018, AC-20) are unset in production. Only the eval harness sets them, to reach `graphtest.StartTLS` (a TLS fake with a token endpoint and `CAPEM()`); `Credentials.AuthorityHost` swaps the sign in host and turns instance discovery off. `authority_test.go` runs the real `azidentity` credential against it in a child process that trusts the fake CA through `SSL_CERT_FILE`.
+- The tool server app signs in with a certificate (`GRAPH_CLIENT_CERT`, one PEM with the certificate and its RSA key) or its client secret, never both (`internal/config` refuses both). In the cluster the certificate is its only credential and the app's client secret is deleted; the seed app keeps its client secret (spec 0015, AC-24).
 - Calls run one at a time. 429 and 503 wait for `Retry-After` (or back off) up to `MaxRetries`; a 404 is retried only when the request asks for it (an object created moments ago).
 - Mask every phone number with `MaskPhone` (last 2 digits) before it reaches a log or output. Error text never carries the query string.
 - This package is on both credential deny lists (depguard `agent-credential-boundary` and `cmd/agent/boundary_test.go`), together with `azidentity`: the agent never imports it.
