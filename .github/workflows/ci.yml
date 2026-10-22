@@ -161,7 +161,14 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       # The Dockerfile cross compiles from $BUILDPLATFORM, so no QEMU is needed.
+      # Build first, push second. BuildKit drops the client's session after
+      # two missed health checks (about 30s); a long compile on a busy node
+      # misses them, and the push then has no session to fetch the GHCR
+      # credentials through. The build needs no session once its context is
+      # sent, and the push reruns from the builder's cache with a fresh one
+      # (journal 0070).
       - if: steps.plan.outputs.build == 'true'
+        name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -169,7 +176,16 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: CMD=${{ matrix.name }}
           tags: ${{ steps.plan.outputs.image }}
-          push: ${{ github.event_name == 'push' }}
+      - if: steps.plan.outputs.build == 'true' && github.event_name == 'push'
+        name: Push from the build cache
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          build-args: CMD=${{ matrix.name }}
+          tags: ${{ steps.plan.outputs.image }}
+          push: true
 
   samba-image:
     runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
