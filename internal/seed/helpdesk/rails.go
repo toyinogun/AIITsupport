@@ -22,6 +22,7 @@ const (
 	StepBootstrap = "bootstrap"
 	StepBackdate  = "backdate"
 	StepRetention = "retention"
+	StepServices  = "services"
 )
 
 const (
