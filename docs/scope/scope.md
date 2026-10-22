@@ -281,7 +281,7 @@ Package everything and deploy through GitOps to an EU hosted cluster, with Postg
 - [x] Design it (spec): `/architect gitops install`
 - [ ] Build it: `/develop gitops install`
   - [x] Tracer thread on k3sprox: images pushed by CI, the config tags and drift tests, the minimal installer (seal, push, apply, wait), the agent stack (CNPG, `seed migrate`, tool server, agent, kill switch) (AC-5, AC-7 to AC-9, AC-12, AC-19)
-  - [ ] Client systems in the cluster: Samba with the local CA, Zammad chart plus our Elasticsearch, the hashed seed Jobs and the `local` Runner, the reset page and Entra certificate, one live Slack unlock on k3sprox (AC-6, AC-10, AC-11, AC-13, AC-15, AC-24)
+  - [x] Client systems in the cluster: Samba with the local CA, Zammad chart plus our Elasticsearch, the hashed seed Jobs and the `local` Runner, the reset page and Entra certificate, one live Slack unlock on k3sprox (AC-6, AC-10, AC-11, AC-13, AC-15, AC-24)
   - [ ] Hardening: default deny network with the allow list and Cilium FQDNs, Pod Security, `/readyz` and the smoke Job, backups to R2 (AC-1, AC-4, AC-12, AC-14 to AC-18)
   - [ ] Fresh cluster path and day two: ArgoCD and platform operators, full preflight, `cluster-init`, release, pause and resume, uninstall, sealing key backup, the CI deploy job, the k3sprox pointer and the runbook (AC-2 to AC-5, AC-19 to AC-23, AC-25, AC-26, AC-28)
   - [ ] The proof on a throwaway VM: recorded install, Slack unlock, reset link, restore drill, teardown, journal (AC-1, AC-27, AC-29)
