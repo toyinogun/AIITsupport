@@ -44,7 +44,8 @@ type Values struct {
 		Tag      string `yaml:"tag"`
 	} `yaml:"image"`
 	Demo struct {
-		Enabled *bool `yaml:"enabled"`
+		Enabled       *bool  `yaml:"enabled"`
+		MinFreeMemory string `yaml:"minFreeMemory"`
 	} `yaml:"demo"`
 	// Reset is the password reset page (spec 0011) and its tailnet host
 	// (AC-15).
@@ -64,16 +65,28 @@ type Values struct {
 	} `yaml:"backup"`
 	Platform struct {
 		SealedSecrets struct {
+			Enabled   bool   `yaml:"enabled"`
 			Namespace string `yaml:"namespace"`
 			Name      string `yaml:"name"`
 		} `yaml:"sealedSecrets"`
 		BarmanPlugin struct {
 			Enabled bool `yaml:"enabled"`
 		} `yaml:"barmanPlugin"`
+		CertManager struct {
+			Enabled bool `yaml:"enabled"`
+		} `yaml:"certManager"`
+		CNPG struct {
+			Enabled bool `yaml:"enabled"`
+		} `yaml:"cnpg"`
+		Tailscale struct {
+			Enabled bool `yaml:"enabled"`
+		} `yaml:"tailscale"`
 	} `yaml:"platform"`
 	CA struct {
 		Certificate string `yaml:"certificate"`
 	} `yaml:"ca"`
+	Paused  bool `yaml:"paused"`
+	SeedRun int  `yaml:"seedRun"`
 }
 
 // DemoEnabled is demo.enabled, on unless the folder turns it off.
@@ -107,7 +120,7 @@ func (v Values) BackupEnabled() bool { return v.Backup.Enabled != nil && *v.Back
 
 // Conditions are the switches this folder sets.
 func (v Values) Conditions() Conditions {
-	return Conditions{Demo: v.DemoEnabled(), Reset: v.ResetEnabled(), Backup: v.BackupEnabled()}
+	return Conditions{Demo: v.DemoEnabled(), Reset: v.ResetEnabled(), Backup: v.BackupEnabled(), Tailscale: v.Platform.Tailscale.Enabled}
 }
 
 // Folder is one cluster's folder in the clone.
@@ -216,4 +229,38 @@ func scalar(m *yaml.Node, key string) *yaml.Node {
 	child := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str"}
 	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, child)
 	return child
+}
+
+// SetScalar writes one scalar at path in values.yaml (tag is !!str, !!int or
+// !!bool), keeping the rest of the file, comments included. It reports
+// whether the file changed.
+func (f Folder) SetScalar(keyPath []string, value, tag string) (bool, error) {
+	file := f.path(valuesFile)
+	raw, err := os.ReadFile(file) //nolint:gosec // the cluster folder's own file
+	if err != nil {
+		return false, fmt.Errorf("read %s/%s: %w", f.Dir, valuesFile, err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 {
+		return false, fmt.Errorf("parse %s/%s: %w", f.Dir, valuesFile, err)
+	}
+	node := doc.Content[0]
+	for _, key := range keyPath[:len(keyPath)-1] {
+		node = mapping(node, key)
+	}
+	leaf := scalar(node, keyPath[len(keyPath)-1])
+	if leaf.Value == value && leaf.Tag == tag {
+		return false, nil
+	}
+	leaf.Value, leaf.Tag, leaf.Style = value, tag, 0
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return false, fmt.Errorf("encode %s/%s: %w", f.Dir, valuesFile, err)
+	}
+	if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil { //nolint:gosec // committed, public values
+		return false, fmt.Errorf("write %s/%s: %w", f.Dir, valuesFile, err)
+	}
+	return true, nil
 }

@@ -95,8 +95,11 @@ func (f *fixture) answers() map[string]func(Cmd) ([]byte, error) {
 			}
 			return json.Marshal(map[string]any{"data": enc})
 		},
-		kc + "apply":              say(""),
-		kc + "-n argocd annotate": say(""),
+		kc + "get nodes":                              say(`{"items":[{"metadata":{"name":"n1"},"status":{"allocatable":{"memory":"16Gi"}}}]}`),
+		kc + "get pods":                               say(`{"items":[{"spec":{"nodeName":"n1","containers":[{"resources":{"requests":{"memory":"4Gi"}}}]}}]}`),
+		kc + "-n kube-system get secret":              say("items: []\n"),
+		kc + "apply":                                  say(""),
+		kc + "-n argocd annotate":                     say(""),
 		kc + "-n argocd get applications.argoproj.io": f.apps,
 		kc + "get sealedsecrets.bitnami.com":          f.sealedSecrets,
 		kc + "-n noord-agent create job":              say("job.batch/noord-smoke-x created\n"),

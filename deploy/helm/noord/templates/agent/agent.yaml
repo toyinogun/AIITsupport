@@ -10,7 +10,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  replicas: {{ .Values.agent.replicas }}
+  # make pause stops the agent: no Slack connection, no tool calls (AC-20).
+  replicas: {{ if .Values.paused }}0{{ else }}{{ .Values.agent.replicas }}{{ end }}
   # One Socket Mode connection at a time (spec 0008): stop the old pod first.
   strategy:
     type: Recreate

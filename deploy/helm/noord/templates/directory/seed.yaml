@@ -81,7 +81,7 @@ metadata:
 {{ $spec }}
 {{- end -}}
 
-{{- if eq .Values.component "directory" }}
+{{- if and (eq .Values.component "directory") (not .Values.paused) }}
 {{- include "noord.seedDirectoryJob" (list . "seed-directory" (list "directory") "2") }}
 {{- /* seed entra sync (spec 0005) after seed directory, one wave later: it
 reads the users seed directory made. Only with the seed app's settings

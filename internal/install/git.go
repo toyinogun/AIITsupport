@@ -150,9 +150,18 @@ func (g Git) Commit(ctx context.Context, dir, message string) (bool, error) {
 
 // Push pushes HEAD to the upstream branch by name, so a local branch named
 // differently from its upstream still lands where ArgoCD reads.
+// A refusal comes back as a *PushRejectedError.
 func (g Git) Push(ctx context.Context, tr Tracking) error {
-	_, err := g.git(ctx, []string{"LEFTHOOK=0"}, "push", "--quiet", tr.Remote, "HEAD:refs/heads/"+tr.Branch)
-	return err
+	out, err := g.git(ctx, []string{"LEFTHOOK=0"}, "push", "--porcelain", tr.Remote, "HEAD:refs/heads/"+tr.Branch)
+	if err != nil {
+		var ce *CmdError
+		detail := out
+		if errors.As(err, &ce) {
+			detail += " " + ce.Stderr
+		}
+		return &PushRejectedError{Protected: protectedBranch(detail), Err: err}
+	}
+	return nil
 }
 
 // Head is HEAD's full SHA.

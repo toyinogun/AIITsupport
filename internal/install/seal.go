@@ -3,11 +3,15 @@ package install
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"gopkg.in/yaml.v3"
@@ -78,21 +82,22 @@ type sealer interface {
 // Reseal builds the new sealed values from the plaintext. A key keeps its
 // old ciphertext when the live Secret already holds the same value;
 // otherwise it is sealed again. Sealing is not deterministic, so comparing
-// ciphertext would always differ (AC-5). Keys and Secrets no longer in the
+// ciphertext would always differ (AC-5). A Secret not in the cluster yet is
+// judged by the Record instead. Keys and Secrets no longer in the
 // plaintext are dropped.
-func (t Table) Reseal(ctx context.Context, plain Plain, old Sealed, live Live, seal sealer) (Sealed, SealPlan, error) {
+func (t Table) Reseal(ctx context.Context, plain Plain, old Sealed, live Live, seal sealer, rec Record) (Sealed, SealPlan, error) {
 	next := Sealed{}
 	var plan SealPlan
 	for _, name := range slices.Sorted(maps.Keys(plain)) {
 		ns := t.Secrets[name].Namespace
-		current, _, err := live.Secret(ctx, ns, name)
+		current, exists, err := live.Secret(ctx, ns, name)
 		if err != nil {
 			return nil, plan, fmt.Errorf("read the live %s Secret: %w", name, err)
 		}
 		block := map[string]string{}
 		for _, key := range slices.Sorted(maps.Keys(plain[name])) {
 			value := plain[name][key]
-			if cipher, ok := old[name][key]; ok && cipher != "" && current[key] == value {
+			if cipher, ok := old[name][key]; ok && cipher != "" && (current[key] == value || (!exists && rec.Matches(ns, name, key, value))) {
 				block[key] = cipher
 				plan.Kept++
 				continue
@@ -123,4 +128,61 @@ func countShared(a, b map[string]string) int {
 		}
 	}
 	return n
+}
+
+// Record remembers, outside the repo, a hash of each value that was sealed
+// (~/.noord/<cluster>/sealed-record.json, mode 0600). It lets a rerun keep
+// the ciphertext of a value whose Secret is not in the cluster yet, which is
+// the state after a pull request merges but before ArgoCD applied anything
+// (AC-5). Without it every such rerun would seal again and open another pull
+// request. A nil Record keeps nothing.
+type Record map[string]string
+
+func recordKey(ns, name, key string) string { return ns + "/" + name + "/" + key }
+
+func recordHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+// Matches reports whether value is the one sealed last time.
+func (r Record) Matches(ns, name, key, value string) bool {
+	return r != nil && r[recordKey(ns, name, key)] == recordHash(value)
+}
+
+// Remember is the record for these plaintexts.
+func (t Table) Remember(plain Plain) Record {
+	rec := Record{}
+	for name, keys := range plain {
+		for key, value := range keys {
+			rec[recordKey(t.Secrets[name].Namespace, name, key)] = recordHash(value)
+		}
+	}
+	return rec
+}
+
+// ReadRecord reads the record at path; a missing or unreadable file is an
+// empty record, which only costs a reseal.
+func ReadRecord(path string) Record {
+	raw, err := os.ReadFile(path) //nolint:gosec // the cluster's own cert dir
+	if err != nil {
+		return nil
+	}
+	var rec Record
+	if json.Unmarshal(raw, &rec) != nil {
+		return nil
+	}
+	return rec
+}
+
+// WriteRecord saves the record with mode 0600.
+func WriteRecord(path string, rec Record) error {
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
 }

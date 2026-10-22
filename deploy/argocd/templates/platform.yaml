@@ -17,14 +17,28 @@ spec:
   description: Operators for the Noord install on {{ .Values.cluster.name }}
   sourceRepos:
     - {{ .Values.repo.url }}
-    {{- if .Values.platform.barmanPlugin.enabled }}
-    - {{ .Values.platform.barmanPlugin.repoURL }}
+    {{- range $op := list "sealedSecrets" "certManager" "cnpg" "barmanPlugin" "tailscale" }}
+    {{- $v := index $.Values.platform $op }}
+    {{- if $v.enabled }}
+    - {{ $v.repoURL }}
+    {{- end }}
     {{- end }}
   destinations:
     - server: https://kubernetes.default.svc
       namespace: {{ .Values.platform.cnpg.namespace }}
     - server: https://kubernetes.default.svc
       namespace: {{ .Values.platform.sealedSecrets.namespace }}
+    {{- if .Values.platform.certManager.enabled }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ .Values.platform.certManager.namespace }}
+    # cert-manager keeps its leader election Role here.
+    - server: https://kubernetes.default.svc
+      namespace: kube-system
+    {{- end }}
+    {{- if .Values.platform.tailscale.enabled }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ .Values.tailscale.proxyNamespace }}
+    {{- end }}
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}
     - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
@@ -33,6 +47,27 @@ spec:
     - {group: admissionregistration.k8s.io, kind: MutatingWebhookConfiguration}
     - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration}
     - {group: cert-manager.io, kind: ClusterIssuer}
+    - {group: networking.k8s.io, kind: IngressClass}
+
+{{- if .Values.platform.sealedSecrets.enabled }}
+---
+# Sealed Secrets, key renewal off so one key backup stays good (AC-4, AC-22).
+{{ include "platform.operator" (dict "root" . "key" "sealedSecrets" "app" "sealed-secrets" "wave" "-30" "namespace" .Values.platform.sealedSecrets.namespace "values" (printf "fullnameOverride: %s\nkeyrenewperiod: \"0\"" .Values.platform.sealedSecrets.name)) }}
+{{- end }}
+{{- if .Values.platform.certManager.enabled }}
+---
+{{ include "platform.operator" (dict "root" . "key" "certManager" "app" "cert-manager" "wave" "-30" "namespace" .Values.platform.certManager.namespace "values" "crds:\n  enabled: true") }}
+{{- end }}
+{{- if .Values.platform.cnpg.enabled }}
+---
+{{ include "platform.operator" (dict "root" . "key" "cnpg" "app" "cnpg" "wave" "-20" "namespace" .Values.platform.cnpg.namespace) }}
+{{- end }}
+{{- if .Values.platform.tailscale.enabled }}
+---
+# Its OAuth Secret arrives with the apps part, so this Application turns
+# healthy only after that (the installer waits for it last).
+{{ include "platform.operator" (dict "root" . "key" "tailscale" "app" "tailscale" "wave" "-10" "namespace" .Values.tailscale.proxyNamespace) }}
+{{- end }}
 {{- with .Values.platform.barmanPlugin }}
 {{- if .enabled }}
 ---

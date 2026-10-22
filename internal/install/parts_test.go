@@ -182,7 +182,7 @@ func TestReseal(t *testing.T) {
 		"noord-agent/noord-agent":   {"TOOLSERVER_TOKEN": "before"},
 	}
 	seal := &fakeSealer{}
-	next, plan, err := tbl.Reseal(t.Context(), plain, old, live, seal)
+	next, plan, err := tbl.Reseal(t.Context(), plain, old, live, seal, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestPushNamesTheUpstreamBranch(t *testing.T) {
 	if err := (Git{run: r}).Push(t.Context(), Tracking{Remote: "origin", Branch: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(r.calls[0].Args, " "); got != "push --quiet origin HEAD:refs/heads/main" {
+	if got := strings.Join(r.calls[0].Args, " "); got != "push --porcelain origin HEAD:refs/heads/main" {
 		t.Errorf("push args = %q", got)
 	}
 }
