@@ -118,6 +118,11 @@ func (s Seeder) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if boot.State == stateAlreadySeeded || boot.State == stateFresh {
+		if err := s.services(ctx); err != nil {
+			return Result{}, err
+		}
+	}
 	switch boot.State {
 	case stateAlreadySeeded:
 		if err := s.checkToken(ctx); err != nil {
@@ -150,6 +155,26 @@ func (s Seeder) Run(ctx context.Context) (Result, error) {
 		Categories: f.categories, Answers: len(f.payload.Answers),
 	}
 	return res, s.retention(ctx, &res)
+}
+
+// servicesResult is services.rb's NOORD_RESULT.
+type servicesResult struct {
+	Disabled []string `json:"disabled"`
+}
+
+// services turns off Zammad's four outbound lookups (spec 0015, AC-14)
+// before any REST call: with no internet egress, each would hold an
+// authenticated request until its own timeout (journal 0076).
+func (s Seeder) services(ctx context.Context) error {
+	raw, err := runStep(ctx, s.Runner, StepServices, nil, nil)
+	if err != nil {
+		return fmt.Errorf("zammad outbound services: %w", err)
+	}
+	var r servicesResult
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return fmt.Errorf("services result: %w", err)
+	}
+	return nil
 }
 
 // retentionResult is retention.rb's NOORD_RESULT.
@@ -237,8 +262,12 @@ func (s Seeder) bootstrap(ctx context.Context) (bootstrapResult, error) {
 // checkToken makes sure ZAMMAD_TOKEN still belongs to the assistant.
 func (s Seeder) checkToken(ctx context.Context) error {
 	me, err := s.Assistant.Me(ctx)
-	if err != nil || me.Login != AssistantLogin {
+	if (err == nil && me.Login != AssistantLogin) || zammad.IsUnauthorized(err) {
 		return fmt.Errorf("ZAMMAD_TOKEN is not the %s token (it changed since the seed); run make helpdesk-reset", AssistantLogin)
+	}
+	if err != nil {
+		// Not a verdict on the token: Zammad did not answer (journal 0076).
+		return fmt.Errorf("check ZAMMAD_TOKEN as %s: %w", AssistantLogin, err)
 	}
 	return nil
 }

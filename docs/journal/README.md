@@ -97,5 +97,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0073](0073-objectstore-endpoint-cannot-be-sealed.md) | 2026-10-22 | The backup endpoint and bucket cannot be sealed: plain ObjectStore fields | #17 One command GitOps install | ~10 min | post |
 | [0074](0074-platform-project-synced-after-its-operator.md) | 2026-10-22 | The platform sync waited forever: an operator Application synced before its AppProject | #17 One command GitOps install | ~15 min | post |
 | [0075](0075-operator-app-revision-is-a-chart-version.md) | 2026-10-22 | make install hung at platform: an operator Application's revision is its chart version | #17 One command GitOps install | ~20 min | post |
+| [0076](0076-zammad-geo-ip-lookup-hangs-without-egress.md) | 2026-10-22 | The helpdesk seed "lost" its token: Zammad's geo IP lookup hung once egress was closed | #17 One command GitOps install | ~40 min | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

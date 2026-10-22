@@ -23,6 +23,7 @@ type fakeRunner struct {
 	bootstrap func() (Output, error)
 	backdate  func(stdin []byte) (Output, error)
 	retention func(env map[string]string) (Output, error)
+	services  func() (Output, error)
 	calls     []string
 	envs      []map[string]string
 	stdin     []byte
@@ -40,6 +41,11 @@ func (r *fakeRunner) Run(_ context.Context, step string, env map[string]string, 
 			return r.backdate(stdin)
 		}
 		return Output{Stdout: []byte("I, Rails log line\nNOORD_RESULT {\"state\":\"seeded\"}\n")}, nil
+	case StepServices:
+		if r.services != nil {
+			return r.services()
+		}
+		return Output{Stdout: []byte("I, Rails log line\nNOORD_RESULT {\"disabled\":[\"geo_ip_backend\"]}\n")}, nil
 	case StepRetention:
 		if r.retention != nil {
 			return r.retention(env)
@@ -111,11 +117,11 @@ func TestSeedFreshOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if strings.Join(r.calls, ",") != "bootstrap,backdate,retention" {
-		t.Errorf("steps = %v, want the retention scheduler after the marker", r.calls)
+	if strings.Join(r.calls, ",") != "bootstrap,services,backdate,retention" {
+		t.Errorf("steps = %v, want the services step before any REST call and the retention scheduler after the marker", r.calls)
 	}
-	if r.envs[2]["NOORD_RETENTION_DAYS"] != "30" || res.RetentionDays != 30 || res.RetentionMatches != 2 {
-		t.Errorf("retention env %v, result %+v", r.envs[2], res)
+	if r.envs[3]["NOORD_RETENTION_DAYS"] != "30" || res.RetentionDays != 30 || res.RetentionMatches != 2 {
+		t.Errorf("retention env %v, result %+v", r.envs[3], res)
 	}
 	if res.Tickets != 20 || res.Answers != 15 || res.Categories != 6 || res.Articles < 20 {
 		t.Errorf("result = %+v", res)
@@ -125,8 +131,8 @@ func TestSeedFreshOrder(t *testing.T) {
 	if err := json.Unmarshal(r.stdin, &p); err != nil {
 		t.Fatalf("backdate stdin: %v", err)
 	}
-	if p.Marker != testMarker || r.envs[1]["NOORD_MARKER"] != testMarker {
-		t.Errorf("backdate marker = %q, env %q", p.Marker, r.envs[1]["NOORD_MARKER"])
+	if p.Marker != testMarker || r.envs[2]["NOORD_MARKER"] != testMarker {
+		t.Errorf("backdate marker = %q, env %q", p.Marker, r.envs[2]["NOORD_MARKER"])
 	}
 	if len(p.Tickets) != 20 || len(p.Answers) != 15 {
 		t.Fatalf("payload has %d tickets, %d answers", len(p.Tickets), len(p.Answers))
@@ -180,8 +186,8 @@ func TestSeedAlreadySeeded(t *testing.T) {
 	if err != nil || !res.AlreadySeeded {
 		t.Fatalf("Run = %+v, %v", res, err)
 	}
-	if writes(f) != 0 || strings.Join(r.calls, ",") != "bootstrap,retention" {
-		t.Errorf("writes=%d steps=%v, want only the retention scheduler after bootstrap", writes(f), r.calls)
+	if writes(f) != 0 || strings.Join(r.calls, ",") != "bootstrap,services,retention" {
+		t.Errorf("writes=%d steps=%v, want only the services step and the retention scheduler after bootstrap", writes(f), r.calls)
 	}
 	if res.RetentionDays != 30 || res.RetentionMatches != 2 {
 		t.Errorf("result = %+v, want the scheduler's window and matches", res)
@@ -191,7 +197,7 @@ func TestSeedAlreadySeeded(t *testing.T) {
 	// same scheduler through the same step.
 	s.RetentionDays = 45
 	r.calls, r.envs = nil, nil
-	if res, err := s.Run(t.Context()); err != nil || res.RetentionDays != 45 || r.envs[1]["NOORD_RETENTION_DAYS"] != "45" {
+	if res, err := s.Run(t.Context()); err != nil || res.RetentionDays != 45 || r.envs[2]["NOORD_RETENTION_DAYS"] != "45" {
 		t.Errorf("rerun = %+v, %v, env %v", res, err, r.envs)
 	}
 
@@ -204,8 +210,41 @@ func TestSeedAlreadySeeded(t *testing.T) {
 	if _, err := s.Run(t.Context()); err == nil || !strings.Contains(err.Error(), "make helpdesk-reset") {
 		t.Errorf("changed token: err = %v", err)
 	}
-	if strings.Join(r.calls, ",") != "bootstrap" {
+	if strings.Join(r.calls, ",") != "bootstrap,services" {
 		t.Errorf("steps = %v, want no retention step after a failed token check", r.calls)
+	}
+}
+
+// covers: AC-14 (spec 0015). The services step runs before the token check
+// and any REST call, and a failed one stops the run there.
+func TestSeedServicesStep(t *testing.T) {
+	s, r, f, _ := fixture(t)
+	r.bootstrap = result(map[string]any{"state": "already_seeded"})
+	r.services = func() (Output, error) {
+		return Output{Stderr: []byte("NOORD_FAILED disable geo_ip_backend: ActiveRecord::RecordInvalid")}, errors.New("exit status 1")
+	}
+	if _, err := s.Run(t.Context()); err == nil || !strings.Contains(err.Error(), "zammad outbound services") {
+		t.Errorf("failed step: err = %v", err)
+	}
+	if writes(f) != 0 || strings.Join(r.calls, ",") != "bootstrap,services" {
+		t.Errorf("writes=%d steps=%v, want nothing after the failed services step", writes(f), r.calls)
+	}
+}
+
+// covers: AC-14 (spec 0015). A Zammad that does not answer the token check
+// is reported as that, with its cause, never as a changed token: only a
+// refused token or another user's token asks for a reset (journal 0076).
+func TestSeedTokenCheckWhenZammadDoesNotAnswer(t *testing.T) {
+	s, r, _, _ := fixture(t)
+	r.bootstrap = result(map[string]any{"state": "already_seeded"})
+	down, err := zammad.New(zammad.Options{BaseURL: "http://127.0.0.1:1", Timeout: time.Second, Auth: zammad.TokenAuth(zammadtest.Token)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Assistant = down
+	_, err = s.Run(t.Context())
+	if err == nil || strings.Contains(err.Error(), "make helpdesk-reset") || !strings.Contains(err.Error(), "check ZAMMAD_TOKEN") {
+		t.Errorf("err = %v, want a failed check, not a reset", err)
 	}
 }
 
@@ -259,7 +298,7 @@ func TestSeedUserCheck(t *testing.T) {
 			t.Errorf("error lacks %q: %v", want, err)
 		}
 	}
-	if writes(f) != 0 || len(r.calls) != 1 {
+	if writes(f) != 0 || strings.Join(r.calls, ",") != "bootstrap,services" {
 		t.Errorf("writes=%d steps=%v", writes(f), r.calls)
 	}
 }

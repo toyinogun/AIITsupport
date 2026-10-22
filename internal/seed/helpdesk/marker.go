@@ -21,7 +21,7 @@ const MarkerPrefix = "seed:sha256:"
 // unmarked are the files under helpdeskDir the marker leaves out, slash
 // separated relative to it: the retention scheduler's rules (spec 0010,
 // AC-9) are applied on every run, so changing them never forces a reset.
-var unmarked = []string{"rails/retention.rb"}
+var unmarked = []string{"rails/retention.rb", "rails/services.rb"}
 
 // Marker hashes the seed inputs (spec 0006 key invariants): every regular
 // file under helpdeskDir whose name does not start with "." (except the
