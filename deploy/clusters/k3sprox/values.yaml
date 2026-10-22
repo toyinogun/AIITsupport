@@ -9,16 +9,13 @@ cluster:
   serviceCIDR: 10.43.0.0/16
   nodeCIDR: 172.16.70.0/24
   apiServerCIDR: 172.16.70.20/32
-
 # k3sprox runs Cilium (kube proxy replacement), so FQDN egress rules work.
 cilium:
   enabled: true
   fqdnEgress: true
-
 repo:
   url: https://github.com/toyinogun/AIITsupport.git
   revision: main
-
 # Set by make release (AC-19); by hand until it exists: the first main
 # commit with /readyz, seed smoke, backups (tasks 5 to 7), and the seed's
 # Zammad services step (journal 0076).
@@ -26,20 +23,16 @@ image:
   registry: ghcr.io
   owner: toyinogun
   tag: 78e3a7f511c4877aeafd3ad546549907dac29e38
-
 # The demo directory (task 2) and helpdesk (task 3) run here.
 demo:
   enabled: true
-
 # The reset page (task 4). Samba makes svc-pwreset only when it provisions
 # the domain, so turning it on went with a directory reset (AC-28).
 reset:
   enabled: true
-
 # Bumped by hand (make resume is task 9) to rerun every seed step: 1 after
 # the directory reset for svc-pwreset (2026-10-22).
 seedRun: 1
-
 # k3sprox already runs Sealed Secrets, cert-manager, CNPG, and the Tailscale
 # operator; the install adds only the Barman Cloud plugin (AC-4).
 platform:
@@ -56,11 +49,9 @@ platform:
     enabled: true
   tailscale:
     enabled: false
-
 postgres:
   storage:
     size: 5Gi
-
 # Backups to the R2 bucket in the EU jurisdiction (AC-18), its token in
 # secrets.env. Not secret: the endpoint holds the Cloudflare account id;
 # the token and region are sealed.
@@ -68,7 +59,6 @@ backup:
   enabled: true
   endpoint: https://46cc20661b5d8547874081f7a5e40b39.eu.r2.cloudflarestorage.com
   bucket: noord-k3sprox-backups
-
 # Noord's demo CA, made in ~/.noord/k3sprox/ (its key never leaves there).
 ca:
   certificate: |
@@ -84,3 +74,4 @@ ca:
     uBdiV5474DG/ofSk4PSAIoh8kxfCdfJiyP72qca77wIhANgRcD5IgpmqxA3WfYUT
     l/D4frsFSM6faGZKqnPaGAh2
     -----END CERTIFICATE-----
+paused: true
