@@ -32,7 +32,7 @@ reset:
   enabled: true
 # Bumped by hand (make resume is task 9) to rerun every seed step: 1 after
 # the directory reset for svc-pwreset (2026-10-22).
-seedRun: 1
+seedRun: 2
 # k3sprox already runs Sealed Secrets, cert-manager, CNPG, and the Tailscale
 # operator; the install adds only the Barman Cloud plugin (AC-4).
 platform:
@@ -74,4 +74,4 @@ ca:
     uBdiV5474DG/ofSk4PSAIoh8kxfCdfJiyP72qca77wIhANgRcD5IgpmqxA3WfYUT
     l/D4frsFSM6faGZKqnPaGAh2
     -----END CERTIFICATE-----
-paused: true
+paused: false
