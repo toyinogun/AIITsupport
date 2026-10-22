@@ -46,7 +46,7 @@ func dig(v any, path ...any) any {
 // credentials, the Cluster archives WAL through the plugin, and a daily
 // ScheduledBackup runs at once.
 func TestBackupObjects(t *testing.T) {
-	off := renderPart(t, componentAgent)
+	off := renderPart(t, componentAgent, "--set", "backup.enabled=false")
 	for _, kind := range []string{"ObjectStore", "ScheduledBackup"} {
 		if object(off, kind, "") != nil {
 			t.Errorf("with backups off the agent part renders a %s", kind)
@@ -75,7 +75,7 @@ func TestBackupObjects(t *testing.T) {
 		t.Error("no SealedSecret noord-backup")
 	}
 	plugin := dig(object(on, "Cluster", "noord-pg"), "spec", "plugins", 0)
-	if dig(plugin, "name") != "barman-cloud.cloudnative-pg.io" || dig(plugin, "isWALArchiver") != true || dig(plugin, "parameters", "barmanObjectName") != "noord-backup" {
+	if dig(plugin, "name") != "barman-cloud.cloudnative-pg.io" || dig(plugin, "enabled") != true || dig(plugin, "isWALArchiver") != true || dig(plugin, "parameters", "barmanObjectName") != "noord-backup" {
 		t.Errorf("Cluster plugin = %v, want the Barman plugin archiving WAL to noord-backup", plugin)
 	}
 	sb := object(on, "ScheduledBackup", "noord-pg-daily")
@@ -89,7 +89,7 @@ func TestBackupObjects(t *testing.T) {
 // the plugin on 9090 and, with Cilium FQDN rules, only the bucket's host
 // on 443.
 func TestBackupNetwork(t *testing.T) {
-	off := renderPart(t, componentAgent)
+	off := renderPart(t, componentAgent, "--set", "backup.enabled=false")
 	if object(off, "CiliumNetworkPolicy", "noord-pg-https") != nil {
 		t.Error("with backups off the database has a 443 allow")
 	}

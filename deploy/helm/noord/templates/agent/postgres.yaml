@@ -22,8 +22,11 @@ spec:
     {{- toYaml .Values.postgres.resources | nindent 4 }}
   {{- if .Values.backup.enabled }}
   # WAL goes to the ObjectStore as it is written (AC-18, backup.yaml).
+  # enabled is CNPG's default, stated so the live Cluster matches and
+  # ArgoCD does not show it OutOfSync (like connectionLimit below).
   plugins:
     - name: barman-cloud.cloudnative-pg.io
+      enabled: true
       isWALArchiver: true
       parameters:
         barmanObjectName: noord-backup

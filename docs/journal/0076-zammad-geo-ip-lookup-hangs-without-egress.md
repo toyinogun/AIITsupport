@@ -21,6 +21,8 @@ Probing from a pod with the seed's label: calls without a token answered in mill
 ## How I fixed it
 A new Rails step, `rails/services.rb`, runs right after bootstrap on the fresh and the already seeded path. It sets Zammad's four outbound services to none: `geo_ip_backend`, `image_backend` (avatar lookups that send email addresses out), `geo_calendar_backend`, and `geo_location_backend` (OpenStreetMap). It is left out of the marker, so an existing helpdesk takes it without a reset. `checkToken` now says "the token changed" only on a 401 or another user's login, and any other failure keeps its cause. Not committed yet.
 
+**Update, after the merge (#37):** the step worked (the settings read back empty), but the seed still timed out once. The running Rails workers had cached the old settings and called `geo.zammad.com` again at 21:29:03, after the step had turned it off. Deleting the `zammad-railsserver` pod gave fresh workers, and the seed then passed ("already seeded", 15 s). Open follow up: on a fresh cluster (the proof VM) the step also runs after Rails has started, so the seed's REST fill can hit the same cached settings. It needs the settings in place before Rails serves, or a wait until the workers reload them.
+
 ## What I would tell a team doing this for real
 (draft) When you close egress, list every outbound call your third party apps make on their own, and make "the dependency did not answer" a different error from "the credential is wrong".
 
