@@ -19,14 +19,14 @@ noord.example/cluster: {{ .Values.cluster.name | quote }}
 
 {{/*
 sealedSecrets: one SealedSecret per table entry of this component, from
-.Values.sealed. Fails when a required key (for this demo and reset setting)
-is missing.
+.Values.sealed (a backup Secret only with backup.enabled). Fails when a
+required key (for this demo and reset setting) is missing.
 */}}
 {{- define "noord.sealedSecrets" -}}
 {{- $root := . -}}
 {{- $table := include "noord.table" . | fromYaml -}}
 {{- range $name, $s := $table.secrets }}
-{{- if eq $s.component $root.Values.component }}
+{{- if and (eq $s.component $root.Values.component) (or (not $s.backup) $root.Values.backup.enabled) }}
 {{- $data := index $root.Values.sealed $name | default dict }}
 {{- range $key, $k := $s.keys }}
 {{- $applies := and (or (not (hasKey $k "demo")) (eq $k.demo $root.Values.demo.enabled)) (or (not (hasKey $k "reset")) (eq $k.reset $root.Values.reset.enabled)) }}

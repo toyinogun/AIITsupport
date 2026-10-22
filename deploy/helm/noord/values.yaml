@@ -8,6 +8,23 @@ component: ""
 
 cluster:
   name: ""
+  # The ranges the network policies keep internal (AC-14); make cluster-init
+  # fills them from the live cluster. Pod and service default to k3s's.
+  podCIDR: 10.42.0.0/16
+  serviceCIDR: 10.43.0.0/16
+  nodeCIDR: ""        # the nodes' addresses
+  apiServerCIDR: ""   # the kube API's address, /32
+
+# The cluster's CNI. On Cilium the database's kube API allow is an entity
+# rule (an ipBlock never matches a node address there), and fqdnEgress
+# narrows each workload's TCP 443 to the hosts it uses.
+cilium:
+  enabled: false
+  fqdnEgress: false
+
+# Where the Tailscale operator runs its Ingress proxies (AC-14).
+tailscale:
+  proxyNamespace: tailscale
 
 image:
   registry: ghcr.io
@@ -51,6 +68,18 @@ postgres:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: "1", memory: 1Gi}
 
+# Backups of noord-pg (AC-18): WAL archiving and a daily base backup through
+# the Barman Cloud plugin, to s3://<bucket>/<cluster>/ at endpoint. The token
+# and region are sealed (noord-backup); the endpoint and bucket are not
+# secret, and the ObjectStore takes them only as plain fields.
+backup:
+  enabled: false
+  endpoint: ""   # https://<account>.eu.r2.cloudflarestorage.com on k3sprox
+  bucket: ""
+  retention: 14d
+  # CNPG's six field cron (seconds first): 02:00 UTC daily.
+  schedule: "0 0 2 * * *"
+
 # The kill switch starts read only; flip it with kubectl (AC-9), never in git.
 killSwitch:
   initial: read_only
@@ -58,6 +87,14 @@ killSwitch:
 migrate:
   waitTimeout: 5m
   backoffLimit: 6
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+# The smoke check (AC-17), run on demand from the suspended CronJob.
+smoke:
+  timeout: 1m
+  ttlSecondsAfterFinished: 3600
   resources:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {cpu: 500m, memory: 256Mi}

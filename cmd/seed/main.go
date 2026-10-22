@@ -41,6 +41,7 @@ const usage = `usage:
   seed helpdesk
   seed export <dir>
   seed migrate
+  seed smoke [--cluster <name>]
   seed install --cluster <name>`
 
 // errUsage marks a mistake in how the command was called.
@@ -80,6 +81,8 @@ func run(args []string, out io.Writer) error {
 		return runExport(rest, out)
 	case "migrate":
 		return runMigrate(ctx, rest, out)
+	case "smoke":
+		return runSmoke(ctx, rest, out)
 	case "install":
 		return runInstall(ctx, rest, out)
 	default:

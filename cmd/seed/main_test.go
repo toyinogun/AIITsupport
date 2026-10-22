@@ -20,6 +20,7 @@ func TestRunUsageErrors(t *testing.T) {
 		{"helpdesk", "extra"},
 		{"export"},
 		{"export", "a", "b"},
+		{"smoke", "extra"},
 	}
 	for _, args := range cases {
 		err := run(args, &bytes.Buffer{})

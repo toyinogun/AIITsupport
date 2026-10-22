@@ -26,11 +26,60 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 - [ ] Set `reset.enabled: true` and `RESET_LDAP_BIND_DN`, `make install` (seals the svc-pwreset password); then delete the `samba-data` PVC and the Samba pod so Samba provisions again with svc-pwreset; once ArgoCD rebuilds them, bump `seedRun` in the cluster's `values.yaml` by hand (`make resume` is task 9) and `make install` again → `https://noord-k3sprox-reset.<TAILNET>` serves the reset page on the tailnet, and `/mcp` through that host is 404 or unreachable → AC-15
 - [ ] One locked out user DM in Slack, end to end in the cluster (spec 0008's flow), and one reset link opened through the tailnet URL → AC-10, AC-15
 
+## Tasks 5 and 6: network policies, readiness, and smoke
+
+### Commands
+- [ ] `go test -race -run 'TestEveryPartDeniesByDefault|TestFQDNEgressNarrowsHTTPS|TestHTTPSWithoutCilium|TestResetPortOnlyFromTailnetProxy' ./internal/install/` (needs `helm`) → pass: every part has `default-deny` and `dns`; with `cilium.fqdnEgress` no NetworkPolicy opens 443 to `0.0.0.0/0`; without Cilium no Cilium kind renders; only the reset proxy reaches 8081 → AC-14, AC-15
+- [ ] `helm template` of the agent part with `cilium.fqdnEgress=true` and `cilium.enabled=false` → fails naming `cilium.enabled` → AC-14
+- [ ] `go test -race ./internal/readiness/ ./cmd/agent/ ./cmd/toolserver/` → pass: 200 only when every configured check is ok, `not_configured` never fails the report, a slow check is `deadline`, no error text in the body, the tool server's report is 401 without the token → AC-16
+- [ ] `go test -race -run 'TestPingGetsAToken|TestErrorCause|TestPingErrorCause|TestConnectedFollowsSocketEvents' ./internal/graph/ ./internal/zammad/ ./internal/ldap/ ./internal/slack/` → the cause tokens `graph_token`, `zammad_<status>`, `ldap_<code>`, `slack_not_connected` → AC-16
+- [ ] `DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 go test -race -timeout 25m -run TestLivePing ./internal/ldap/` → a bind as svc-itsupport passes; a wrong password is `ldap_49` → AC-16
+- [ ] `go test -race -run 'TestSmoke|TestLoadSmoke' ./cmd/seed/ ./internal/config/` and `go test -race -run 'TestRunEndsWithTheSmokeCheck|TestFailedSmokeFailsTheRun|TestSmokeAlone|TestReportNamesTheURLs' ./internal/install/` → pass: one line per check, fixed tokens only, a failed Job fails the install at `smoke`, `make smoke` refuses the wrong kube context with exit 2 → AC-1, AC-17
+- [ ] With `TEST_DATABASE_URL` set, `go test -race -run TestRunMigratesThenIsANoOp ./internal/migrate/` → `Current` equals `Latest` after the run → AC-17
+
+### Value sourcing
+- [ ] `cluster.nodeCIDR` and `cluster.podCIDR`/`serviceCIDR` are the `except` ranges of every `*-https` NetworkPolicy when Cilium is off: change one in a test values file and the render follows → AC-14
+- [ ] `cluster.apiServerCIDR` is the `noord-pg` NetworkPolicy's only 6443 peer; on k3sprox (`cilium.enabled: true`) the `noord-pg-kube-api` CiliumNetworkPolicy (`toEntities: [kube-apiserver]`) also renders, and the database stays Healthy with the default deny in place (journal 0072) → AC-14
+- [ ] `tailscale.proxyNamespace` is the namespace of the proxy peers in `toolserver` (reset) and `zammad-web` (helpdesk); a proxy for another Ingress in that namespace cannot reach either → AC-14, AC-15
+- [ ] The smoke Job reads `TOOLSERVER_TOKEN` and `MIGRATE_DATABASE_URL` from `noord-smoke` only, and `SMOKE_AGENT_URL`, `TOOLSERVER_URL` from the chart → AC-17
+
+### Live on k3sprox (after the merge; `make install CLUSTER=k3sprox` seals `noord-smoke`)
+- [ ] The merge alone leaves `noord-agent` with a render error until `make install` seals `noord-smoke`; the running pods are untouched meanwhile, then every Application is Synced and Healthy and the install ends with four `pass` lines → AC-1, AC-17
+- [ ] From a debug pod in `noord-agent` labelled `app.kubernetes.io/name: agent` (with a readiness probe that always fails, so no Service routes to it): `toolserver:8080` and `noord-pg-rw:5432` open; Samba 636, `zammad-nginx` 8080, and `example.com:443` blocked; `api.anthropic.com:443` open → AC-14
+- [ ] The same as `toolserver`: Samba 636, `zammad-nginx` 8080, `graph.microsoft.com:443` open; `slack.com:443` and `agent:8080` blocked → AC-14
+- [ ] `noord-pg` stays Healthy for 10 minutes with the policies in place (the instance manager reaches the API through the entity rule) → AC-14
+- [ ] The reset page and the helpdesk still open through their tailnet URLs; `/mcp` through the reset host is 404 or unreachable → AC-15
+- [ ] Stop Samba (scale the Deployment to 0): `make smoke CLUSTER=k3sprox` prints `fail toolserver_readyz http_503 ldap=network` (or `ldap=deadline`) and exits 1; scale it back and it passes → AC-16, AC-17
+- [ ] `kubectl get svc,ingress -A` shows no LoadBalancer, NodePort, or non tailscale Ingress for the install → AC-15
+
+## Task 7: backups
+
+### Commands
+- [ ] `go test -race -run 'TestBackupObjects|TestBackupNetwork|TestBackupSecretOnlyWithBackups|TestPreflightNeedsTheBucket|TestPlatformWaitsForThePlugin' ./internal/install/` (needs `helm`) → pass: nothing backup related renders with backups off; with them on, the ObjectStore at `s3://<bucket>/<cluster>/` reads `noord-backup`, the Cluster archives WAL through the plugin, the daily ScheduledBackup runs at once, the database reaches only the plugin on 9090 and the bucket's host on 443; preflight names `backup.endpoint and backup.bucket` and the token; the platform step waits for `noord-<cluster>-barman` → AC-2, AC-4, AC-14, AC-18
+- [ ] `helm template p deploy/argocd -f deploy/clusters/k3sprox/values.yaml --set part=platform` → an Application `noord-k3sprox-barman`, chart `plugin-barman-cloud` 0.8.1 into `cnpg-system`, wave minus 10; the AppProject `noord-platform` lists the chart repo → AC-4
+
+### Value sourcing
+- [ ] `backup.endpoint` and `backup.bucket` are committed values (the ObjectStore takes them only as plain fields, journal 0073); `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`, `BACKUP_S3_REGION` (default `auto`) are sealed in `noord-backup` and nowhere else → AC-6, AC-18
+- [ ] The bucket path follows `cluster.name`: render with another name and `destinationPath` follows; the FQDN rule's host follows `backup.endpoint` → AC-18
+
+### Live on k3sprox (after the merge)
+- [ ] With `platform.barmanPlugin.enabled: true`, `make install CLUSTER=k3sprox` → `noord-k3sprox-barman` Synced and Healthy, the `barman-cloud` Deployment Available in `cnpg-system`, its certificates issued by cert-manager → AC-4
+- [ ] Create the R2 bucket in the EU jurisdiction and a token scoped to it; put the token in `secrets.env`, set `backup.enabled: true`, `backup.endpoint`, `backup.bucket` in values.yaml; `make install CLUSTER=k3sprox` → `noord-pg` restarts once with the plugin sidecar and stays Healthy → AC-18
+- [ ] `kubectl -n noord-agent get backups` → the first Backup reaches phase `completed`; `kubectl -n noord-agent get cluster noord-pg -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}'` → `True`; the bucket holds `k3sprox/noord-pg/` with `base/` and `wals/` → AC-18
+- [ ] A second `make install` with nothing changed starts no new Backup and restarts nothing → AC-8
+
 ## Acceptance-criteria coverage
+- AC-1: the smoke step and the URL report (commands, live)
+- AC-2: the backup preflight (commands)
+- AC-4: the Barman plugin Application and its wait (commands, live)
 - AC-5: generated `RESET_LDAP_BIND_PASSWORD` (value sourcing)
 - AC-6: no plain Secret in any part (commands)
 - AC-7: table and template drift tests (commands)
 - AC-8: rerun starts no new seed Job (live)
 - AC-10: `seed-entra` Job order and hash (commands, live)
+- AC-14: default deny, the allow list, FQDN egress, the kube API entity rule (commands, value sourcing, live)
 - AC-15: reset Ingress, port, per cluster host, URL from `TAILNET` (commands, value sourcing, live)
+- AC-16: both `/readyz`, the cause tokens (commands, live)
+- AC-17: `seed smoke`, the CronJob, `make smoke` (commands, value sourcing, live)
+- AC-18: ObjectStore, WAL archiving, ScheduledBackup, the first completed backup (commands, value sourcing, live)
 - AC-24: certificate credential, exclusivity, mount, cutover (commands, value sourcing, live)

@@ -9,6 +9,7 @@ import (
 
 	goldap "github.com/go-ldap/ldap/v3"
 
+	"github.com/toyinogun/AIITsupport/internal/cause"
 	noordldap "github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory"
 	"github.com/toyinogun/AIITsupport/internal/seed/directory/sambatest"
@@ -90,6 +91,20 @@ func adminConn(t *testing.T) *goldap.Conn {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
+}
+
+// covers: AC-16 (spec 0015). Ping binds as the service account; a wrong
+// password is a refused bind with the cause token ldap_49.
+func TestLivePing(t *testing.T) {
+	requireShared(t)
+	if err := noordldap.NewClient(svcConfig()).Ping(t.Context()); err != nil {
+		t.Fatalf("Ping = %v", err)
+	}
+	wrong := svcConfig()
+	wrong.Password = "not-the-password-1A"
+	if got := cause.Of(noordldap.NewClient(wrong).Ping(t.Context())); got != "ldap_49" {
+		t.Errorf("cause.Of(Ping with a wrong password) = %q, want ldap_49", got)
+	}
 }
 
 // covers: AC-4. The identity search finds one enabled user by mail.

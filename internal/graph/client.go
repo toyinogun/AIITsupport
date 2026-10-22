@@ -246,6 +246,22 @@ type response struct {
 	retryAfter time.Duration
 }
 
+// Ping gets a token, the tool server's graph readiness check (spec 0015,
+// AC-16). A failure carries the fixed cause token graph_token.
+func (c *Client) Ping(ctx context.Context) error {
+	if _, err := c.token.Token(ctx); err != nil {
+		return tokenError{err: fmt.Errorf("get a Graph token for %s: %w", c.setting, err)}
+	}
+	return nil
+}
+
+// tokenError gives cause.Of a fixed token for a failed token request.
+type tokenError struct{ err error }
+
+func (e tokenError) Error() string { return e.err.Error() }
+func (e tokenError) Unwrap() error { return e.err }
+func (e tokenError) Cause() string { return "graph_token" }
+
 // once sends one attempt under its own timeout.
 func (c *Client) once(ctx context.Context, method, url string, body []byte) (response, error) {
 	token, err := c.token.Token(ctx)

@@ -106,6 +106,29 @@ func Up(ctx context.Context, cfg *pgx.ConnConfig) (res Result, err error) {
 	return res, nil
 }
 
+// Current is the database's goose version, read as databaseURL's user: what
+// the smoke check compares with Latest (AC-17).
+func Current(ctx context.Context, databaseURL string) (v int64, err error) {
+	cfg, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return 0, errors.New("MIGRATE_DATABASE_URL does not parse as a database URL")
+	}
+	migrations, err := Migrations()
+	if err != nil {
+		return 0, err
+	}
+	sqlDB := stdlib.OpenDB(*cfg)
+	defer func() { err = errors.Join(err, sqlDB.Close()) }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations)
+	if err != nil {
+		return 0, fmt.Errorf("open migrations: %w", err)
+	}
+	if v, err = provider.GetDBVersion(ctx); err != nil {
+		return 0, fmt.Errorf("read the database version: %w", err)
+	}
+	return v, nil
+}
+
 // Migrations is the embedded migrations directory.
 func Migrations() (fs.FS, error) {
 	migrations, err := fs.Sub(schema.Migrations, "migrations")

@@ -2,10 +2,13 @@ package ldap
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	goldap "github.com/go-ldap/ldap/v3"
+
+	"github.com/toyinogun/AIITsupport/internal/cause"
 )
 
 func TestToUser(t *testing.T) {
@@ -80,5 +83,17 @@ func TestUsersByMailWrapsOtherErrors(t *testing.T) {
 	_, err := usersByMail(&fakeDirectory{err: cause}, "DC=ad,DC=noord,DC=example", "eva.peters@noord.example")
 	if !errors.Is(err, cause) || errors.Is(err, ErrTooManyMatches) {
 		t.Errorf("usersByMail = %v; want it to wrap %v", err, cause)
+	}
+}
+
+// covers: AC-16 (spec 0015). An LDAP failure in Ping logs as
+// ldap_<result code>, never its text; other failures keep their own token.
+func TestPingErrorCause(t *testing.T) {
+	refused := pingError{err: &goldap.Error{ResultCode: goldap.LDAPResultInvalidCredentials, Err: errors.New("detail")}, code: goldap.LDAPResultInvalidCredentials}
+	if got := cause.Of(fmt.Errorf("check: %w", refused)); got != "ldap_49" {
+		t.Errorf("cause.Of = %q, want ldap_49", got)
+	}
+	if strings.Contains(cause.Of(refused), "detail") {
+		t.Error("the cause token carries the error text")
 	}
 }

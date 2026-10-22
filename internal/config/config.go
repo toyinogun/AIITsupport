@@ -465,6 +465,39 @@ func LoadMigrate(lookup LookupFunc) (Migrate, error) {
 	return cfg, nil
 }
 
+// Smoke holds the settings for `seed smoke`, the cluster's smoke check
+// (spec 0015, AC-17): both readiness reports, the tool list, and the
+// database's migration version. The chart sets the URLs; the token and the
+// owner's URL come from the noord-smoke Secret.
+type Smoke struct {
+	ToolServerToken string `env:"TOOLSERVER_TOKEN" required:"true" secret:"true"`
+	ToolServerURL   string `env:"TOOLSERVER_URL" required:"true"`
+	// AgentURL is the agent's health listener; its /readyz needs no token.
+	AgentURL    string `env:"SMOKE_AGENT_URL" required:"true"`
+	DatabaseURL string `env:"MIGRATE_DATABASE_URL" required:"true" secret:"true"` // reads goose_db_version only
+	// Timeout bounds the whole check.
+	Timeout time.Duration `env:"SMOKE_TIMEOUT" default:"1m"`
+}
+
+// The range SMOKE_TIMEOUT must fall in.
+const (
+	minSmokeTimeout = 5 * time.Second
+	maxSmokeTimeout = 10 * time.Minute
+)
+
+// LoadSmoke reads and validates the settings for `seed smoke`.
+func LoadSmoke(lookup LookupFunc) (Smoke, error) {
+	var cfg Smoke
+	err := load(&cfg, lookup)
+	if cfg.Timeout < minSmokeTimeout || cfg.Timeout > maxSmokeTimeout {
+		err = errors.Join(err, errors.New("SMOKE_TIMEOUT must be between 5s and 10m"))
+	}
+	if err != nil {
+		return Smoke{}, fmt.Errorf("smoke config: %w", err)
+	}
+	return cfg, nil
+}
+
 // Install is what `seed install` and its siblings read from a cluster's
 // deploy/clusters/<name>/secrets.env (spec 0015). Never a workload's
 // setting: the workloads get their values from the sealed Secrets the
@@ -476,8 +509,9 @@ type Install struct {
 	InstallTimeout time.Duration `env:"INSTALL_TIMEOUT" default:"30m"`
 	GraphCertFile  string        `env:"GRAPH_CERT_FILE"` // a local path, read and sealed (AC-24)
 
-	BackupS3Endpoint        string `env:"BACKUP_S3_ENDPOINT" private:"true"`
-	BackupS3Bucket          string `env:"BACKUP_S3_BUCKET" private:"true"`
+	// The bucket's token and region (AC-18). Its endpoint and bucket name are
+	// committed cluster values (backup.endpoint, backup.bucket): the
+	// ObjectStore takes them as plain fields, never from a Secret.
 	BackupS3Region          string `env:"BACKUP_S3_REGION" default:"auto"`
 	BackupS3AccessKeyID     string `env:"BACKUP_S3_ACCESS_KEY_ID" secret:"true"`
 	BackupS3SecretAccessKey string `env:"BACKUP_S3_SECRET_ACCESS_KEY" secret:"true"`
@@ -957,7 +991,7 @@ func LoadSeedFiles(lookup LookupFunc) (SeedFiles, error) {
 func Names() []string {
 	var names []string
 	for _, t := range []reflect.Type{
-		reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Seed](),
+		reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Smoke](), reflect.TypeFor[Seed](),
 		reflect.TypeFor[SeedEntraMFA](), reflect.TypeFor[SeedHelpdesk](), reflect.TypeFor[Install](),
 	} {
 		walkFields(t, func(f reflect.StructField) {

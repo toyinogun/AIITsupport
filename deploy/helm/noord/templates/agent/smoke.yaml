@@ -1,0 +1,63 @@
+{{- if eq .Values.component "agent" }}
+# The smoke check (AC-17): never scheduled, only run as a Job from this
+# template by make install and make smoke (kubectl create job --from).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: noord-smoke
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: noord-smoke
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+    app.kubernetes.io/name: noord-smoke
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  suspend: true
+  schedule: "0 0 1 1 *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: {{ .Values.smoke.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: noord-smoke
+          annotations:
+            checksum/sealed: {{ include "noord.sealedChecksum" (list . "noord-smoke") }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: noord-smoke
+          {{- include "noord.podSecurity" . | nindent 10 }}
+          containers:
+            - name: smoke
+              image: {{ include "noord.image" (list . "seed") }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args: ["smoke"]
+              env:
+                {{- include "noord.env" (dict
+                  "TOOLSERVER_URL" "http://toolserver.noord-agent.svc:8080/mcp"
+                  "SMOKE_AGENT_URL" "http://agent.noord-agent.svc:8080"
+                  "SMOKE_TIMEOUT" .Values.smoke.timeout) | trim | nindent 16 }}
+              envFrom:
+                - secretRef:
+                    name: noord-smoke
+              resources:
+                {{- toYaml .Values.smoke.resources | nindent 16 }}
+              {{- include "noord.containerSecurity" . | nindent 14 }}
+              volumeMounts:
+                {{- include "noord.pgCAMount" . | nindent 16 }}
+          volumes:
+            {{- include "noord.pgCAVolume" . | nindent 12 }}
+{{- end }}

@@ -93,5 +93,7 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0069](0069-ci-image-builds-starved-etcd.md) | 2026-10-22 | CI image builds starved k3sprox's etcd | #17 One command GitOps install | ~20 min | post |
 | [0070](0070-buildkit-session-dies-before-the-push.md) | 2026-10-22 | BuildKit dropped the session before the agent image's push | #17 One command GitOps install | ~45 min | post |
 | [0071](0071-ci-ok-stranded-by-a-listener-restart.md) | 2026-10-22 | Lost runners and a listener restart stranded ci-ok on main | #17 One command GitOps install | ~20 min | post |
+| [0072](0072-cilium-ipblock-skips-node-addresses.md) | 2026-10-22 | Cilium ignores an ipBlock to a node, so the kube API allow blocked it | #17 One command GitOps install | ~10 min | post |
+| [0073](0073-objectstore-endpoint-cannot-be-sealed.md) | 2026-10-22 | The backup endpoint and bucket cannot be sealed: plain ObjectStore fields | #17 One command GitOps install | ~10 min | post |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

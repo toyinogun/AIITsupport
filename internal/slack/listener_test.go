@@ -16,6 +16,7 @@ import (
 	"github.com/slack-go/slack/socketmode"
 
 	"github.com/toyinogun/AIITsupport/internal/agent"
+	"github.com/toyinogun/AIITsupport/internal/cause"
 )
 
 type fakeSocket struct {
@@ -368,6 +369,35 @@ func TestConnectionEventsAreLogged(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("logs lack %s:\n%s", want, out)
 		}
+	}
+}
+
+// covers: AC-16 (spec 0015). Connected follows Socket Mode's connected and
+// disconnected events, for the agent's /readyz.
+func TestConnectedFollowsSocketEvents(t *testing.T) {
+	cases := []struct {
+		name   string
+		events []socketmode.Event
+		want   bool
+	}{
+		{"never connected", nil, false},
+		{"connected", []socketmode.Event{{Type: socketmode.EventTypeConnected}}, true},
+		{"dropped", []socketmode.Event{{Type: socketmode.EventTypeConnected}, {Type: socketmode.EventTypeDisconnect}}, false},
+		{"reconnected", []socketmode.Event{{Type: socketmode.EventTypeConnected}, {Type: socketmode.EventTypeDisconnect}, {Type: socketmode.EventTypeConnected}}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l, s, _, _, _ := newListener(t)
+			if err := runWith(t, l, s, tc.events...); err != nil {
+				t.Fatal(err)
+			}
+			if got := l.Connected(); got != tc.want {
+				t.Errorf("Connected() = %v, want %v", got, tc.want)
+			}
+			if err := l.Ready(t.Context()); (err == nil) != tc.want || (err != nil && cause.Of(err) != "slack_not_connected") {
+				t.Errorf("Ready() = %v (%s), want nil only when connected", err, cause.Of(err))
+			}
+		})
 	}
 }
 

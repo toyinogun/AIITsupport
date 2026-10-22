@@ -70,6 +70,10 @@ func TestRunMigratesThenIsANoOp(t *testing.T) {
 	if first.Version != latest || int64(len(first.Applied)) != latest {
 		t.Errorf("first run = %+v, want every migration up to %d", first, latest)
 	}
+	// covers: AC-17. Current reads the version the smoke check compares.
+	if v, err := migrate.Current(t.Context(), dbURL); err != nil || v != latest {
+		t.Errorf("Current = %d, %v, want %d", v, err, latest)
+	}
 	second, err := migrate.Run(t.Context(), dbURL, 30*time.Second)
 	if err != nil {
 		t.Fatalf("second run: %v", err)

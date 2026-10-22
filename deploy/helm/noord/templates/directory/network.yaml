@@ -1,0 +1,71 @@
+{{- if eq .Values.component "directory" }}
+{{- /* noord-directory's allows (AC-14): LDAPS into Samba from the tool
+server, the seed Jobs, and Zammad; Graph out for seed entra sync. */}}
+{{ include "noord.netBase" (list . "noord-directory") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: samba
+  namespace: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: samba
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seed-directory
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seed-entra
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-agent
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: toolserver
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-client
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seed-helpdesk
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-client
+          podSelector:
+            {{- include "noord.zammadPods" . | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 636}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: seed
+  namespace: noord-directory
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [seed-directory, seed-entra]}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: samba
+      ports:
+        - {protocol: TCP, port: 636}
+---
+{{ include "noord.egressHTTPS" (list . "noord-directory" "seed-entra" (include "noord.graphHosts" . | fromJsonArray)) }}
+{{- end }}

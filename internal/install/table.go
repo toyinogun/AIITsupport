@@ -45,11 +45,13 @@ type Generated struct {
 
 // Secret is one workload's Secret.
 type Secret struct {
-	Namespace string         `yaml:"namespace"`
-	Component string         `yaml:"component"`
-	Loader    string         `yaml:"loader"` // the config struct it carries (AC-7); empty for deploy only Secrets
-	Type      string         `yaml:"type"`
-	Keys      map[string]Key `yaml:"keys"`
+	Namespace string `yaml:"namespace"`
+	Component string `yaml:"component"`
+	Loader    string `yaml:"loader"` // the config struct it carries (AC-7); empty for deploy only Secrets
+	Type      string `yaml:"type"`
+	// Backup marks a Secret that exists only with backup.enabled (AC-18).
+	Backup bool           `yaml:"backup"`
+	Keys   map[string]Key `yaml:"keys"`
 }
 
 // Key is one key of a Secret and where its value comes from.
@@ -87,8 +89,9 @@ const (
 
 // Conditions are the install wide switches a key may depend on.
 type Conditions struct {
-	Demo  bool // demo.enabled
-	Reset bool // reset.enabled
+	Demo   bool // demo.enabled
+	Reset  bool // reset.enabled
+	Backup bool // backup.enabled
 }
 
 // holds reports whether a key applies to an install with these conditions.
@@ -211,11 +214,23 @@ func (t Table) Enabled(components []string) []string {
 	return names
 }
 
+// Active lists the Enabled Secrets that apply under these conditions: a
+// backup Secret only with backups on.
+func (t Table) Active(components []string, c Conditions) []string {
+	var names []string
+	for _, name := range t.Enabled(components) {
+		if !t.Secrets[name].Backup || c.Backup {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // Required lists the secrets.env names an install with these components
 // must have set, sorted, leaving out the ones it generates.
 func (t Table) Required(components []string, c Conditions) []string {
 	var names []string
-	for _, secret := range t.Enabled(components) {
+	for _, secret := range t.Active(components, c) {
 		for key, k := range t.Secrets[secret].Keys {
 			src := k.source(key)
 			if src == "" || k.Optional || !c.holds(k) || t.generates(src, c.Demo) {

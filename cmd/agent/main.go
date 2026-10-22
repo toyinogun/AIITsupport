@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,6 +32,7 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/llm"
 	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/mcpclient"
+	"github.com/toyinogun/AIITsupport/internal/readiness"
 	"github.com/toyinogun/AIITsupport/internal/server"
 	"github.com/toyinogun/AIITsupport/internal/slack"
 	"github.com/toyinogun/AIITsupport/internal/telemetry"
@@ -51,6 +53,10 @@ func run() (err error) {
 		return err
 	}
 	logger := logging.New(os.Stdout, cfg.LogLevel, service)
+	toolserverReady, err := readiness.URL(cfg.ToolServerURL)
+	if err != nil {
+		return fmt.Errorf("TOOLSERVER_URL: %w", err)
+	}
 	var model agentModel
 	if cfg.SlackConfigured() {
 		if model, err = loadModel(cfg); err != nil {
@@ -78,19 +84,45 @@ func run() (err error) {
 		return fmt.Errorf("listen on AGENT_HTTP_ADDR %s: %w", cfg.HTTPAddr, err)
 	}
 
+	var listener *slack.Listener
+	if cfg.SlackConfigured() {
+		listener = slack.New(cfg.SlackBotToken, cfg.SlackAppToken, queries.New(pool), logger, cfg.SlackEventDedupTTL)
+	}
+	mux := server.NewMux()
+	mux.Handle("GET "+readiness.Path, readyHandler(toolserverReady, cfg.ToolServerToken, pool.Ping, listener))
+
 	// A refused Slack token ends the listener with an error, which stops
 	// the health server too, so run() exits 1 naming the setting.
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return server.Run(ctx, ln, server.NewMux(), logger) })
+	g.Go(func() error { return server.Run(ctx, ln, mux, logger) })
 	// Chat text expires with or without Slack (spec 0010, AC-8).
 	retention := agent.NewRetention(agent.NewStore(pool), cfg.TicketRetentionDays, agent.RetentionEvery, time.Now, logger)
 	g.Go(func() error { return retention.Run(ctx) })
 	if cfg.SlackConfigured() {
-		g.Go(func() error { return runSlack(ctx, cfg, model, pool, logger) })
+		g.Go(func() error { return runSlack(ctx, cfg, model, listener, pool, logger) })
 	} else {
 		logger.Info("slack_disabled")
 	}
 	return g.Wait()
+}
+
+// readyHandler is the agent's readiness report on its health listener
+// (spec 0015, AC-16): the database, the tool server's own report (called
+// with the token), and the Slack socket when both tokens are set.
+func readyHandler(toolserver, token string, database func(context.Context) error, listener *slack.Listener) http.Handler {
+	client := &http.Client{}
+	checks := []readiness.Check{
+		{Name: "database", Probe: database},
+		{Name: "toolserver", Probe: func(ctx context.Context) error {
+			_, err := readiness.Fetch(ctx, client, toolserver, token)
+			return err
+		}},
+		{Name: "slack"},
+	}
+	if listener != nil {
+		checks[2].Probe = listener.Ready
+	}
+	return readiness.Handler(checks...)
 }
 
 // agentModel is what the loop needs from the model side, checked before
@@ -125,8 +157,7 @@ func loadModel(cfg config.Agent) (agentModel, error) {
 // runSlack checks the bot token, builds the agent, sweeps interrupted
 // conversations before the socket starts, then runs the agent and the
 // listener until ctx ends. A refused token ends run() with an error.
-func runSlack(ctx context.Context, cfg config.Agent, m agentModel, pool *pgxpool.Pool, logger *slog.Logger) error {
-	listener := slack.New(cfg.SlackBotToken, cfg.SlackAppToken, queries.New(pool), logger, cfg.SlackEventDedupTTL)
+func runSlack(ctx context.Context, cfg config.Agent, m agentModel, listener *slack.Listener, pool *pgxpool.Pool, logger *slog.Logger) error {
 	team, err := listener.CheckBotToken(ctx)
 	if err != nil {
 		return err

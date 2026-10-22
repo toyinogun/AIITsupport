@@ -20,6 +20,14 @@ spec:
     {{- end }}
   resources:
     {{- toYaml .Values.postgres.resources | nindent 4 }}
+  {{- if .Values.backup.enabled }}
+  # WAL goes to the ObjectStore as it is written (AC-18, backup.yaml).
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: noord-backup
+  {{- end }}
   bootstrap:
     initdb:
       database: noord

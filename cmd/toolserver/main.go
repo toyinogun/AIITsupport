@@ -31,6 +31,7 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/logging"
 	"github.com/toyinogun/AIITsupport/internal/mcpclient"
 	"github.com/toyinogun/AIITsupport/internal/mcpserver"
+	"github.com/toyinogun/AIITsupport/internal/readiness"
 	"github.com/toyinogun/AIITsupport/internal/resetlink"
 	"github.com/toyinogun/AIITsupport/internal/resetpage"
 	"github.com/toyinogun/AIITsupport/internal/server"
@@ -93,6 +94,9 @@ func run() (err error) {
 	// The approval routes beside /mcp, on the same listener (spec 0012, AC-13).
 	mux.Handle(mcpclient.ApprovalsPath, layer.approvals)
 	mux.Handle(mcpclient.ApprovalsPath+"/", layer.approvals)
+	// The readiness report, behind the MCP token (spec 0015, AC-16).
+	ready := append([]readiness.Check{{Name: "database", Probe: pool.Ping}}, layer.checks...)
+	mux.Handle("GET "+readiness.Path, mcpserver.RequireToken(cfg.ToolServerToken, readiness.Handler(ready...)))
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.HTTPAddr)
 	if err != nil {
@@ -162,10 +166,12 @@ func toolConfig(cfg config.ToolServer, zone *time.Location) tools.Config {
 }
 
 // layer is what toolLayer builds: the /mcp handler, the approval routes,
-// and, when the RESET_* settings are set, the reset page and its store.
+// the client system readiness checks, and, when the RESET_* settings are
+// set, the reset page and its store.
 type layer struct {
 	mcp       http.Handler
 	approvals http.Handler
+	checks    []readiness.Check
 	reset     *resetpage.Page
 	links     *resetlink.Store
 }
@@ -203,6 +209,12 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 		Recorder:   recorder,
 		KillSwitch: killSwitch,
 	}
+	// Each client system, as the tool server's own accounts (AC-16).
+	checks := []readiness.Check{
+		{Name: "ldap", Probe: reader.Ping},
+		{Name: "zammad", Probe: func(ctx context.Context) error { _, err := desk.Me(ctx); return err }},
+		{Name: "graph"},
+	}
 	var opts []tools.RegistryOption
 	if cfg.ResetEnabled() {
 		opts = append(opts, tools.WithPasswordReset())
@@ -218,6 +230,7 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 		if err != nil {
 			return layer{}, err
 		}
+		checks[2].Probe = g.Ping
 		opts = append(opts, tools.WithMFAClear(cfg.SlackITApprovers, cfg.ApprovalTimeout))
 		sys.MFA = &tools.MFASystem{Graph: g, Reader: reader, DeniedGroups: cfg.MFADeniedGroups}
 	}
@@ -239,7 +252,7 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 		Token: cfg.ToolServerToken, MaxRequestBytes: int64(cfg.MaxRequestBytes), Logger: logger,
 	})
 	if err != nil || !cfg.ResetEnabled() {
-		return layer{mcp: mcp, approvals: approvals}, err
+		return layer{mcp: mcp, approvals: approvals, checks: checks}, err
 	}
 	resetDir := dir
 	resetDir.BindDN, resetDir.Password = cfg.ResetLDAPBindDN, cfg.ResetLDAPBindPassword
@@ -261,5 +274,5 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 	if err != nil {
 		return layer{}, err
 	}
-	return layer{mcp: mcp, approvals: approvals, reset: page, links: links}, nil
+	return layer{mcp: mcp, approvals: approvals, checks: checks, reset: page, links: links}, nil
 }

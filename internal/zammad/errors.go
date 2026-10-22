@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -24,6 +25,10 @@ func (e *Error) Error() string {
 	}
 	return msg
 }
+
+// Cause is the fixed token cause.Of logs for a Zammad error: zammad_<status>.
+// It never holds the message.
+func (e *Error) Cause() string { return "zammad_" + strconv.Itoa(e.Status) }
 
 // maxMessage caps the error text taken from a response body.
 const maxMessage = 300

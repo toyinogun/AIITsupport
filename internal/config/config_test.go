@@ -1335,6 +1335,35 @@ func TestLoadMigrate(t *testing.T) {
 	}
 }
 
+// covers: AC-17 (spec 0015). seed smoke needs the token, both URLs, and
+// the owner's URL; its timeout has a range.
+func TestLoadSmoke(t *testing.T) {
+	env := map[string]string{
+		"TOOLSERVER_TOKEN": "test-token-0123456789abcdefghijk", "TOOLSERVER_URL": "http://toolserver:8080/mcp",
+		"SMOKE_AGENT_URL": "http://agent:8080", "MIGRATE_DATABASE_URL": "postgres://noord_owner@db/noord",
+	}
+	cfg, err := LoadSmoke(envFrom(env))
+	if err != nil {
+		t.Fatalf("LoadSmoke: %v", err)
+	}
+	if cfg.Timeout != time.Minute || cfg.AgentURL != "http://agent:8080" {
+		t.Errorf("got %+v, want a 1m timeout and the agent URL", cfg)
+	}
+	for _, bad := range []string{"1s", "11m"} {
+		withBad := maps.Clone(env)
+		withBad["SMOKE_TIMEOUT"] = bad
+		if _, err := LoadSmoke(envFrom(withBad)); err == nil || !strings.Contains(err.Error(), "SMOKE_TIMEOUT") {
+			t.Errorf("SMOKE_TIMEOUT=%s: err = %v, want a range error", bad, err)
+		}
+	}
+	_, err = LoadSmoke(envFrom(nil))
+	for _, name := range []string{"TOOLSERVER_TOKEN", "TOOLSERVER_URL", "SMOKE_AGENT_URL", "MIGRATE_DATABASE_URL"} {
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("no settings: err = %v, want %s named", err, name)
+		}
+	}
+}
+
 // covers: AC-2 (spec 0015). The installer's own settings.
 func TestLoadInstall(t *testing.T) {
 	cfg, err := LoadInstall(envFrom(map[string]string{"KUBE_CONTEXT": "k3sprox"}))

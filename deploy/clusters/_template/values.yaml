@@ -3,6 +3,18 @@
 
 cluster:
   name: CHANGE_ME
+  # The ranges the network policies keep internal; make cluster-init reads
+  # them from the live cluster.
+  podCIDR: 10.42.0.0/16
+  serviceCIDR: 10.43.0.0/16
+  nodeCIDR: CHANGE_ME
+  apiServerCIDR: CHANGE_ME
+
+# Set both when the cluster's CNI is Cilium: FQDN rules then narrow each
+# workload's internet egress to the hosts it uses.
+cilium:
+  enabled: false
+  fqdnEgress: false
 
 # The repo and branch ArgoCD follows (make cluster-init reads them from origin).
 repo:
@@ -39,13 +51,20 @@ platform:
     enabled: true
     namespace: cnpg-system
   barmanPlugin:
-    enabled: false
+    enabled: true
   tailscale:
     enabled: true
 
 postgres:
   storage:
     size: 5Gi
+
+# Backups of the database to an S3 compatible bucket. The bucket's token and
+# region go in secrets.env; the endpoint and bucket name here.
+backup:
+  enabled: false
+  endpoint: ""
+  bucket: ""
 
 # The CA your directory's LDAPS certificate is signed by. make install writes
 # it in demo mode.

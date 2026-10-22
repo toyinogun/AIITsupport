@@ -1,0 +1,256 @@
+{{- if eq .Values.component "agent" }}
+{{- /* noord-agent's allows (AC-14): the agent, the tool server, the
+migration and smoke Jobs, and the database. Kubelet probes come from the
+node, which both Cilium and k3s's policy controller always allow. */}}
+{{- $c := .Values.cluster }}
+{{- $cnpgNS := dig "platform" "cnpg" "namespace" "cnpg-system" .Values.AsMap }}
+{{ include "noord.netBase" (list . "noord-agent") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: noord-smoke
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: toolserver
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: noord-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+{{ include "noord.egressHTTPS" (list . "noord-agent" "agent" (include "noord.agentHosts" . | fromJsonArray)) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: toolserver
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: toolserver
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: noord-smoke
+      ports:
+        - {protocol: TCP, port: 8080}
+    {{- if .Values.reset.enabled }}
+    # The reset page's tailnet proxy, to the reset port only (AC-15).
+    - from:
+        {{- include "noord.tailscaleProxy" (list . "noord-agent" "reset") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: {{ .Values.reset.port }}}
+    {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: noord-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+    {{- if .Values.demo.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-directory
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: samba
+      ports:
+        - {protocol: TCP, port: 636}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: noord-client
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: zammad-nginx
+      ports:
+        - {protocol: TCP, port: 8080}
+    {{- end }}
+---
+{{ include "noord.egressHTTPS" (list . "noord-agent" "toolserver" (include "noord.graphHosts" . | fromJsonArray)) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: noord-migrate
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: noord-migrate
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: noord-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: noord-smoke
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: noord-smoke
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: toolserver
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: noord-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: noord-pg
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: noord-pg
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- range list "agent" "toolserver" "noord-migrate" "noord-smoke" }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ . }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 5432}
+    # The operator, to Postgres and the instance manager's status port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $cnpgNS }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 8000}
+    # The other instances, for replication when postgres.instances > 1.
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: noord-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 8000}
+  egress:
+    # The instance manager watches its Cluster through the kube API. On
+    # Cilium an ipBlock never matches a node address, so the entity rule
+    # below carries it there.
+    - to:
+        - ipBlock:
+            cidr: {{ required "cluster.apiServerCIDR is required (make cluster-init fills it)" $c.apiServerCIDR }}
+      ports:
+        - {protocol: TCP, port: 6443}
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: noord-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 8000}
+    {{- if .Values.backup.enabled }}
+    # The Barman Cloud plugin, beside the operator (AC-18).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $cnpgNS }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: plugin-barman-cloud
+      ports:
+        - {protocol: TCP, port: 9090}
+    {{- end }}
+{{- if .Values.backup.enabled }}
+---
+{{- /* WAL and base backups to the bucket's endpoint over 443 (AC-18). */}}
+{{ include "noord.egressHTTPS" (list . "noord-agent" "noord-pg" (list (urlParse .Values.backup.endpoint).hostname) (dict "cnpg.io/cluster" "noord-pg")) }}
+{{- end }}
+{{- if .Values.cilium.enabled }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: noord-pg-kube-api
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: noord-pg
+  egress:
+    - toEntities: [kube-apiserver]
+      toPorts:
+        - ports:
+            - {port: "6443", protocol: TCP}
+{{- end }}
+{{- end }}
