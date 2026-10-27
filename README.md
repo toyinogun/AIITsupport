@@ -7,7 +7,7 @@
 [![CI](https://github.com/toyinogun/AIITsupport/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/toyinogun/AIITsupport/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
-![Status](https://img.shields.io/badge/status-foundations%20built-orange)
+![Status](https://img.shields.io/badge/status-slices%201%20to%206%20built-orange)
 
 [The problem](#the-problem) · [How it works](#how-it-works) · [Safety by design](#safety-by-design) · [Quick start](#quick-start) · [Roadmap](#roadmap) · [Docs](#documentation)
 
@@ -64,7 +64,7 @@ flowchart LR
     class AD,E,Z client;
 ```
 
-This is the target architecture. Today both binaries load and validate their config, connect to Postgres with their own role, and serve `GET /healthz`; Slack, Claude, and the tools land slice by slice (see the [roadmap](#roadmap)).
+All six ticket slices run end to end through this path: unlocks, privileged request refusal and escalation, reset links, MFA re-registration with approval, access requests via the group owner, and knowledge base answers. The one command install, observability, and the eval are next (see the [roadmap](#roadmap)).
 
 Two Go binaries, one module:
 
@@ -92,10 +92,10 @@ The safety claims do not rest on the prompt. Each one is enforced by code, the d
 | **The agent never holds client credentials** | Separate process and network boundary; a depguard lint rule *and* [`cmd/agent/boundary_test.go`](cmd/agent/boundary_test.go) fail the build if the agent imports a client system package | Built |
 | **The audit log cannot be edited** | App roles may only insert and read it, and a trigger rejects update, delete, and truncate even from the table owner | Built |
 | **No audit row, no write** | [`internal/audit`](internal/audit) records an intent row before an action and an outcome row after; if the audit write fails, the action does not run | Built |
-| **Privileged groups are out of reach** | The agent's AD service account is fenced off by AD permissions, so even a code bug cannot grant Domain Admin; the tool layer denies them as well | AD fence built, tool layer in slice 1 |
-| **Identity comes from code, never the model** | The agent attaches the Slack requester to MCP `_meta`; the tool server ignores any identity a tool argument claims | Slice 1 |
-| **Approvals go around the model** | An approval click goes straight to a tool server endpoint that is not in the model's tool list, and runs the exact stored call | Approvals table built, flow in slice 4 |
-| **The IT person can stop it** | A kill switch file read on every write call, failing closed to read only | Slice 1 |
+| **Privileged groups are out of reach** | The agent's AD service account is fenced off by AD permissions, so even a code bug cannot grant Domain Admin; the tool layer denies them as well | Built |
+| **Identity comes from code, never the model** | The agent attaches the Slack requester to MCP `_meta`; the tool server refuses a call without it and ignores any identity a tool argument claims | Built |
+| **Approvals go around the model** | An approval click goes straight to a tool server endpoint that is not in the model's tool list, and runs the exact stored call | Built |
+| **The IT person can stop it** | A kill switch file read on every write call, failing closed to read only | Built |
 
 ## Tech stack
 
@@ -190,11 +190,11 @@ Built in tracer bullet order: prove the whole pipe on one real ticket first, the
 - [x] Discovery, stack and architecture, coding standards, CI
 - [x] Data model: append only audit log, approvals, conversations, usage, eval runs
 - [x] Noord directory: Samba AD, one YAML seed, planted mess, fresh rebuilds
-- [ ] Entra tenant and sync (timeboxed), Zammad, KB, and the Slack workspace
-- [ ] **Slice 1:** tool server with risk tiers, and a locked out user unlocked from Slack end to end
-- [ ] **Slice 2:** privileged request refusal and escalation, PII redaction and retention
-- [ ] **Slices 3 to 6:** reset links, MFA with approval, access requests via group owner, KB answers
-- [ ] One command GitOps install, tracing, and an ops dashboard
+- [x] Entra tenant and sync (timeboxed), Zammad, KB, and the Slack workspace
+- [x] **Slice 1:** tool server with risk tiers, and a locked out user unlocked from Slack end to end
+- [x] **Slice 2:** privileged request refusal and escalation, PII redaction and retention
+- [x] **Slices 3 to 6:** reset links, MFA with approval, access requests via group owner, KB answers
+- [ ] One command GitOps install (in progress), tracing, and an ops dashboard
 - [ ] 50 ticket eval in CI, v1 and final results published here
 - [ ] Handover package: architecture doc, runbook, eval report, data processing note, ROI estimate
 
