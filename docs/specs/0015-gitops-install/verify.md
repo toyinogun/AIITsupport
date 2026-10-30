@@ -33,7 +33,7 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 - [ ] `helm template` of the agent part with `cilium.fqdnEgress=true` and `cilium.enabled=false` → fails naming `cilium.enabled` → AC-14
 - [ ] `go test -race ./internal/readiness/ ./cmd/agent/ ./cmd/toolserver/` → pass: 200 only when every configured check is ok, `not_configured` never fails the report, a slow check is `deadline`, no error text in the body, the tool server's report is 401 without the token → AC-16
 - [ ] `go test -race -run 'TestPingGetsAToken|TestErrorCause|TestPingErrorCause|TestConnectedFollowsSocketEvents' ./internal/graph/ ./internal/zammad/ ./internal/ldap/ ./internal/slack/` → the cause tokens `graph_token`, `zammad_<status>`, `ldap_<code>`, `slack_not_connected` → AC-16
-- [ ] `DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 go test -race -timeout 25m -run TestLivePing ./internal/ldap/` → a bind as svc-itsupport passes; a wrong password is `ldap_49` → AC-16
+- [x] `DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 go test -race -timeout 25m -run TestLivePing ./internal/ldap/` → a bind as svc-itsupport passes; a wrong password is `ldap_49` → AC-16
 - [ ] `go test -race -run 'TestSmoke|TestLoadSmoke' ./cmd/seed/ ./internal/config/` and `go test -race -run 'TestRunEndsWithTheSmokeCheck|TestFailedSmokeFailsTheRun|TestSmokeAlone|TestReportNamesTheURLs' ./internal/install/` → pass: one line per check, fixed tokens only, a failed Job fails the install at `smoke`, `make smoke` refuses the wrong kube context with exit 2 → AC-1, AC-17
 - [ ] With `TEST_DATABASE_URL` set, `go test -race -run TestRunMigratesThenIsANoOp ./internal/migrate/` → `Current` equals `Latest` after the run → AC-17
 
@@ -44,13 +44,13 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 - [ ] The smoke Job reads `TOOLSERVER_TOKEN` and `MIGRATE_DATABASE_URL` from `noord-smoke` only, and `SMOKE_AGENT_URL`, `TOOLSERVER_URL` from the chart → AC-17
 
 ### Live on k3sprox (after the merge; `make install CLUSTER=k3sprox` seals `noord-smoke`)
-- [ ] The merge alone leaves `noord-agent` with a render error until `make install` seals `noord-smoke`; the running pods are untouched meanwhile, then every Application is Synced and Healthy and the install ends with four `pass` lines → AC-1, AC-17
-- [ ] From a debug pod in `noord-agent` labelled `app.kubernetes.io/name: agent` (with a readiness probe that always fails, so no Service routes to it): `toolserver:8080` and `noord-pg-rw:5432` open; Samba 636, `zammad-nginx` 8080, and `example.com:443` blocked; `api.anthropic.com:443` open → AC-14
-- [ ] The same as `toolserver`: Samba 636, `zammad-nginx` 8080, `graph.microsoft.com:443` open; `slack.com:443` and `agent:8080` blocked → AC-14
-- [ ] `noord-pg` stays Healthy for 10 minutes with the policies in place (the instance manager reaches the API through the entity rule) → AC-14
-- [ ] The reset page and the helpdesk still open through their tailnet URLs; `/mcp` through the reset host is 404 or unreachable → AC-15
+- [x] The merge alone leaves `noord-agent` with a render error until `make install` seals `noord-smoke`; the running pods are untouched meanwhile, then every Application is Synced and Healthy and the install ends with four `pass` lines → AC-1, AC-17
+- [x] From a debug pod in `noord-agent` labelled `app.kubernetes.io/name: agent` (with a readiness probe that always fails, so no Service routes to it): `toolserver:8080` and `noord-pg-rw:5432` open; Samba 636, `zammad-nginx` 8080, and `example.com:443` blocked; `api.anthropic.com:443` open → AC-14
+- [x] The same as `toolserver`: Samba 636, `zammad-nginx` 8080, `graph.microsoft.com:443` open; `slack.com:443` and `agent:8080` blocked → AC-14
+- [x] `noord-pg` stays Healthy for 10 minutes with the policies in place (the instance manager reaches the API through the entity rule) → AC-14
+- [x] The reset page and the helpdesk still open through their tailnet URLs; `/mcp` through the reset host is 404 or unreachable → AC-15
 - [ ] Stop Samba (scale the Deployment to 0): `make smoke CLUSTER=k3sprox` prints `fail toolserver_readyz http_503 ldap=network` (or `ldap=deadline`) and exits 1; scale it back and it passes → AC-16, AC-17
-- [ ] `kubectl get svc,ingress -A` shows no LoadBalancer, NodePort, or non tailscale Ingress for the install → AC-15
+- [x] `kubectl get svc,ingress -A` shows no LoadBalancer, NodePort, or non tailscale Ingress for the install → AC-15
 
 ## Task 7: backups
 
@@ -63,8 +63,8 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 - [ ] The bucket path follows `cluster.name`: render with another name and `destinationPath` follows; the FQDN rule's host follows `backup.endpoint` → AC-18
 
 ### Live on k3sprox (after the merge)
-- [ ] With `platform.barmanPlugin.enabled: true`, `make install CLUSTER=k3sprox` → `noord-k3sprox-barman` Synced and Healthy, the `barman-cloud` Deployment Available in `cnpg-system`, its certificates issued by cert-manager → AC-4
-- [ ] Create the R2 bucket in the EU jurisdiction and a token scoped to it; put the token in `secrets.env`, set `backup.enabled: true`, `backup.endpoint`, `backup.bucket` in values.yaml; `make install CLUSTER=k3sprox` → `noord-pg` restarts once with the plugin sidecar and stays Healthy → AC-18
+- [x] With `platform.barmanPlugin.enabled: true`, `make install CLUSTER=k3sprox` → `noord-k3sprox-barman` Synced and Healthy, the `barman-cloud` Deployment Available in `cnpg-system`, its certificates issued by cert-manager → AC-4
+- [x] Create the R2 bucket in the EU jurisdiction and a token scoped to it; put the token in `secrets.env`, set `backup.enabled: true`, `backup.endpoint`, `backup.bucket` in values.yaml; `make install CLUSTER=k3sprox` → `noord-pg` restarts once with the plugin sidecar and stays Healthy → AC-18
 - [ ] `kubectl -n noord-agent get backups` → the first Backup reaches phase `completed`; `kubectl -n noord-agent get cluster noord-pg -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}'` → `True`; the bucket holds `k3sprox/noord-pg/` with `base/` and `wals/` → AC-18
 - [ ] A second `make install` with nothing changed starts no new Backup and restarts nothing → AC-8
 
@@ -83,3 +83,16 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 - AC-17: `seed smoke`, the CronJob, `make smoke` (commands, value sourcing, live)
 - AC-18: ObjectStore, WAL archiving, ScheduledBackup, the first completed backup (commands, value sourcing, live)
 - AC-24: certificate credential, exclusivity, mount, cutover (commands, value sourcing, live)
+
+## Task 9: day two commands
+
+- [ ] `go test -race -run 'TestRelease|TestPauseAndResume|TestUninstall|TestSealKeyBackup|TestPausedChart' ./internal/install/` → release writes `image.tag` only when all four images exist, pause waits for the agent pod, resume bumps `seedRun`, uninstall wants the name and refuses an owned Application, the key backup is mode 0600 and the install warns on a mismatch, a paused chart has no agent replicas and no seed Job → AC-19 to AC-22
+- [ ] Live on k3sprox: `make pause CLUSTER=k3sprox` then `make resume CLUSTER=k3sprox` → the agent pod goes and comes back, `seed-*` Jobs run once more, `make smoke` passes → AC-20
+- [ ] `make seal-key-backup CLUSTER=k3sprox` → `~/.noord/k3sprox/sealing-key.yaml` with mode 0600 → AC-22
+
+## Task 8: fresh cluster path
+
+- [ ] `go test -race -run 'TestArgoCDInstall|TestReadArgoPin|TestMemoryCheck|TestPlatformWait|TestPullRequestPath|TestResealKeepsRecorded|TestClusterInit|TestBootstrapMatchesK3sprox|TestPlatformOperators|TestTailscaleSecret' ./internal/install/` → ArgoCD installs at the pinned version only when missing, the demo memory check, Tailscale set aside in the platform wait, a protected branch gives a pull request and exit 3 and a rerun does not seal again, cluster-init reads ranges and operators from the cluster and never overwrites, all five operators render pinned in waves -30, -30, -20, -10, -10 → AC-2 to AC-5
+- [ ] `make cluster-init CLUSTER=scratch` on k3sprox's context, then compare `deploy/clusters/scratch/values.yaml` with k3sprox's: same CIDRs, Cilium on, the four operators off, tag a commit with all four images; delete the folder → AC-19
+- [ ] On the proof VM (task 12): `make install CLUSTER=proofvm` installs ArgoCD, then Sealed Secrets, cert-manager, CNPG, the Barman plugin and Tailscale in order, and ends with the smoke check → AC-1, AC-3, AC-4
+
