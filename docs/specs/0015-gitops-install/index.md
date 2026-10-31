@@ -1,7 +1,7 @@
 # 0015. One command GitOps install: `make install` seals and pushes, a folder per cluster, and an optional Noord demo
 
 **Date**: 2026-10-21
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
