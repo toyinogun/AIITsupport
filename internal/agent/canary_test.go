@@ -78,6 +78,14 @@ func TestCanaryUnlockAndRefusal(t *testing.T) {
 		t.Fatalf("%d spans exported, want agent.turn and llm.call spans for three turns", len(spans))
 	}
 	values := append(canary.LogValues([]byte(logs)), canary.SpanValues(spans)...)
+	// The conversation trace (spec 0016, AC-14): its ids are random hex, and
+	// every exported span belongs to a trace of that shape.
+	for _, s := range spans {
+		values = append(values, s.SpanContext.TraceID().String(), s.Parent.SpanID().String())
+		if !traceIDShape.MatchString(s.SpanContext.TraceID().String()) {
+			t.Errorf("span %s has trace id %q", s.Name, s.SpanContext.TraceID())
+		}
+	}
 	if leaks := hunt.Leaks(values); len(leaks) > 0 {
 		t.Errorf("logs or spans hold personal data or [redacted]:\n%s\nlogs:\n%s", strings.Join(leaks, "\n"), logs)
 	}

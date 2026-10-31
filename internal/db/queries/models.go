@@ -12,6 +12,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AgentFailure struct {
+	ID             int64
+	ConversationID pgtype.Int8
+	Stage          string
+	Cause          string
+	OccurredAt     time.Time
+}
+
 type Approval struct {
 	ID               uuid.UUID
 	CallID           uuid.UUID
@@ -84,6 +92,8 @@ type Conversation struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	ClosedAt         pgtype.Timestamptz
+	TraceID          pgtype.Text
+	Outcome          pgtype.Text
 }
 
 type ConversationMessage struct {
@@ -128,6 +138,13 @@ type EvalRun struct {
 	FinishedAt    pgtype.Timestamptz
 }
 
+type KillSwitchState struct {
+	ID        bool
+	Mode      string
+	ChangedAt time.Time
+	CheckedAt time.Time
+}
+
 type LlmUsage struct {
 	ID               int64
 	ConversationID   int64
@@ -139,6 +156,61 @@ type LlmUsage struct {
 	CostMicrousd     int64
 	PricingDate      time.Time
 	CreatedAt        time.Time
+}
+
+type OpsApprovalsOpen struct {
+	ApprovalID   uuid.UUID
+	ToolName     string
+	RiskTier     string
+	ApproverKind string
+	Status       string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+}
+
+type OpsConversationCost struct {
+	ConversationID int64
+	ModelCalls     int64
+	CostUsd        int32
+}
+
+type OpsConversationOutcome struct {
+	ConversationID int64
+	CreatedAt      time.Time
+	ClosedAt       pgtype.Timestamptz
+	Status         string
+	Outcome        pgtype.Text
+	DurationS      float64
+	TraceID        pgtype.Text
+}
+
+type OpsFailure struct {
+	OccurredAt     time.Time
+	Stage          string
+	Cause          string
+	ConversationID pgtype.Int8
+}
+
+type OpsKillSwitch struct {
+	Mode      string
+	ChangedAt time.Time
+	CheckedAt time.Time
+}
+
+type OpsLlmCall struct {
+	ConversationID int64
+	CreatedAt      time.Time
+	CostUsd        int32
+	InputTokens    int32
+	OutputTokens   int32
+}
+
+type OpsToolCall struct {
+	OccurredAt time.Time
+	ToolName   string
+	RiskTier   string
+	Outcome    pgtype.Text
+	TraceID    pgtype.Text
 }
 
 type ResetLink struct {

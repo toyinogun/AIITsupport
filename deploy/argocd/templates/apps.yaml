@@ -27,6 +27,20 @@ spec:
 ---
 {{- $killSwitch := list (dict "group" "" "kind" "ConfigMap" "name" "noord-kill-switch" "namespace" "noord-agent" "jsonPointers" (list "/data")) }}
 {{ include "apps.component" (dict "root" . "component" "agent" "namespace" "noord-agent" "wave" "0" "ignoreDifferences" $killSwitch) }}
+{{- if .Values.observability.enabled }}
+---
+{{- /* Observability after the agent (its Secrets, ConfigMaps, and database
+role): Tempo and the Collector first, Grafana last. Each Application turns on
+only its own vendored chart. */}}
+{{- /* Tempo's StatefulSet leaves apiVersion and kind out of its claim template,
+like the Zammad chart's Postgres below (journal 0068). */}}
+{{- $tempoClaim := list (dict "group" "apps" "kind" "StatefulSet" "name" "tempo" "namespace" "noord-agent" "jqPathExpressions" (list ".spec.volumeClaimTemplates[]?.apiVersion" ".spec.volumeClaimTemplates[]?.kind")) }}
+{{ include "apps.component" (dict "root" . "component" "tempo" "namespace" "noord-agent" "wave" "1" "ignoreDifferences" $tempoClaim "values" (dict "tempo" (dict "enabled" true "tempo" (dict "retention" .Values.observability.tempo.retention) "persistence" (dict "size" .Values.observability.tempo.storage "storageClassName" .Values.observability.tempo.storageClass)))) }}
+---
+{{ include "apps.component" (dict "root" . "component" "collector" "namespace" "noord-agent" "wave" "1" "values" (dict "collector" (dict "enabled" true))) }}
+---
+{{ include "apps.component" (dict "root" . "component" "grafana" "namespace" "noord-agent" "wave" "2" "values" (dict "grafana" (dict "enabled" true))) }}
+{{- end }}
 {{- if .Values.demo.enabled }}
 ---
 {{ include "apps.component" (dict "root" . "component" "directory" "namespace" "noord-directory" "wave" "0") }}

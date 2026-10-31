@@ -335,5 +335,6 @@ func (a *Agent) postTo(parent context.Context, channel, thread, eventID, kind, t
 	defer cancel()
 	if err := a.deps.Poster.Reply(ctx, channel, thread, text); err != nil {
 		a.deps.Logger.Warn("agent_post_failed", "event_id", eventID, "kind", kind, "cause", cause(err))
+		a.recordFailure(parent, 0, stageSlack, cause(err))
 	}
 }

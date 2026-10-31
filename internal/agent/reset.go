@@ -50,6 +50,7 @@ func (t *turn) postResetLink(link *resetLink) {
 	defer cancel()
 	if err := t.a.deps.Poster.ReplyNoUnfurl(ctx, t.in.ChannelID, t.in.ThreadTS, ResetLinkText(link.minutes, link.url)); err != nil {
 		t.a.deps.Logger.Warn("agent_post_failed", "event_id", t.in.EventID, "kind", "reset_link", "cause", cause(err))
+		t.a.recordFailure(t.ctx, t.conv.ID, stageSlack, cause(err))
 		t.resetPostFailed = true
 		return
 	}

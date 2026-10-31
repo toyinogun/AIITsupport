@@ -168,7 +168,7 @@ func (s *state) preflight(ctx context.Context) error {
 	}
 	s.conds = s.values.Conditions()
 	s.demo = s.conds.Demo
-	s.comps = components(s.demo)
+	s.comps = withObservability(components(s.demo), s.conds.Observability)
 	s.kube = Kube{run: s.Run, context: s.cfg.KubeContext}
 	s.git = Git{run: s.Run}
 

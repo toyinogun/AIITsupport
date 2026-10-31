@@ -205,12 +205,15 @@ func TestToolServerResetAndCertificate(t *testing.T) {
 		backend, _ := spec["defaultBackend"].(map[string]any)
 		svc, _ := backend["service"].(map[string]any)
 		port, _ := svc["port"].(map[string]any)
+		if meta["name"] == "grafana" { // Grafana's own tailnet Ingress (spec 0016), checked in observability_test.go
+			continue
+		}
 		if spec["ingressClassName"] != "tailscale" || svc["name"] != "toolserver" || port["number"] != 8081 || spec["rules"] != nil {
 			t.Errorf("Ingress %v = %v, want tailscale to the tool server's reset port only", meta["name"], spec)
 		}
 	}
-	if !slices.Equal(ingresses, []string{"reset"}) {
-		t.Errorf("the agent part's Ingresses = %v, want only reset", ingresses)
+	if !slices.Equal(ingresses, []string{"reset", "grafana"}) {
+		t.Errorf("the agent part's Ingresses = %v, want reset and grafana", ingresses)
 	}
 }
 

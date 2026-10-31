@@ -26,6 +26,7 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/audit"
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/db"
+	"github.com/toyinogun/AIITsupport/internal/db/queries"
 	"github.com/toyinogun/AIITsupport/internal/graph"
 	"github.com/toyinogun/AIITsupport/internal/ldap"
 	"github.com/toyinogun/AIITsupport/internal/logging"
@@ -122,6 +123,10 @@ func run() (err error) {
 		})
 		g.Go(func() error { resetlink.Cleanup(ctx, layer.links, cfg.TicketRetentionDays, logger); return nil })
 	}
+	g.Go(func() error {
+		tools.SyncKillSwitch(ctx, layer.killSwitch, queries.New(pool), cfg.KillSwitchSyncInterval, logger)
+		return nil
+	})
 	return g.Wait()
 }
 
@@ -174,6 +179,9 @@ type layer struct {
 	checks    []readiness.Check
 	reset     *resetpage.Page
 	links     *resetlink.Store
+	// killSwitch is the same switch the dispatcher enforces; the sync loop
+	// records its mode (spec 0016, AC-8).
+	killSwitch tools.KillSwitch
 }
 
 // toolLayer builds the dispatcher, its /mcp handler, and the reset page. It
@@ -252,7 +260,7 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 		Token: cfg.ToolServerToken, MaxRequestBytes: int64(cfg.MaxRequestBytes), Logger: logger,
 	})
 	if err != nil || !cfg.ResetEnabled() {
-		return layer{mcp: mcp, approvals: approvals, checks: checks}, err
+		return layer{mcp: mcp, approvals: approvals, checks: checks, killSwitch: killSwitch}, err
 	}
 	resetDir := dir
 	resetDir.BindDN, resetDir.Password = cfg.ResetLDAPBindDN, cfg.ResetLDAPBindPassword
@@ -274,5 +282,5 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 	if err != nil {
 		return layer{}, err
 	}
-	return layer{mcp: mcp, approvals: approvals, checks: checks, reset: page, links: links}, nil
+	return layer{mcp: mcp, approvals: approvals, checks: checks, reset: page, links: links, killSwitch: killSwitch}, nil
 }

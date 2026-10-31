@@ -40,6 +40,9 @@ spec:
               "LOG_LEVEL" .Values.logLevel
               "TICKET_RETENTION_DAYS" .Values.ticketRetentionDays
               "TOOLSERVER_URL" "http://toolserver.noord-agent.svc:8080/mcp" }}
+            {{- if .Values.observability.enabled }}
+            {{- $_ := set $env "OTEL_EXPORTER_OTLP_ENDPOINT" "http://otel-collector.noord-agent.svc:4318" }}
+            {{- end }}
             {{- include "noord.env" (merge (deepCopy .Values.agent.env) $env) | trim | nindent 12 }}
           envFrom:
             - secretRef:

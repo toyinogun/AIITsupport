@@ -1,0 +1,11 @@
+# Dashboard provider (spec 0016, AC-11): loads the dashboard JSON from disk.
+apiVersion: 1
+providers:
+  - name: noord
+    folder: Noord
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
