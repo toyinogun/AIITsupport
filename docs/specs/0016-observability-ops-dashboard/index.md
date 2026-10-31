@@ -1,7 +1,7 @@
 # 0016. Observability and the ops dashboard: one trace per conversation, a redacting Collector, Tempo, and a Grafana dashboard fed by a locked down Postgres view layer
 
 **Date**: 2026-10-31
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

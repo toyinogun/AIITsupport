@@ -295,13 +295,13 @@ One trace per conversation and a simple dashboard the IT person can read: ticket
 - [x] Design it (spec): `/architect observability & ops dashboard`
 - [ ] Build it: `/develop observability & ops dashboard`
   - [ ] Tracer thread on Compose and one trace per conversation: Collector, Tempo, Grafana profile, the stored trace id and turn parenting, approval span attributes (AC-1 to AC-3, AC-5, AC-13)
-  - [ ] Two layers of redaction: the Collector processor, the drift test, the canary live check (AC-4, AC-14)
-  - [ ] The data and its writers: outcome, failures, kill switch state, the `ops` views and the view only role (AC-6 to AC-9, AC-15)
-  - [ ] The dashboard as code: panels, provisioning, trace links (AC-10, AC-11)
+  - [x] Two layers of redaction: the Collector processor, the drift test, the canary live check (AC-4, AC-14)
+  - [x] The data and its writers: outcome, failures, kill switch state, the `ops` views and the view only role (AC-6 to AC-9, AC-15)
+  - [x] The dashboard as code: panels, provisioning, trace links (AC-10, AC-11)
   - [ ] Into the cluster: vendored charts, secrets, network allows, Pod Security, runbook, live proof on k3sprox (AC-5, AC-11, AC-12, AC-16)
 - [ ] Verify it: `/check verify observability & ops dashboard`
 - [ ] Test it: `/test observability & ops dashboard`
-spec [0016](../specs/0016-observability-ops-dashboard/index.md)
+spec [0016](../specs/0016-observability-ops-dashboard/index.md) · code in `internal/telemetry/`, `internal/agent/`, `internal/tools/`, `db/`, `deploy/helm/noord/files/observability/`, `deploy/` (the observability charts), `docs/runbooks/observability.md`
 
 ## Evaluation
 

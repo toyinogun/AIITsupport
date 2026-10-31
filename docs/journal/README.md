@@ -104,5 +104,8 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0080](0080-smoke-job-refused-in-its-first-second.md) | 2026-10-31 | Every smoke check failed on a healthy cluster: a new pod's first second is refused on stock k3s | #17 One command GitOps install | ~40 min | both |
 | [0081](0081-the-fresh-install-proof-run.md) | 2026-10-31 | The fresh install proof: one command, a Slack unlock, a reset link, a restore, and the bill | #17 One command GitOps install | ~1 day | both |
 | [0082](0082-make-resume-did-not-commit-the-seed-bump.md) | 2026-10-31 | `make resume` said "resumed" and committed nothing, so the seed steps never ran again | #17 One command GitOps install | ~25 min | post |
+| [0083](0083-redaction-pattern-masked-only-the-at-sign.md) | 2026-10-31 | The Collector's `@` redaction pattern masked only the `@`; the name and domain still reached Tempo | #18 Observability & ops dashboard | ~20 min | both |
+| [0084](0084-create-database-template-drops-the-temp-revoke.md) | 2026-10-31 | `CREATE DATABASE ... TEMPLATE` does not copy privileges, so the temp table revoke was missing in tests | #18 Observability & ops dashboard | ~15 min | no |
+| [0085](0085-ops-migration-failed-on-the-dev-database.md) | 2026-10-31 | Migration 00008 failed on the Compose database, and the new role ran the tests out of connections | #18 Observability & ops dashboard | ~25 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
