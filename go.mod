@@ -6,22 +6,22 @@ toolchain go1.27.3
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
-	github.com/anthropics/anthropic-sdk-go v1.82.0
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
+	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/go-ldap/ldap/v3 v3.4.15
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/moby/moby/api v1.56.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pressly/goose/v3 v3.29.0
-	github.com/slack-go/slack v0.30.1
+	github.com/slack-go/slack v0.31.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/yuin/goldmark v1.8.6
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/text v0.43.0
 	golang.org/x/tools v0.52.0
