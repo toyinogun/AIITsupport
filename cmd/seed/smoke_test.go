@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/config"
 	"github.com/toyinogun/AIITsupport/internal/readiness"
@@ -78,7 +80,7 @@ func TestSmoke(t *testing.T) {
 				t.Fatal(err)
 			}
 			var out bytes.Buffer
-			err = smoke(t.Context(), &out, checks)
+			err = smoke(t.Context(), &out, checks, 0)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("smoke = %v, want an error %v", err, tc.wantErr)
 			}
@@ -98,10 +100,61 @@ func TestSmokeHidesErrorText(t *testing.T) {
 		return "", errors.New("connect postgres://noord_owner:hunter2@db")
 	}}}
 	var out bytes.Buffer
-	if err := smoke(t.Context(), &out, checks); err == nil {
+	if err := smoke(t.Context(), &out, checks, 0); err == nil {
 		t.Fatal("smoke passed a failed check")
 	}
 	if strings.Contains(out.String(), "hunter2") || out.String() != "fail migrations other\n" {
 		t.Errorf("output = %q", out.String())
 	}
+}
+
+// refused is the error a dial gets while the node's policy controller has not
+// yet learned a new pod's address (the cause token is "network").
+func refused() error {
+	return &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+}
+
+// covers: AC-17 (spec 0015). A Job pod's first connections can be refused for
+// a second or two on a cluster whose network policy controller is not yet
+// caught up (stock k3s, journal 0080). Connection failures are retried for
+// the settle period, counted from the start of the run; a wrong answer is
+// never retried.
+func TestSmokeSettlesNewPodNetwork(t *testing.T) {
+	t.Run("a refused dial that clears passes", func(t *testing.T) {
+		calls := 0
+		checks := []smokeCheck{{"c", func(context.Context) (string, error) {
+			calls++
+			if calls < 3 {
+				return "", refused()
+			}
+			return "", nil
+		}}}
+		var out bytes.Buffer
+		if err := smoke(t.Context(), &out, checks, 10*time.Second); err != nil {
+			t.Fatalf("smoke: %v (output %q)", err, out.String())
+		}
+		if calls != 3 || out.String() != "pass c\n" {
+			t.Errorf("calls = %d, output %q; want 3 calls and one pass line", calls, out.String())
+		}
+	})
+	t.Run("a refusal that never clears fails as network after the settle period", func(t *testing.T) {
+		calls := 0
+		checks := []smokeCheck{{"c", func(context.Context) (string, error) { calls++; return "", refused() }}}
+		var out bytes.Buffer
+		start := time.Now()
+		if err := smoke(t.Context(), &out, checks, time.Second); err == nil {
+			t.Fatal("smoke passed, want a failure")
+		}
+		if out.String() != "fail c network\n" || calls < 2 || time.Since(start) < time.Second {
+			t.Errorf("output %q after %v with %d calls; want a network failure after about 1s and at least 2 calls", out.String(), time.Since(start), calls)
+		}
+	})
+	t.Run("a wrong answer is not retried", func(t *testing.T) {
+		calls := 0
+		checks := []smokeCheck{{"c", func(context.Context) (string, error) { calls++; return "", smokeError("no_tools") }}}
+		var out bytes.Buffer
+		if err := smoke(t.Context(), &out, checks, 10*time.Second); err == nil || calls != 1 {
+			t.Errorf("err = %v, calls = %d; want one call and a failure", err, calls)
+		}
+	})
 }
