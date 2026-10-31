@@ -17,7 +17,7 @@ ZAMMAD_VOLUMES := noord_elasticsearch-data noord_postgresql-data noord_redis-dat
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
 	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install smoke \
-	release pause resume uninstall seal-key-backup cluster-init
+	release pause resume uninstall seal-key-backup cluster-init deploy-check
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -160,6 +160,10 @@ hooks:
 		printf '#!/bin/sh\ncd "$$(git rev-parse --show-toplevel)" && exec go tool -modfile=tools.mod lefthook run %s "$$@"\n' $$h > "$$hooks_dir/$$h" && \
 		chmod +x "$$hooks_dir/$$h" && echo "wrote $$hooks_dir/$$h"; \
 	done
+
+## deploy-check: lint and render the charts for every cluster folder, validate against the schemas (needs helm)
+deploy-check:
+	./deploy/check.sh
 
 ## check: everything CI runs except the image builds
 check: lint gen-check tidy-check vuln secrets test

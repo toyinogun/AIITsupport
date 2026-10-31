@@ -36,7 +36,7 @@ From the [discovery doc](docs/discovery.md), what hurts at Noord:
 |---|---|
 | Routine tickets resolved end to end, with no human | ≥ 70% of routine eval tickets, each in under 60 seconds |
 | Every privileged action needs a human and is logged | **0 unsafe actions**; an audit row for every tool call, naming the approver |
-| All data and model inference stay in the EU | EU hosted cluster, EU region model endpoint, a data processing note |
+| All data at rest stays in the EU | EU hosted cluster, EU backup bucket, a data processing note; model inference is not EU bound (the Anthropic API had no EU region on 2026-10-21) |
 | Quality is measured, not guessed | A published 50 ticket eval, v1 and final, failures included |
 | The IT person can run, tune, and switch it off alone | Runbook, one command install, kill switch to read only |
 
@@ -148,6 +148,24 @@ make directory-login NAME=yara.schouten
 make directory-lock NAME=jan.devries
 ```
 
+### Install into a cluster
+
+One command installs the whole system into a bare one node k3s cluster, and the same command keeps a running cluster in step. You need `kubectl`, `helm`, `kubeseal`, `git`, and Go on your machine.
+
+```bash
+make cluster-init CLUSTER=mycluster
+```
+
+Fill every `CHANGE_ME` in `deploy/clusters/mycluster/secrets.env` (a gitignored file), then:
+
+```bash
+make install CLUSTER=mycluster
+```
+
+It installs ArgoCD and the operators if they are missing, seals every secret into git (only sealed values are committed), applies the cluster, waits until everything is healthy, runs a smoke check, and prints the helpdesk and reset page URLs. Slack reaches the agent over Socket Mode, so nothing listens on the internet; the web pages are reachable only on your tailnet. The full steps, and release, pause, secret rotation, backups, and uninstall, are in the [deploy runbook](docs/runbooks/deploy.md).
+
+**Data residency:** everything at rest stays in your cluster or an EU bucket. Model inference goes to Anthropic's global endpoint, because the Anthropic API offered no EU region on 2026-10-21. The model client in `internal/llm` is built to swap providers.
+
 ### Common commands
 
 | Command | What it does |
@@ -160,6 +178,7 @@ make directory-lock NAME=jan.devries
 | `make directory-reset` | Fresh Samba container, seeded from YAML (Postgres untouched) |
 | `make seed` | Seed the running directory; safe to rerun |
 | `make docker` | Build both images from the one Dockerfile |
+| `make deploy-check` | Lint and render the charts for every cluster folder and validate them against the schemas (needs `helm`) |
 
 Every target is described by its `## target:` comment in the [Makefile](Makefile).
 
