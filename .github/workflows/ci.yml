@@ -224,9 +224,33 @@ jobs:
           cache-from: type=gha,scope=samba
           cache-to: type=gha,scope=samba,mode=max
 
+  # Deploy checks (spec 0015, AC-26): lint, render every cluster folder,
+  # validate against the Kubernetes and CRD schemas, no plain Secret, and the
+  # install tests that skip without helm. Runs on a deploy/clusters-only
+  # change too. Helm is pinned by version and checksum.
+  deploy:
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    env:
+      HELM_VERSION: v4.2.0
+      HELM_SHA256: 97dbeb971be4ac4b27e3839976d9564c0fb35c6f3b1da89dd1e292d236af4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: ${{ github.job }}
+      - name: Install helm
+        run: |
+          curl -fsSL -o helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz linux-amd64/helm
+          mkdir -p "$HOME/bin" && mv linux-amd64/helm "$HOME/bin/helm"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - run: make deploy-check
+
   ci-ok:
     if: always()
-    needs: [lint, test, generated, vuln, secrets, images, samba-image]
+    needs: [lint, test, generated, vuln, secrets, images, samba-image, deploy]
     runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'k3sprox' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
