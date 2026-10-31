@@ -1,0 +1,79 @@
+# The two ArgoCD Applications for proofvm (spec 0015, AC-23). make install
+# applies this file as is.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: noord-proofvm-platform
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: noord-proofvm
+    noord.example/part: platform
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/toyinogun/AIITsupport.git
+    targetRevision: main
+    path: deploy/argocd
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../clusters/proofvm/values.yaml
+      valuesObject:
+        part: platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 5m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: noord-proofvm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: noord-proofvm
+    noord.example/part: apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/toyinogun/AIITsupport.git
+    targetRevision: main
+    path: deploy/argocd
+    helm:
+      valueFiles:
+        - values.yaml
+        - ../clusters/proofvm/values.yaml
+      valuesObject:
+        part: apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 5m
