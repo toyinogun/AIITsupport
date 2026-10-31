@@ -4,10 +4,10 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 ## Task 4: reset page and Entra
 
 ### Commands
-- [ ] `go test -race -run 'TestGraphCertificateOrSecret|TestLoadGraph|TestMFAEnabled' ./internal/config/` → pass; with both `GRAPH_CLIENT_SECRET` and `GRAPH_CLIENT_CERT` set, `LoadGraph` and `LoadToolServer` fail naming both, never the value → AC-24
-- [ ] `go test -race -run TestNewWithCredentialsCertificate ./internal/graph/` → a PEM with a certificate and its RSA key builds a client; a missing or bad file fails naming `GRAPH_CLIENT_ID` → AC-24
-- [ ] `go test -race -run 'TestBuildReset|TestValuesReset|TestBuildGraphCert|TestPreflightGraphCert|TestTableCheckRefusesBadSources' ./internal/install/` → pass → AC-15, AC-24
-- [ ] `go test -race -run 'TestToolServerResetAndCertificate|TestEntraJobFollowsDirectory|TestPartsRenderNoPlainSecret|TestSecretKeysMatchConfigTags|TestTemplateSecretsEnvMatches' ./internal/install/` (needs `helm`) → pass → AC-6, AC-7, AC-10, AC-15, AC-24
+- [x] `go test -race -run 'TestGraphCertificateOrSecret|TestLoadGraph|TestMFAEnabled' ./internal/config/` → pass; with both `GRAPH_CLIENT_SECRET` and `GRAPH_CLIENT_CERT` set, `LoadGraph` and `LoadToolServer` fail naming both, never the value → AC-24
+- [x] `go test -race -run TestNewWithCredentialsCertificate ./internal/graph/` → a PEM with a certificate and its RSA key builds a client; a missing or bad file fails naming `GRAPH_CLIENT_ID` → AC-24
+- [x] `go test -race -run 'TestBuildReset|TestValuesReset|TestBuildGraphCert|TestPreflightGraphCert|TestTableCheckRefusesBadSources' ./internal/install/` → pass → AC-15, AC-24
+- [x] `go test -race -run 'TestToolServerResetAndCertificate|TestEntraJobFollowsDirectory|TestPartsRenderNoPlainSecret|TestSecretKeysMatchConfigTags|TestTemplateSecretsEnvMatches' ./internal/install/` (needs `helm`) → pass → AC-6, AC-7, AC-10, AC-15, AC-24
 - [ ] `helm template noord-agent deploy/helm/noord -f deploy/clusters/k3sprox/values.yaml -f <stand in> --set component=agent --set reset.enabled=true --skip-tests` → exactly one Ingress, `reset`, class `tailscale`, backend `toolserver` port 8081, host `noord-k3sprox-reset`; no Service of type LoadBalancer or NodePort → AC-15
 - [ ] Same render with `graph-client.pem` in the stand in → the tool server has `GRAPH_CLIENT_CERT=/etc/noord/graph/client.pem`, a `graph` volume with item `graph-client.pem` → `client.pem`, and no env var named `graph-client.pem` → AC-24
 - [ ] Render the directory part with `SEED_GRAPH_CLIENT_ID` in the `noord-seed-directory` stand in → `seed-entra-<hash>` Job at wave 3 running `entra sync`; without it, no such Job; `seed-directory-<hash>` keeps its hash from before this change → AC-10
@@ -29,12 +29,12 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 ## Tasks 5 and 6: network policies, readiness, and smoke
 
 ### Commands
-- [ ] `go test -race -run 'TestEveryPartDeniesByDefault|TestFQDNEgressNarrowsHTTPS|TestHTTPSWithoutCilium|TestResetPortOnlyFromTailnetProxy' ./internal/install/` (needs `helm`) → pass: every part has `default-deny` and `dns`; with `cilium.fqdnEgress` no NetworkPolicy opens 443 to `0.0.0.0/0`; without Cilium no Cilium kind renders; only the reset proxy reaches 8081 → AC-14, AC-15
+- [x] `go test -race -run 'TestEveryPartDeniesByDefault|TestFQDNEgressNarrowsHTTPS|TestHTTPSWithoutCilium|TestResetPortOnlyFromTailnetProxy' ./internal/install/` (needs `helm`) → pass: every part has `default-deny` and `dns`; with `cilium.fqdnEgress` no NetworkPolicy opens 443 to `0.0.0.0/0`; without Cilium no Cilium kind renders; only the reset proxy reaches 8081 → AC-14, AC-15
 - [ ] `helm template` of the agent part with `cilium.fqdnEgress=true` and `cilium.enabled=false` → fails naming `cilium.enabled` → AC-14
-- [ ] `go test -race ./internal/readiness/ ./cmd/agent/ ./cmd/toolserver/` → pass: 200 only when every configured check is ok, `not_configured` never fails the report, a slow check is `deadline`, no error text in the body, the tool server's report is 401 without the token → AC-16
-- [ ] `go test -race -run 'TestPingGetsAToken|TestErrorCause|TestPingErrorCause|TestConnectedFollowsSocketEvents' ./internal/graph/ ./internal/zammad/ ./internal/ldap/ ./internal/slack/` → the cause tokens `graph_token`, `zammad_<status>`, `ldap_<code>`, `slack_not_connected` → AC-16
+- [x] `go test -race ./internal/readiness/ ./cmd/agent/ ./cmd/toolserver/` → pass: 200 only when every configured check is ok, `not_configured` never fails the report, a slow check is `deadline`, no error text in the body, the tool server's report is 401 without the token → AC-16
+- [x] `go test -race -run 'TestPingGetsAToken|TestErrorCause|TestPingErrorCause|TestConnectedFollowsSocketEvents' ./internal/graph/ ./internal/zammad/ ./internal/ldap/ ./internal/slack/` → the cause tokens `graph_token`, `zammad_<status>`, `ldap_<code>`, `slack_not_connected` → AC-16
 - [x] `DOCKER_AUTH_CONFIG='{"auths":{}}' TEST_SAMBA=1 go test -race -timeout 25m -run TestLivePing ./internal/ldap/` → a bind as svc-itsupport passes; a wrong password is `ldap_49` → AC-16
-- [ ] `go test -race -run 'TestSmoke|TestLoadSmoke' ./cmd/seed/ ./internal/config/` and `go test -race -run 'TestRunEndsWithTheSmokeCheck|TestFailedSmokeFailsTheRun|TestSmokeAlone|TestReportNamesTheURLs' ./internal/install/` → pass: one line per check, fixed tokens only, a failed Job fails the install at `smoke`, `make smoke` refuses the wrong kube context with exit 2 → AC-1, AC-17
+- [x] `go test -race -run 'TestSmoke|TestLoadSmoke' ./cmd/seed/ ./internal/config/` and `go test -race -run 'TestRunEndsWithTheSmokeCheck|TestFailedSmokeFailsTheRun|TestSmokeAlone|TestReportNamesTheURLs' ./internal/install/` → pass: one line per check, fixed tokens only, a failed Job fails the install at `smoke`, `make smoke` refuses the wrong kube context with exit 2 → AC-1, AC-17
 - [ ] With `TEST_DATABASE_URL` set, `go test -race -run TestRunMigratesThenIsANoOp ./internal/migrate/` → `Current` equals `Latest` after the run → AC-17
 
 ### Value sourcing
@@ -55,7 +55,7 @@ _Steps derived from spec 0015 acceptance criteria. `/check verify` runs these; `
 ## Task 7: backups
 
 ### Commands
-- [ ] `go test -race -run 'TestBackupObjects|TestBackupNetwork|TestBackupSecretOnlyWithBackups|TestPreflightNeedsTheBucket|TestPlatformWaitsForThePlugin' ./internal/install/` (needs `helm`) → pass: nothing backup related renders with backups off; with them on, the ObjectStore at `s3://<bucket>/<cluster>/` reads `noord-backup`, the Cluster archives WAL through the plugin, the daily ScheduledBackup runs at once, the database reaches only the plugin on 9090 and the bucket's host on 443; preflight names `backup.endpoint and backup.bucket` and the token; the platform step waits for `noord-<cluster>-barman` → AC-2, AC-4, AC-14, AC-18
+- [x] `go test -race -run 'TestBackupObjects|TestBackupNetwork|TestBackupSecretOnlyWithBackups|TestPreflightNeedsTheBucket|TestPlatformWaitsForThePlugin' ./internal/install/` (needs `helm`) → pass: nothing backup related renders with backups off; with them on, the ObjectStore at `s3://<bucket>/<cluster>/` reads `noord-backup`, the Cluster archives WAL through the plugin, the daily ScheduledBackup runs at once, the database reaches only the plugin on 9090 and the bucket's host on 443; preflight names `backup.endpoint and backup.bucket` and the token; the platform step waits for `noord-<cluster>-barman` → AC-2, AC-4, AC-14, AC-18
 - [ ] `helm template p deploy/argocd -f deploy/clusters/k3sprox/values.yaml --set part=platform` → an Application `noord-k3sprox-barman`, chart `plugin-barman-cloud` 0.8.1 into `cnpg-system`, wave minus 10; the AppProject `noord-platform` lists the chart repo → AC-4
 
 ### Value sourcing

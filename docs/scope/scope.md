@@ -41,7 +41,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 14 | MFA re-registration with approval | Slice 4 | done |
 | 15 | Access requests via group owner | Slice 5 | done |
 | 16 | Knowledge base answers | Slice 6 | done |
-| 17 | One command GitOps install | Production | in-progress |
+| 17 | One command GitOps install | Production | done |
 | 18 | Observability & ops dashboard | Production | planned |
 | 19 | Eval ticket set | Evaluation | planned |
 | 20 | Eval harness in CI | Evaluation | planned |
@@ -275,7 +275,7 @@ spec [0014](../specs/0014-knowledge-base-answers/index.md) · code in `internal/
 
 ## Production
 
-### 17. One command GitOps install · in-progress
+### 17. One command GitOps install · done
 Package everything and deploy through GitOps to an EU hosted cluster, with Postgres, secrets management, and Slack over Socket Mode so nothing listens on the internet.
 **Done when:** a single command installs the whole thing into a fresh cluster; secrets are not in git; Slack reaches the agent over Socket Mode with no inbound route; the EU inference gap is stated in the runbook and README (the Anthropic API had no EU region on 2026-10-21), and `internal/llm` stays swappable.
 - [x] Design it (spec): `/architect gitops install`
@@ -285,8 +285,8 @@ Package everything and deploy through GitOps to an EU hosted cluster, with Postg
   - [x] Hardening: default deny network with the allow list and Cilium FQDNs, Pod Security, `/readyz` and the smoke Job, backups to R2 (AC-1, AC-4, AC-12, AC-14 to AC-18)
   - [x] Fresh cluster path and day two: ArgoCD and platform operators, full preflight, `cluster-init`, release, pause and resume, uninstall, sealing key backup, the CI deploy job, the k3sprox pointer and the runbook (AC-2 to AC-5, AC-19 to AC-23, AC-25, AC-26, AC-28)
   - [x] The proof on a throwaway VM: recorded install, Slack unlock, reset link, restore drill, teardown, journal (AC-1, AC-27, AC-29)
-- [ ] Verify it: `/check verify gitops install`
-- [ ] Test it: `/test gitops install`
+- [x] Verify it: `/check verify gitops install`
+- [x] Test it: `/test gitops install`
 spec [0015](../specs/0015-gitops-install/index.md) · code in `internal/install/`, `internal/migrate/`, `cmd/seed/`, `deploy/`, `Dockerfile`, `.github/`
 
 ### 18. Observability & ops dashboard · needs a decision
