@@ -116,6 +116,28 @@ func TestPauseAndResume(t *testing.T) {
 	}
 }
 
+// covers: AC-20 (spec 0015). resume on a cluster that is not paused still
+// bumps seedRun, commits it and pushes it: the seed steps only run again
+// when the bump reaches git (journal 0082).
+func TestResumeOnARunningClusterCommitsTheBump(t *testing.T) {
+	f := dayTwo(t)
+	must(t, Resume(t.Context(), f.options()))
+	v := f.values(t)
+	if !strings.Contains(v, "seedRun: 1") || !strings.Contains(v, "paused: false") {
+		t.Errorf("values.yaml = %q, want seedRun: 1 and paused: false", v)
+	}
+	if got := f.commits(); len(got) != 1 || got[0] != "chore(deploy): resume k3sprox" {
+		t.Errorf("commits = %q, want one resume commit", got)
+	}
+	if f.count("git push") != 1 {
+		t.Errorf("pushes = %d, want 1", f.count("git push"))
+	}
+	must(t, Resume(t.Context(), f.options()))
+	if !strings.Contains(f.values(t), "seedRun: 2") || len(f.commits()) != 2 {
+		t.Errorf("a second resume left %q with %d commits, want seedRun: 2 and 2 commits", f.values(t), len(f.commits()))
+	}
+}
+
 // covers: AC-21 (spec 0015). uninstall wants the cluster name typed, and
 // refuses an Application another Application owns.
 func TestUninstall(t *testing.T) {

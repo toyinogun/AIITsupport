@@ -55,13 +55,18 @@ func (s *state) change(ctx context.Context, keyPath []string, value, tag, messag
 	if err != nil || !changed {
 		return false, err
 	}
+	return true, s.commitFolder(ctx, message)
+}
+
+// commitFolder commits the cluster folder's two files with message and pushes.
+func (s *state) commitFolder(ctx context.Context, message string) error {
 	if _, err := s.git.Commit(ctx, s.folder.Dir, message); err != nil {
-		return true, err
+		return err
 	}
 	if err := s.git.Push(ctx, s.track); err != nil {
-		return true, fmt.Errorf("the push was rejected: %w", err)
+		return fmt.Errorf("the push was rejected: %w", err)
 	}
-	return true, nil
+	return nil
 }
 
 // Release points a cluster at the images built for sha (AC-19). It writes
@@ -151,10 +156,16 @@ func Resume(ctx context.Context, opts Options) error {
 	if err := s.checkGit(ctx); err != nil {
 		return &ExitError{Code: ExitPreflight, Step: "resume", Err: err}
 	}
+	// seedRun always changes, so a resume always has something to commit:
+	// on a cluster that was never paused, paused is already false and the
+	// bump is all there is (journal 0082).
 	if _, err := s.folder.SetScalar([]string{"seedRun"}, strconv.Itoa(s.values.SeedRun+1), "!!int"); err != nil {
 		return &ExitError{Code: ExitFailed, Step: "resume", Err: err}
 	}
-	if _, err := s.change(ctx, []string{"paused"}, "false", "!!bool", "chore(deploy): resume "+s.Cluster); err != nil {
+	if _, err := s.folder.SetScalar([]string{"paused"}, "false", "!!bool"); err != nil {
+		return &ExitError{Code: ExitFailed, Step: "resume", Err: err}
+	}
+	if err := s.commitFolder(ctx, "chore(deploy): resume "+s.Cluster); err != nil {
 		return &ExitError{Code: ExitFailed, Step: "resume", Err: err}
 	}
 	s.say("resumed; every seed step runs once more. Check with make smoke CLUSTER=%s", s.Cluster)
