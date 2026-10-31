@@ -177,6 +177,45 @@ func TestSeedHelpdeskReachesElasticsearch(t *testing.T) {
 			t.Errorf("the seed-helpdesk policy does not open port %d to the Zammad pods", port)
 		}
 	}
+
+	// A connection needs both sides: Elasticsearch has its own policy, and
+	// it must admit the seed Job on 9200 (Zammad's own policy only covers
+	// Postgres, Redis, Memcached, and the web port).
+	es := object(docs, "NetworkPolicy", "elasticsearch")
+	if es == nil {
+		t.Fatal("the client part has no elasticsearch NetworkPolicy")
+	}
+	if !admitsSeedOn(es, 9200) {
+		t.Error("the elasticsearch policy does not admit the seed-helpdesk pods on port 9200")
+	}
+}
+
+// admitsSeedOn reports whether a NetworkPolicy has an ingress rule that lets
+// the seed-helpdesk pods reach port.
+func admitsSeedOn(np map[string]any, port int) bool {
+	spec, _ := np["spec"].(map[string]any)
+	ingress, _ := spec["ingress"].([]any)
+	for _, r := range ingress {
+		rm, _ := r.(map[string]any)
+		from, _ := rm["from"].([]any)
+		var fromSeed bool
+		for _, f := range from {
+			fm, _ := f.(map[string]any)
+			sel, _ := fm["podSelector"].(map[string]any)
+			labels, _ := sel["matchLabels"].(map[string]any)
+			if labels["app.kubernetes.io/name"] == "seed-helpdesk" {
+				fromSeed = true
+			}
+		}
+		ports, _ := rm["ports"].([]any)
+		for _, p := range ports {
+			pm, _ := p.(map[string]any)
+			if got, ok := pm["port"].(int); fromSeed && ok && got == port {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestResetPortOnlyFromTailnetProxy(t *testing.T) {
