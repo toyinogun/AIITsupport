@@ -98,6 +98,15 @@ spec:
             {{- include "noord.zammadPods" . | nindent 12 }}
       ports:
         - {protocol: TCP, port: 9200}
+    # The helpdesk seed Job's Rails indexes the tickets it writes. Its egress
+    # rule alone is not enough: this policy is the destination's side
+    # (journal 0079).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seed-helpdesk
+      ports:
+        - {protocol: TCP, port: 9200}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
