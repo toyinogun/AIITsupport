@@ -35,6 +35,32 @@ check_render() {
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# render_part renders one component into $out. A cluster's sealed-values.yaml
+# lacks a key the chart newly needs until `make install` seals it (the chart
+# refuses to render then, on purpose). The check must still validate the
+# rest, so it stands in for each key the chart names as missing and warns,
+# and any other render error still fails. Pass the args after `helm template`.
+render_part() {
+  local out=$1; shift
+  local err="$work/render.err" extra=() msg secret key
+  for _ in $(seq 1 20); do
+    if helm template "$@" "${extra[@]}" >"$out" 2>"$err"; then
+      return 0
+    fi
+    msg=$(grep -o 'sealed-values.yaml has no [^ ]* in [^;]*' "$err" | head -n1 || true)
+    if [ -z "$msg" ]; then
+      cat "$err" >&2
+      return 1
+    fi
+    key=$(awk '{print $4}' <<<"$msg")
+    secret=$(awk '{print $6}' <<<"$msg")
+    echo "::warning::${secret} lacks ${key} in sealed-values.yaml; rendering with a stand in (make install seals it)" >&2
+    extra+=(--set "sealed.${secret}.${key//./\\.}=AgB-stand-in")
+  done
+  echo "::error::too many missing sealed keys" >&2
+  return 1
+}
+
 helm lint deploy/argocd deploy/helm/noord
 
 for dir in deploy/clusters/*/; do
@@ -58,7 +84,7 @@ for dir in deploy/clusters/*/; do
         continue
       fi
       out="$work/$cluster-$comp.yaml"
-      helm template "noord-$comp" deploy/helm/noord --skip-tests -f "$values" -f "$dir/sealed-values.yaml" "${args[@]}" >"$out"
+      render_part "$out" "noord-$comp" deploy/helm/noord --skip-tests -f "$values" -f "$dir/sealed-values.yaml" "${args[@]}"
       check_render "$out" "$cluster $comp"
     done
   fi

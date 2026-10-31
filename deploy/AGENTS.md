@@ -49,6 +49,7 @@ helm dependency update deploy/helm/noord   # after bumping the Zammad version in
 - The kill switch ConfigMap's `data` is in `ignoreDifferences` with `Prune=false`, so a `kubectl` flip survives self heal (AC-9). Never put its mode in git.
 - The Tempo chart's StatefulSet also leaves `apiVersion` and `kind` out of its claim template, so its Application carries the same `ignoreDifferences`. The Tempo chart needs its Jaeger and OpenCensus receiver keys to exist (its Service template reads them), so they stay on; only 4317 and 3200 are reachable.
 - A managed CloudNativePG role cannot carry a statement timeout. `noord_grafana` gets its 10s one from `bootstrap.initdb.postInitSQL`, which only runs on a fresh database; an existing one needs the one `ALTER ROLE` in `docs/runbooks/observability.md`.
+- `deploy/check.sh` renders each cluster's real `sealed-values.yaml`. A key the chart newly needs is missing there until `make install` seals it, so `render_part` stands in for each key the chart names as missing and prints a `::warning::`; any other render error still fails the check.
 - CI's runner pods share a node with Longhorn replicas; heavy image builds can starve the control plane's etcd and make the API unavailable for a while (journal 0069).
 
 ## Related specs
