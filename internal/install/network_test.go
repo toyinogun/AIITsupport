@@ -147,6 +147,38 @@ func TestHTTPSWithoutCilium(t *testing.T) {
 
 // covers: AC-14, AC-15 (spec 0015). Only the reset page's tailnet proxy
 // reaches the tool server's reset port, and nothing else reaches past 8080.
+// covers: AC-14 (spec 0015). The helpdesk seed Job runs Rails in process, and
+// Rails indexes every ticket it writes in Elasticsearch, so the Job's policy
+// must open Elasticsearch's port as well as Postgres, Redis, and Memcached
+// (journal 0079: the first fresh seed under default deny failed on it).
+func TestSeedHelpdeskReachesElasticsearch(t *testing.T) {
+	docs := renderPart(t, componentClient, "--set", "zammad.enabled=true")
+	np := object(docs, "NetworkPolicy", "seed-helpdesk")
+	if np == nil {
+		t.Fatal("the client part has no seed-helpdesk NetworkPolicy")
+	}
+	spec, _ := np["spec"].(map[string]any)
+	egress, _ := spec["egress"].([]any)
+	want := map[int]bool{8080: false, 5432: false, 6379: false, 11211: false, 9200: false}
+	for _, r := range egress {
+		rm, _ := r.(map[string]any)
+		ports, _ := rm["ports"].([]any)
+		for _, p := range ports {
+			pm, _ := p.(map[string]any)
+			if port, ok := pm["port"].(int); ok {
+				if _, tracked := want[port]; tracked {
+					want[port] = true
+				}
+			}
+		}
+	}
+	for port, open := range want {
+		if !open {
+			t.Errorf("the seed-helpdesk policy does not open port %d to the Zammad pods", port)
+		}
+	}
+}
+
 func TestResetPortOnlyFromTailnetProxy(t *testing.T) {
 	docs := renderPart(t, componentAgent)
 	np := object(docs, "NetworkPolicy", "toolserver")

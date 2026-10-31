@@ -49,6 +49,9 @@ func renderPart(t *testing.T, component string, extra ...string) []map[string]an
 		"template", "noord-" + component, filepath.Join(repoRoot, "deploy/helm/noord"), "--skip-tests",
 		"-f", filepath.Join(repoRoot, ClustersDir, "k3sprox", valuesFile), "-f", stand,
 		"--set", "component=" + component,
+		// The live cluster's values may be paused (make pause); the tests
+		// render the running chart, and TestPausedChart sets it back.
+		"--set", "paused=false",
 	}, extra...)
 	cmd := exec.CommandContext(t.Context(), "helm", args...) //nolint:gosec // G204: fixed arguments and a temp file
 	var stderr bytes.Buffer
