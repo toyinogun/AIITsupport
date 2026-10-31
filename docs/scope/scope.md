@@ -279,12 +279,12 @@ spec [0014](../specs/0014-knowledge-base-answers/index.md) · code in `internal/
 Package everything and deploy through GitOps to an EU hosted cluster, with Postgres, secrets management, and Slack over Socket Mode so nothing listens on the internet.
 **Done when:** a single command installs the whole thing into a fresh cluster; secrets are not in git; Slack reaches the agent over Socket Mode with no inbound route; the EU inference gap is stated in the runbook and README (the Anthropic API had no EU region on 2026-10-21), and `internal/llm` stays swappable.
 - [x] Design it (spec): `/architect gitops install`
-- [ ] Build it: `/develop gitops install`
+- [x] Build it: `/develop gitops install`
   - [x] Tracer thread on k3sprox: images pushed by CI, the config tags and drift tests, the minimal installer (seal, push, apply, wait), the agent stack (CNPG, `seed migrate`, tool server, agent, kill switch) (AC-5, AC-7 to AC-9, AC-12, AC-19)
   - [x] Client systems in the cluster: Samba with the local CA, Zammad chart plus our Elasticsearch, the hashed seed Jobs and the `local` Runner, the reset page and Entra certificate, one live Slack unlock on k3sprox (AC-6, AC-10, AC-11, AC-13, AC-15, AC-24)
   - [x] Hardening: default deny network with the allow list and Cilium FQDNs, Pod Security, `/readyz` and the smoke Job, backups to R2 (AC-1, AC-4, AC-12, AC-14 to AC-18)
   - [x] Fresh cluster path and day two: ArgoCD and platform operators, full preflight, `cluster-init`, release, pause and resume, uninstall, sealing key backup, the CI deploy job, the k3sprox pointer and the runbook (AC-2 to AC-5, AC-19 to AC-23, AC-25, AC-26, AC-28)
-  - [ ] The proof on a throwaway VM: recorded install, Slack unlock, reset link, restore drill, teardown, journal (AC-1, AC-27, AC-29)
+  - [x] The proof on a throwaway VM: recorded install, Slack unlock, reset link, restore drill, teardown, journal (AC-1, AC-27, AC-29)
 - [ ] Verify it: `/check verify gitops install`
 - [ ] Test it: `/test gitops install`
 spec [0015](../specs/0015-gitops-install/index.md) · code in `internal/install/`, `internal/migrate/`, `cmd/seed/`, `deploy/`, `Dockerfile`, `.github/`
