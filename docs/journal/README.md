@@ -100,6 +100,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0076](0076-zammad-geo-ip-lookup-hangs-without-egress.md) | 2026-10-22 | The helpdesk seed "lost" its token: Zammad's geo IP lookup hung once egress was closed | #17 One command GitOps install | ~40 min | both |
 | [0077](0077-resume-stalled-while-argocd-repo-server-restarted.md) | 2026-10-23 | make resume left the agent down: ArgoCD's repo-server kept restarting | #17 One command GitOps install | ~8 min | post |
 | [0078](0078-two-firewalls-one-silent-timeout.md) | 2026-10-30 | Reaching the hypervisor API took two firewalls, and both failed as the same silent timeout | #17 One command GitOps install | ~1 hour | post |
-| [0079](0079-fresh-helpdesk-seed-blocked-by-its-own-network-policy.md) | 2026-10-31 | The first fresh helpdesk seed under default deny failed: Elasticsearch was closed on both sides | #17 One command GitOps install | ~1 h 30 min | both |
+| [0079](0079-fresh-helpdesk-seed-blocked-by-its-own-network-policy.md) | 2026-10-31 | The first fresh helpdesk seed under default deny failed: Elasticsearch was closed on both sides | #17 One command GitOps install | ~2 h 15 min | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

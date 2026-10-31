@@ -131,8 +131,14 @@ spec:
         - {protocol: TCP, port: 5432}
         - {protocol: TCP, port: 6379}
         - {protocol: TCP, port: 11211}
-        # Rails indexes every ticket it writes (the backdate step), so the
-        # seed Job needs Elasticsearch too (journal 0079).
+    # Rails indexes every ticket it writes (the backdate step), so the seed
+    # Job needs Elasticsearch too. Its pod has no Zammad instance label, so
+    # it gets a rule of its own (journal 0079).
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: elasticsearch
+      ports:
         - {protocol: TCP, port: 9200}
     - to:
         - namespaceSelector:

@@ -159,7 +159,7 @@ func TestSeedHelpdeskReachesElasticsearch(t *testing.T) {
 	}
 	spec, _ := np["spec"].(map[string]any)
 	egress, _ := spec["egress"].([]any)
-	want := map[int]bool{8080: false, 5432: false, 6379: false, 11211: false, 9200: false}
+	want := map[int]bool{8080: false, 5432: false, 6379: false, 11211: false}
 	for _, r := range egress {
 		rm, _ := r.(map[string]any)
 		ports, _ := rm["ports"].([]any)
@@ -178,6 +178,12 @@ func TestSeedHelpdeskReachesElasticsearch(t *testing.T) {
 		}
 	}
 
+	// Elasticsearch's pod does not carry the Zammad instance label, so the
+	// seed needs its own egress rule aimed at it by name (journal 0079).
+	if !egressReaches(np, "elasticsearch", 9200) {
+		t.Error("the seed-helpdesk policy has no egress rule to the elasticsearch pods on port 9200")
+	}
+
 	// A connection needs both sides: Elasticsearch has its own policy, and
 	// it must admit the seed Job on 9200 (Zammad's own policy only covers
 	// Postgres, Redis, Memcached, and the web port).
@@ -188,6 +194,34 @@ func TestSeedHelpdeskReachesElasticsearch(t *testing.T) {
 	if !admitsSeedOn(es, 9200) {
 		t.Error("the elasticsearch policy does not admit the seed-helpdesk pods on port 9200")
 	}
+}
+
+// egressReaches reports whether a NetworkPolicy has an egress rule whose
+// target is the pods named name (by app.kubernetes.io/name) on port.
+func egressReaches(np map[string]any, name string, port int) bool {
+	spec, _ := np["spec"].(map[string]any)
+	egress, _ := spec["egress"].([]any)
+	for _, r := range egress {
+		rm, _ := r.(map[string]any)
+		to, _ := rm["to"].([]any)
+		var named bool
+		for _, f := range to {
+			fm, _ := f.(map[string]any)
+			sel, _ := fm["podSelector"].(map[string]any)
+			labels, _ := sel["matchLabels"].(map[string]any)
+			if labels["app.kubernetes.io/name"] == name {
+				named = true
+			}
+		}
+		ports, _ := rm["ports"].([]any)
+		for _, p := range ports {
+			pm, _ := p.(map[string]any)
+			if got, ok := pm["port"].(int); named && ok && got == port {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // admitsSeedOn reports whether a NetworkPolicy has an ingress rule that lets
