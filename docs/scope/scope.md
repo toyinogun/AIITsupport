@@ -42,7 +42,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 15 | Access requests via group owner | Slice 5 | done |
 | 16 | Knowledge base answers | Slice 6 | done |
 | 17 | One command GitOps install | Production | done |
-| 18 | Observability & ops dashboard | Production | planned |
+| 18 | Observability & ops dashboard | Production | in-progress |
 | 19 | Eval ticket set | Evaluation | planned |
 | 20 | Eval harness in CI | Evaluation | planned |
 | 21 | Eval v1 to final | Evaluation | planned |
@@ -289,10 +289,19 @@ Package everything and deploy through GitOps to an EU hosted cluster, with Postg
 - [x] Test it: `/test gitops install`
 spec [0015](../specs/0015-gitops-install/index.md) · code in `internal/install/`, `internal/migrate/`, `cmd/seed/`, `deploy/`, `Dockerfile`, `.github/`
 
-### 18. Observability & ops dashboard · needs a decision
+### 18. Observability & ops dashboard · in-progress
 One trace per conversation and a simple dashboard the IT person can read: tickets handled, escalations, approvals waiting, errors, cost.
 **Done when:** you can follow one Slack conversation through every tool call in a trace, redacted; the dashboard shows the last 24 hours at a glance.
-- [ ] Design it (spec): `/architect observability & ops dashboard`
+- [x] Design it (spec): `/architect observability & ops dashboard`
+- [ ] Build it: `/develop observability & ops dashboard`
+  - [ ] Tracer thread on Compose and one trace per conversation: Collector, Tempo, Grafana profile, the stored trace id and turn parenting, approval span attributes (AC-1 to AC-3, AC-5, AC-13)
+  - [ ] Two layers of redaction: the Collector processor, the drift test, the canary live check (AC-4, AC-14)
+  - [ ] The data and its writers: outcome, failures, kill switch state, the `ops` views and the view only role (AC-6 to AC-9, AC-15)
+  - [ ] The dashboard as code: panels, provisioning, trace links (AC-10, AC-11)
+  - [ ] Into the cluster: vendored charts, secrets, network allows, Pod Security, runbook, live proof on k3sprox (AC-5, AC-11, AC-12, AC-16)
+- [ ] Verify it: `/check verify observability & ops dashboard`
+- [ ] Test it: `/test observability & ops dashboard`
+spec [0016](../specs/0016-observability-ops-dashboard/index.md)
 
 ## Evaluation
 
