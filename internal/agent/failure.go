@@ -45,10 +45,12 @@ func (t *turn) failurePath(f *failure) string {
 		}
 		o = t.a.escalateByCode(t.ctx, *t.requester, e)
 		t.toolCalls++
-		t.setStatus(StatusChange{Status: StatusEscalated, TicketID: t.newTicket(o.ticketID())})
+		change := escalatedChange(reason)
+		change.TicketID = t.newTicket(o.ticketID())
+		t.setStatus(change)
 		t.a.announce(t.ctx, t.in.EventID, o, e, t.requester.SlackID, t.accountName(), calls)
 	} else {
-		t.setStatus(StatusChange{Status: StatusEscalated})
+		t.setStatus(escalatedChange(""))
 	}
 	t.a.logEscalated(t.ctx, t.in.EventID, f.reason, o.exists(), f.cause)
 	if o.exists() {
@@ -93,7 +95,9 @@ func (t *turn) backstop(answer string) (text, footer, outcome string) {
 		return answer + "\n\n" + TextBackstopFailed, FooterOpen, OutcomeOpen
 	}
 	t.reason = ReasonBackstop
-	t.setStatus(StatusChange{Status: StatusEscalated, TicketID: t.newTicket(o.ticketID())})
+	change := escalatedChange(escalatePrivileged)
+	change.TicketID = t.newTicket(o.ticketID())
+	t.setStatus(change)
 	t.a.logEscalated(t.ctx, t.in.EventID, ReasonBackstop, true, cause(nil))
 	t.a.announce(t.ctx, t.in.EventID, o, e, t.requester.SlackID, t.accountName(), calls)
 	return answer, FooterEscalated, OutcomeEscalated

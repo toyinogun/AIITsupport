@@ -13,7 +13,7 @@ The tool layer (spec 0007): the registry of tools with their risk tiers, and the
 | `dispatcher.go` | `Config` (and `Config.Check`, the startup OU checks), `Systems`, `Dispatcher`, `Call` (timeout, span, `tool_call` log line), the ordered pipeline, identity |
 | `schema.go` | `Field` (with `Bool`, a JSON boolean kept in `Args` as `"true"` or `"false"`, spec 0014), the argument validator (`parseArgs`), `InputSchema` for `tools/list` |
 | `refusal.go` | `Code`, the refusal table (code, outcome, stored reason, sentence), `failure`, and the LDAP, Zammad, and Graph error classification |
-| `killswitch.go` | `NewKillSwitch`, `FileSwitch` (read every call, only `read_write` allows) |
+| `killswitch.go`, `killsync.go` | `NewKillSwitch`, `FileSwitch` (read every call, only `read_write` allows), `Mode()` (the enforced mode; an unreadable file is `read_only` plus the error), and `SyncKillSwitch` (spec 0016: records the mode in `kill_switch_state` at start and every `KILL_SWITCH_SYNC_INTERVAL`; it informs the dashboard and never decides anything) |
 | `fence.go` | `Fence.CheckGroup` (one group), `Fence.AllowedGroups` (the same check batched for `group_search`), `FloorDeniedGroups`, `ErrGroupProtected`; `AccountFence.CheckAccount` (spec 0011: the account itself is protected by group membership) |
 | `helpdesk.go` | `Helpdesk`: the Zammad client plus the default group, the cached ticket states, and the cached KB id and category titles (spec 0014) |
 | `user_lookup.go`, `account_unlock.go`, `tickets.go` | one handler each (unexported, reachable only through the registry); `ticket_update` holds the close guard (spec 0009, AC-6) and, with `kb_review` true, adds the `kb-review` tag (`tagKBReview`) after the update succeeds (spec 0014, AC-11) |

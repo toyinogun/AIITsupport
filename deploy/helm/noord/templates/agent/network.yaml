@@ -40,6 +40,14 @@ spec:
               cnpg.io/cluster: noord-pg
       ports:
         - {protocol: TCP, port: 5432}
+    {{- if .Values.observability.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - {protocol: TCP, port: 4318}
+    {{- end }}
 ---
 {{ include "noord.egressHTTPS" (list . "noord-agent" "agent" (include "noord.agentHosts" . | fromJsonArray)) }}
 ---
@@ -81,6 +89,14 @@ spec:
               cnpg.io/cluster: noord-pg
       ports:
         - {protocol: TCP, port: 5432}
+    {{- if .Values.observability.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - {protocol: TCP, port: 4318}
+    {{- end }}
     {{- if .Values.demo.enabled }}
     - to:
         - namespaceSelector:
@@ -177,6 +193,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: {{ . }}
+        {{- end }}
+        {{- if .Values.observability.enabled }}
+        # The dashboard's view only role (spec 0016, AC-12).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
         {{- end }}
       ports:
         - {protocol: TCP, port: 5432}

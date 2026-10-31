@@ -1,0 +1,69 @@
+{{- if and (eq .Values.component "agent") .Values.observability.enabled }}
+# The files the observability Applications mount (spec 0016, AC-11, AC-12).
+# noord-agent owns these ConfigMaps because .Files can only read inside this
+# chart; the component Applications noord-collector and noord-grafana mount
+# them by name. Nothing is edited in the UI: the dashboard and the
+# datasources are code.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noord-otel-collector
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  # The collector chart reads the config from the key `relay`.
+  relay: |
+    {{- .Files.Get "files/observability/collector.yaml" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noord-grafana-datasources
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  datasources.yaml: |
+    {{- .Files.Get "files/observability/datasources.yaml" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: noord-grafana-dashboards
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  noord-ops.json: |
+    {{- .Files.Get "files/observability/dashboards/noord-ops.json" | nindent 4 }}
+---
+# Grafana on the tailnet only (AC-11), per cluster so two clusters on one
+# tailnet never collide; the login is the second layer. The backend is
+# Grafana's Service from the noord-grafana Application.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: grafana
+      port:
+        number: 80
+  tls:
+    - hosts:
+        - {{ .Values.observability.tailscaleHost | default (printf "noord-%s-grafana" .Values.cluster.name) }}
+{{- end }}

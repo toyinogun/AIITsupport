@@ -181,6 +181,9 @@ type History interface {
 // KillSwitch says whether account changes may run right now.
 type KillSwitch interface {
 	AccountChangesAllowed() bool
+	// Mode is the mode being enforced, read_only or read_write; an
+	// unreadable switch is read_only with the error (spec 0016, AC-8).
+	Mode() (string, error)
 }
 
 // Deps is what a non account change handler may touch.

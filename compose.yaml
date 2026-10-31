@@ -64,5 +64,53 @@ services:
     volumes:
       - ./.dev/certs:/certs:ro
 
+  # Observability profile (spec 0016): `make obs-up`. Same base config files
+  # the chart uses, mounted from deploy/helm/noord/files/observability/.
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command:
+      - --config=/etc/otelcol/collector.yaml
+      - --config=/etc/otelcol/debug.yaml
+    volumes:
+      - ./deploy/helm/noord/files/observability/collector.yaml:/etc/otelcol/collector.yaml:ro
+      - ./deploy/compose/observability.debug.yaml:/etc/otelcol/debug.yaml:ro
+    ports:
+      - "127.0.0.1:54318:4318"
+    depends_on: [tempo]
+
+  tempo:
+    profiles: [observability]
+    image: grafana/tempo:2.9.0
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    user: "0"
+    volumes:
+      - ./deploy/helm/noord/files/observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempodata:/var/tempo
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana-oss:12.3.1
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: noord-dev
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      TEMPO_URL: http://tempo:3200
+      # The view only role (db/roles.sql); no TLS on the Compose network.
+      GRAFANA_DB_HOST: postgres:5432
+      GRAFANA_DB_PASSWORD: noord-dev
+      GRAFANA_DB_SSLMODE: disable
+    volumes:
+      - ./deploy/helm/noord/files/observability/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./deploy/helm/noord/files/observability/dashboards.yaml:/etc/grafana/provisioning/dashboards/noord.yaml:ro
+      - ./deploy/helm/noord/files/observability/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:53000:3000"
+    depends_on: [tempo, postgres]
+
 volumes:
   pgdata:
+  tempodata:

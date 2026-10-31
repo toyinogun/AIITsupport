@@ -1413,3 +1413,26 @@ func TestSealed(t *testing.T) {
 		t.Error("an untagged setting is in Sealed(ToolServer)")
 	}
 }
+
+// covers: spec 0016 AC-15. KILL_SWITCH_SYNC_INTERVAL defaults to 30s and
+// LoadToolServer refuses anything outside 5s to 60s, naming the setting.
+func TestLoadToolServerKillSwitchSyncInterval(t *testing.T) {
+	cfg, err := LoadToolServer(envFrom(minimalToolServerEnv()))
+	if err != nil {
+		t.Fatalf("LoadToolServer: %v", err)
+	}
+	if cfg.KillSwitchSyncInterval != 30*time.Second {
+		t.Errorf("default = %s, want 30s", cfg.KillSwitchSyncInterval)
+	}
+	for value, ok := range map[string]bool{"5s": true, "60s": true, "1m": true, "4s": false, "61s": false, "0s": false, "-5s": false} {
+		env := minimalToolServerEnv()
+		env["KILL_SWITCH_SYNC_INTERVAL"] = value
+		_, err := LoadToolServer(envFrom(env))
+		if ok && err != nil {
+			t.Errorf("%s: %v, want ok", value, err)
+		}
+		if !ok && (err == nil || !strings.Contains(err.Error(), "KILL_SWITCH_SYNC_INTERVAL must be between 5s and 60s")) {
+			t.Errorf("%s: %v, want an error naming KILL_SWITCH_SYNC_INTERVAL", value, err)
+		}
+	}
+}

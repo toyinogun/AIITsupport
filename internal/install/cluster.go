@@ -57,6 +57,12 @@ type Values struct {
 	Helpdesk struct {
 		TailscaleHost string `yaml:"tailscaleHost"`
 	} `yaml:"helpdesk"`
+	// Observability is the Collector, Tempo, and Grafana (spec 0016); on
+	// unless the folder turns it off, like the chart's default.
+	Observability struct {
+		Enabled       *bool  `yaml:"enabled"`
+		TailscaleHost string `yaml:"tailscaleHost"`
+	} `yaml:"observability"`
 	// Backup is the database's backups to object storage (AC-18).
 	Backup struct {
 		Enabled  *bool  `yaml:"enabled"`
@@ -96,6 +102,12 @@ func (v Values) DemoEnabled() bool { return v.Demo.Enabled == nil || *v.Demo.Ena
 // chart's default agrees).
 func (v Values) ResetEnabled() bool { return v.Reset.Enabled == nil || *v.Reset.Enabled }
 
+// ObservabilityEnabled is observability.enabled, on unless the folder turns
+// it off (the chart's default agrees).
+func (v Values) ObservabilityEnabled() bool {
+	return v.Observability.Enabled == nil || *v.Observability.Enabled
+}
+
 // ResetHost is the reset page's tailnet host: reset.tailscaleHost, else
 // noord-<cluster>-reset, so two clusters on one tailnet never collide.
 func (v Values) ResetHost() string {
@@ -120,7 +132,7 @@ func (v Values) BackupEnabled() bool { return v.Backup.Enabled != nil && *v.Back
 
 // Conditions are the switches this folder sets.
 func (v Values) Conditions() Conditions {
-	return Conditions{Demo: v.DemoEnabled(), Reset: v.ResetEnabled(), Backup: v.BackupEnabled(), Tailscale: v.Platform.Tailscale.Enabled}
+	return Conditions{Demo: v.DemoEnabled(), Reset: v.ResetEnabled(), Backup: v.BackupEnabled(), Tailscale: v.Platform.Tailscale.Enabled, Observability: v.ObservabilityEnabled()}
 }
 
 // Folder is one cluster's folder in the clone.

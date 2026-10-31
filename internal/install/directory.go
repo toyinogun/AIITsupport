@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -43,6 +44,23 @@ func components(demo bool) []string {
 		return []string{componentAgent, componentDirectory, componentClient}
 	}
 	return []string{componentAgent}
+}
+
+// The observability parts, one Application each (spec 0016, AC-12). Their
+// Secrets belong to the agent part, so the Secret table never lists them.
+const (
+	componentCollector = "collector"
+	componentTempo     = "tempo"
+	componentGrafana   = "grafana"
+)
+
+// withObservability adds the Collector, Tempo, and Grafana Applications when
+// observability.enabled, so the install waits for them.
+func withObservability(comps []string, enabled bool) []string {
+	if !enabled {
+		return comps
+	}
+	return append(slices.Clone(comps), componentCollector, componentTempo, componentGrafana)
 }
 
 // certDir is ~/.noord/<cluster>/: the CA key and the server pair live only

@@ -60,6 +60,13 @@ const (
 	maxRetentionDays = 365
 )
 
+// The kill switch sync interval bounds (spec 0016, AC-15). The dashboard
+// shows "unknown" when the row is older than three times the upper bound.
+const (
+	minKillSwitchSync = 5 * time.Second
+	maxKillSwitchSync = 60 * time.Second
+)
+
 // checkRetention refuses a retention window outside 1 to 365 days.
 func checkRetention(r Retention) error {
 	if r.TicketRetentionDays < minRetentionDays || r.TicketRetentionDays > maxRetentionDays {
@@ -135,6 +142,9 @@ type ToolServer struct {
 	// only the exact content read_write allows one (feature #9).
 	ReadOnly       bool   `env:"READ_ONLY" default:"true"`
 	KillSwitchFile string `env:"KILL_SWITCH_FILE"`
+	// KillSwitchSyncInterval is how often the tool server records the enforced
+	// mode for the dashboard (spec 0016, AC-8, AC-15). 5s to 60s.
+	KillSwitchSyncInterval time.Duration `env:"KILL_SWITCH_SYNC_INTERVAL" default:"30s"`
 
 	Approvals
 
@@ -531,6 +541,8 @@ type Install struct {
 	PGAgentPassword      string `env:"PG_AGENT_PASSWORD" secret:"true"`
 	PGToolServerPassword string `env:"PG_TOOLSERVER_PASSWORD" secret:"true"`
 	PGEvalPassword       string `env:"PG_EVAL_PASSWORD" secret:"true"`
+	PGGrafanaPassword    string `env:"PG_GRAFANA_PASSWORD" secret:"true"`
+	GrafanaAdminPassword string `env:"GRAFANA_ADMIN_PASSWORD" secret:"true"`
 
 	// The demo Zammad's own Postgres and Redis (deploy only, generated):
 	// the chart reads them from noord-zammad, the helpdesk Job from its
@@ -787,6 +799,9 @@ func checkToolLayer(cfg ToolServer) error {
 		if atLeastOne[name] < 1 {
 			errs = append(errs, fmt.Errorf("%s must be at least 1", name))
 		}
+	}
+	if cfg.KillSwitchSyncInterval < minKillSwitchSync || cfg.KillSwitchSyncInterval > maxKillSwitchSync {
+		errs = append(errs, errors.New("KILL_SWITCH_SYNC_INTERVAL must be between 5s and 60s"))
 	}
 	if cfg.LDAPURL != "" && !isLDAPS(cfg.LDAPURL) {
 		errs = append(errs, errors.New("LDAP_URL must be an ldaps:// URL with a host"))
