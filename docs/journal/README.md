@@ -102,5 +102,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0078](0078-two-firewalls-one-silent-timeout.md) | 2026-10-30 | Reaching the hypervisor API took two firewalls, and both failed as the same silent timeout | #17 One command GitOps install | ~1 hour | post |
 | [0079](0079-fresh-helpdesk-seed-blocked-by-its-own-network-policy.md) | 2026-10-31 | The first fresh helpdesk seed under default deny failed: Elasticsearch was closed on both sides | #17 One command GitOps install | ~2 h 15 min | both |
 | [0080](0080-smoke-job-refused-in-its-first-second.md) | 2026-10-31 | Every smoke check failed on a healthy cluster: a new pod's first second is refused on stock k3s | #17 One command GitOps install | ~40 min | both |
+| [0081](0081-the-fresh-install-proof-run.md) | 2026-10-31 | The fresh install proof: one command, a Slack unlock, a reset link, a restore, and the bill | #17 One command GitOps install | ~1 day | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

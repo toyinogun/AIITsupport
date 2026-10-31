@@ -113,7 +113,46 @@ kubectl -n noord-agent get cluster noord-pg -o jsonpath='{.status.conditions[?(@
 
 You want the latest backup in phase `completed` and `True` from the second command.
 
-To restore, make a new CNPG `Cluster` in a scratch namespace that bootstraps by recovery from the bucket path `<cluster>/` through the Barman Cloud plugin, using read only access to the same bucket. Wait for it to be Healthy, then compare the `audit_log` row count with the source. This page is a sketch: the restore drill on the proof VM (spec 0015, task 12) has not run yet, and the exact manifest gets written here after it does.
+To restore, make a scratch namespace on any cluster that has the CNPG operator and the Barman Cloud plugin, and copy the bucket credentials into a Secret there (the same three keys as `noord-backup`: `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`, `BACKUP_S3_REGION`). Use a read only token for this if you can. Then apply an `ObjectStore` that points at the bucket and a `Cluster` that bootstraps by recovery from it. The `Cluster` has no archiver (no `isWALArchiver`), so it never writes back to the bucket:
+
+```yaml
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata: {name: noord-backup, namespace: restore-drill}
+spec:
+  configuration:
+    destinationPath: s3://<bucket>/<cluster>/
+    endpointURL: https://<account>.eu.r2.cloudflarestorage.com
+    s3Credentials:
+      accessKeyId: {name: noord-backup, key: BACKUP_S3_ACCESS_KEY_ID}
+      secretAccessKey: {name: noord-backup, key: BACKUP_S3_SECRET_ACCESS_KEY}
+      region: {name: noord-backup, key: BACKUP_S3_REGION}
+    wal: {compression: gzip}
+    data: {compression: gzip}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: noord-pg-restore, namespace: restore-drill}
+spec:
+  instances: 1
+  imageName: <the same image as noord-pg>
+  storage: {size: 5Gi}
+  bootstrap:
+    recovery: {source: origin}
+  externalClusters:
+    - name: origin
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters: {barmanObjectName: noord-backup, serverName: noord-pg}
+```
+
+Wait until the `Cluster` reports "Cluster in healthy state" (about a minute for this data size), then compare the two databases:
+
+```bash
+kubectl -n restore-drill exec noord-pg-restore-1 -c postgres -- psql -d noord -At -c "select count(*), max(occurred_at) from audit_log"
+```
+
+The count and the newest timestamp must match the live database's. When you are done, delete the `restore-drill` namespace, which removes the restored database and the credentials copy. This was run once for real on 2026-10-31 (the fresh cluster proof, journal 0081): 24 rows and the same newest timestamp on both sides.
 
 ## Back up the sealing key
 
