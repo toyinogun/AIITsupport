@@ -22,10 +22,10 @@ Task 12 of spec 0015, on a new one node k3s VM (8 GB, not the 12 GB the spec nam
 4. Exit 0.
 
 ## What it actually was
-Three fixes came out of the proof, all in the fresh path that the homelab cluster never exercised: Elasticsearch closed on both sides of its network policy (and the first fix aimed at the wrong pods), the smoke Job racing a new pod's first second on stock k3s, and the CI `deploy` job reading a live cluster's paused flag. One bug is still open: `make resume` on a cluster that is not paused bumps `seedRun` but does not commit it, so I committed that line by hand three times.
+Three fixes came out of the proof, all in the fresh path that the homelab cluster never exercised: Elasticsearch closed on both sides of its network policy (and the first fix aimed at the wrong pods), the smoke Job racing a new pod's first second on stock k3s, and the CI `deploy` job reading a live cluster's paused flag. A fourth, `make resume` not committing its `seedRun` bump on a cluster that was never paused, I worked around by committing that line by hand three times (fixed afterwards, journal 0082).
 
 ## How I fixed it
-PRs 44, 45, 46 and 47, plus the runbook and README in PR 42. The `make resume` fix is still owed.
+PRs 44, 45, 46 and 47, plus the runbook and README in PR 42. The `make resume` fix followed in its own PR (journal 0082).
 
 ## What I would tell a team doing this for real
 (draft) Run the install on a bare cluster before you call it done, and do it twice: the second time is the one that finds the bugs your first fix introduced. Record the run as you go, because the log is the story.
@@ -37,6 +37,5 @@ PRs 44, 45, 46 and 47, plus the runbook and README in PR 42. The `make resume` f
 - Clip file and timestamp: TODO (you): clip file and timestamp. The run was not screen recorded; if you want a clip, record a rerun.
 
 ## Follow up
-- `make resume` on an unpaused cluster does not commit the `seedRun` bump. Next free journal number when fixed.
 - Spec 0015 AC-14's allow list should name Elasticsearch for the seed Jobs, and AC-27 should say 8 GB (`/architect gitops install`).
 - The agent logs `approval_tick_failed` with cause `network` in its first second after a start (the same new pod race as the smoke Job). It clears itself.
