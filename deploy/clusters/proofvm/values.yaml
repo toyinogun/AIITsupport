@@ -60,4 +60,16 @@ backup:
 # The CA your directory's LDAPS certificate is signed by. make install writes
 # it in demo mode.
 ca:
-  certificate: ""
+  certificate: |
+    -----BEGIN CERTIFICATE-----
+    MIIBvTCCAWOgAwIBAgIQREq8n5mvWj/t7AI4bYzXkTAKBggqhkjOPQQDAjA9MSQw
+    IgYDVQQKExtOb29yZCBMb2dpc3RpY3MgKGZpY3Rpb25hbCkxFTATBgNVBAMTDE5v
+    b3JkIGRldiBDQTAeFw0yNjEwMzEwODIxNDlaFw0zMTEwMzAwOTIxNDlaMD0xJDAi
+    BgNVBAoTG05vb3JkIExvZ2lzdGljcyAoZmljdGlvbmFsKTEVMBMGA1UEAxMMTm9v
+    cmQgZGV2IENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEajwtaGxU9TybFkHz
+    XnBtAK3IxnRLyF+CCtiqdhzGQPYoSDD5pvchq43QSwDIeVxs6lVj+kdtddWLGdOj
+    N7+auqNFMEMwDgYDVR0PAQH/BAQDAgEGMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYD
+    VR0OBBYEFMqWSqR5nhAXQnl/OpU1lMyFutBlMAoGCCqGSM49BAMCA0gAMEUCIDwc
+    laDUqEjBN2OA79Qa65/dcN6qChvc5fuZ5VDyrtHdAiEApxTRwd2nhxsCUlINh0/r
+    abvrskP3OgjHrDiQo1nLdvo=
+    -----END CERTIFICATE-----
