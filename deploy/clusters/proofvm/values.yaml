@@ -22,7 +22,7 @@ repo:
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: 430dd7dfd1224d433c8e3282ffb78a49126d7205
+  tag: 0c3e20ed59a5e3d0a836fb9a7941b200270d6486
 # Noord's fictional Samba AD, Zammad, and seed data. Turn it off to point the
 # tool server at your own directory and helpdesk.
 demo:
