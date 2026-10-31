@@ -477,12 +477,17 @@ type Smoke struct {
 	DatabaseURL string `env:"MIGRATE_DATABASE_URL" required:"true" secret:"true"` // reads goose_db_version only
 	// Timeout bounds the whole check.
 	Timeout time.Duration `env:"SMOKE_TIMEOUT" default:"1m"`
+	// Settle is how long a refused connection is retried from the start of
+	// the run. A new pod's first connections can be refused for a second or
+	// two while the node's network policy controller learns its address.
+	Settle time.Duration `env:"SMOKE_SETTLE" default:"10s"`
 }
 
 // The range SMOKE_TIMEOUT must fall in.
 const (
 	minSmokeTimeout = 5 * time.Second
 	maxSmokeTimeout = 10 * time.Minute
+	maxSmokeSettle  = time.Minute
 )
 
 // LoadSmoke reads and validates the settings for `seed smoke`.
@@ -491,6 +496,9 @@ func LoadSmoke(lookup LookupFunc) (Smoke, error) {
 	err := load(&cfg, lookup)
 	if cfg.Timeout < minSmokeTimeout || cfg.Timeout > maxSmokeTimeout {
 		err = errors.Join(err, errors.New("SMOKE_TIMEOUT must be between 5s and 10m"))
+	}
+	if cfg.Settle < 0 || cfg.Settle > maxSmokeSettle {
+		err = errors.Join(err, errors.New("SMOKE_SETTLE must be between 0s and 1m"))
 	}
 	if err != nil {
 		return Smoke{}, fmt.Errorf("smoke config: %w", err)

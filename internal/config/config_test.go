@@ -1349,6 +1349,16 @@ func TestLoadSmoke(t *testing.T) {
 	if cfg.Timeout != time.Minute || cfg.AgentURL != "http://agent:8080" {
 		t.Errorf("got %+v, want a 1m timeout and the agent URL", cfg)
 	}
+	if cfg.Settle != 10*time.Second {
+		t.Errorf("SMOKE_SETTLE default = %v, want 10s", cfg.Settle)
+	}
+	for _, bad := range []string{"-1s", "2m"} {
+		withBad := maps.Clone(env)
+		withBad["SMOKE_SETTLE"] = bad
+		if _, err := LoadSmoke(envFrom(withBad)); err == nil || !strings.Contains(err.Error(), "SMOKE_SETTLE") {
+			t.Errorf("SMOKE_SETTLE=%s: err = %v, want a range error", bad, err)
+		}
+	}
 	for _, bad := range []string{"1s", "11m"} {
 		withBad := maps.Clone(env)
 		withBad["SMOKE_TIMEOUT"] = bad

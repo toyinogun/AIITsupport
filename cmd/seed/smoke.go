@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/toyinogun/AIITsupport/internal/cause"
 	"github.com/toyinogun/AIITsupport/internal/config"
@@ -71,7 +72,7 @@ func runSmoke(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return smoke(ctx, out, checks)
+	return smoke(ctx, out, checks, cfg.Settle)
 }
 
 func runClusterSmoke(ctx context.Context, args []string, out io.Writer) error {
@@ -145,12 +146,19 @@ func unavailable(r readiness.Report) string {
 	return " " + strings.Join(out, " ")
 }
 
+// smokeRetryEvery is the pause between tries of a refused connection.
+const smokeRetryEvery = 500 * time.Millisecond
+
 // smoke runs every check and prints one line each: pass, or fail with the
-// cause token. Any failure fails the command.
-func smoke(ctx context.Context, out io.Writer, checks []smokeCheck) error {
+// cause token. Any failure fails the command. A check that fails with the
+// network cause is tried again until settle has passed since the run began
+// (a new pod's first connections can be refused for a moment); any other
+// failure, and any failure after the settle period, is final.
+func smoke(ctx context.Context, out io.Writer, checks []smokeCheck, settle time.Duration) error {
 	failed := 0
+	start := time.Now()
 	for _, c := range checks {
-		detail, err := c.run(ctx)
+		detail, err := runSettled(ctx, c, start, settle)
 		if err != nil {
 			failed++
 			fmt.Fprintf(out, "fail %s %s%s\n", c.name, cause.Of(err), detail)
@@ -162,4 +170,20 @@ func smoke(ctx context.Context, out io.Writer, checks []smokeCheck) error {
 		return fmt.Errorf("%d of %d smoke checks failed", failed, len(checks))
 	}
 	return nil
+}
+
+// runSettled runs one check, retrying a network failure until settle has
+// passed since start.
+func runSettled(ctx context.Context, c smokeCheck, start time.Time, settle time.Duration) (string, error) {
+	for {
+		detail, err := c.run(ctx)
+		if err == nil || cause.Of(err) != "network" || time.Since(start) >= settle {
+			return detail, err
+		}
+		select {
+		case <-ctx.Done():
+			return detail, err
+		case <-time.After(smokeRetryEvery):
+		}
+	}
 }
