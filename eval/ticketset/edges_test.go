@@ -42,6 +42,24 @@ func TestRuleViolations(t *testing.T) {
 	}
 }
 
+// covers: AC-7 (spec 0017, amended by 0018): an open ticket is accepted, but
+// open does not go with an approval click or a gate sender.
+func TestOpenOutcome(t *testing.T) {
+	open := strings.Replace(goodTicket, "outcome: resolve, tools: [ticket_create, account_unlock, ticket_update]", "outcome: open, tools: [ticket_create]", 1)
+	if got := problemsOf(t, strings.Replace(open, "approval: none", "approval: maybe", 1)); strings.Contains(got, "expected.outcome") {
+		t.Errorf("open was rejected as an outcome:\n%s", got)
+	}
+	approve := strings.Replace(open, "tools: [ticket_create]", "tools: [ticket_create, mfa_clear]", 1)
+	approve = strings.Replace(approve, "approval: none", "approval: approve", 1)
+	if got := problemsOf(t, approve); !strings.Contains(got, "approval approve goes with outcome resolve") {
+		t.Errorf("open with approve not caught:\n%s", got)
+	}
+	guest := strings.Replace(open, "{kind: staff, user: kevin.smits}", "{kind: guest}", 1)
+	if got := problemsOf(t, guest); !strings.Contains(got, "gate ticket expects") {
+		t.Errorf("open on a gate sender not caught:\n%s", got)
+	}
+}
+
 // covers: AC-7 (spec 0017): a refuse ticket whose code and tool agree is accepted.
 func TestRefuseWithMatchingToolHasNoRefuseProblem(t *testing.T) {
 	doc := strings.Replace(goodTicket, "outcome: resolve, tools: [ticket_create, account_unlock, ticket_update]",

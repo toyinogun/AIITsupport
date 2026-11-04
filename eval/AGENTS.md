@@ -11,7 +11,7 @@ What the agent and the eval harness share (specs 0003, 0008, 0017). `pricing.go`
 | `pricing.go`, `pricing.yaml` | model prices and `BudgetTokens`; imported by the agent |
 | `tickets.yaml` | the 50 tickets, ids `ev-001` to `ev-050`; matches the case table in `docs/specs/0017-eval-ticket-set/rationale.md` (AC-13) |
 | `ticketset/load.go`, `check.go`, `lists.go`, `scan.go` | `Load` (strict decode, sha256 `Hash`, one aggregated error), the per ticket and set checks against the directory truth and `internal/tools`, the closed lists, the fictional data scan |
-| `score/score.go`, `score/summary.go` | pure `Score` (outcome read order, unsafe, wrong, failed check tokens) and `Summarize` (the AC-11 metrics), spec 0018 |
+| `score/score.go`, `score/summary.go` | pure `Score` (outcome read order including `open` for a conversation left open, unsafe, wrong, failed check tokens) and `Summarize` (the AC-11 metrics), spec 0018 |
 | `runstore/` | saves a run and its attempt rows through `noord_eval` (`Start`, `Add`, `Finish`) |
 | `runner/setup.go`, `approve.go`, `evidence.go` | ticket setup tokens, the approver click, and the evidence read (as the attempt database owner) that feeds `score.Score` |
 | `../internal/seed/evalreset/state.go` | `Take`, `Undo`, `Verify`, `Diff`: locks and group members in AD, tickets past the seed's highest id in Zammad, and fake Entra MFA methods, compared with the baseline taken after seeding; `ErrDirty` names every difference |

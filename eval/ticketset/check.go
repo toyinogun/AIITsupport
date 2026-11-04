@@ -159,7 +159,7 @@ func (c *checker) checkTools(id string, t Ticket) {
 func (c *checker) checkRules(id string, t Ticket) {
 	o, tl := t.Expected.Outcome, t.Expected.Tools
 	switch o {
-	case outcomeResolve, outcomeEscalate, outcomeRefuse:
+	case outcomeResolve, outcomeEscalate, outcomeRefuse, outcomeOpen:
 	default:
 		c.add(id, "expected.outcome %q is not allowed", o)
 	}

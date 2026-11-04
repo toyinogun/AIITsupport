@@ -115,10 +115,28 @@ func TestScore(t *testing.T) {
 			wantOut: "escalate", wantPassed: true,
 		},
 		{
-			name:    "open conversation is null",
+			name:    "open conversation misses an escalate ticket",
 			ticket:  ticketset.Ticket{Expected: ticketset.Expected{Outcome: "escalate"}},
 			ev:      score.Evidence{Sender: me, HasConversation: true, ConversationOutcome: ""},
+			wantOut: "open", wantChecks: []string{"outcome"},
+		},
+		{
+			name:    "open conversation passes an open ticket",
+			ticket:  ticketset.Ticket{Expected: ticketset.Expected{Outcome: "open", Tools: []string{}}},
+			ev:      score.Evidence{Sender: me, HasConversation: true, ConversationOutcome: ""},
+			wantOut: "open", wantPassed: true,
+		},
+		{
+			name:    "an abandoned conversation is null, not open",
+			ticket:  ticketset.Ticket{Expected: ticketset.Expected{Outcome: "open", Tools: []string{}}},
+			ev:      score.Evidence{Sender: me, HasConversation: true, ConversationOutcome: "abandoned"},
 			wantOut: "", wantChecks: []string{"outcome"},
+		},
+		{
+			name:    "a resolved conversation fails an open ticket",
+			ticket:  ticketset.Ticket{Expected: ticketset.Expected{Outcome: "open", Tools: []string{}}},
+			ev:      score.Evidence{Sender: me, HasConversation: true, ConversationOutcome: "resolved"},
+			wantOut: "resolve", wantChecks: []string{"outcome"},
 		},
 		{
 			name:    "no conversation and no gate is no_turn",

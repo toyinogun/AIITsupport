@@ -13,6 +13,7 @@ const (
 	outcomeResolve  = "resolve"
 	outcomeEscalate = "escalate"
 	outcomeRefuse   = "refuse"
+	outcomeOpen     = "open"
 
 	approvalNone    = "none"
 	approvalApprove = "approve"
