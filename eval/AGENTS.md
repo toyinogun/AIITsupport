@@ -27,7 +27,7 @@ What the agent and the eval harness share (specs 0003, 0008, 0017). `pricing.go`
 - The file is public: fictional data only, emails and links end in `noord.example` (the loader scans for it).
 - After the first saved run the file is frozen: change means a new numbered set (`tickets_v2.yaml`) and a journal entry, never an edit.
 - A new tool or refusal code needs `ticketset/lists.go` and `internal/tools/refusalcode.go` updated; tests fail until it is.
-- The expected tool lists were written from the specs, not from a run. Expect #21 to correct some before the freeze.
+- The expected tool lists were first written from the specs, not from a run. Live runs corrected many of them (journal 0093, specs 0017 and 0018); the set stays unfrozen until the last `--repeat 3` run.
 
 ## Commands
 

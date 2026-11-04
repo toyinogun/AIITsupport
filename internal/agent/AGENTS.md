@@ -11,7 +11,7 @@ The agent loop (spec 0008). The Slack listener hands every accepted message to `
 | `types.go` | `Inbound`, `SlackUser`, the interfaces `SlackUsers`, `Poster`, `Tools`, `Model`, `Store`, and `Conversation`, `StoredMessage`, `StatusChange`, `Usage` |
 | `agent.go` | `Config`, `Deps`, `New`, `Submit`, `Run` (the second sweep, the shutdown drain), the per thread workers and the `AGENT_MAX_CONCURRENT` semaphore, `post`, `detached` |
 | `turn.go` | one turn, steps 3 to 11 of the spec's turn table; `agent_turn_done` |
-| `identity.go` | the Slack gate (`passesGate`), the code owned `user_lookup`, `callTool`, the requester block |
+| `identity.go` | the Slack gate (`passesGate`), the code owned `user_lookup`, `callTool`, the requester block (with its `Directory note:` line, journal 0093) |
 | `loop.go` | the model loop: budgets, request, `llm.call`, usage rows, the one tool per step rule, `statusChangeFor` |
 | `history.go` | stored content as block arrays, `buildHistory` and the tool_use / tool_result pairing check, the tool result text |
 | `failure.go` | `failurePath` and the `backstop` (spec 0009), both escalating through `escalate`; the escalation body and note; after a close in a turn with an ok `kb_search`, `postKBFallback` (`TextKBAnswerFallback` with a code built link, spec 0014, AC-14a) |
