@@ -60,9 +60,9 @@ func (q *Queries) CompareEvalRuns(ctx context.Context, arg CompareEvalRunsParams
 
 const createEvalRun = `-- name: CreateEvalRun :one
 
-INSERT INTO eval_runs (label, git_sha, model, ticket_set_hash)
-VALUES ($1, $2, $3, $4)
-RETURNING id, label, git_sha, model, ticket_set_hash, status, summary, created_at, finished_at
+INSERT INTO eval_runs (label, git_sha, model, ticket_set_hash, repeats, prompt_hash, tools_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, label, git_sha, model, ticket_set_hash, status, summary, created_at, finished_at, repeats, prompt_hash, tools_hash
 `
 
 type CreateEvalRunParams struct {
@@ -70,6 +70,9 @@ type CreateEvalRunParams struct {
 	GitSha        string
 	Model         string
 	TicketSetHash string
+	Repeats       int32
+	PromptHash    string
+	ToolsHash     string
 }
 
 // Eval runs and results (spec 0003). Only noord_eval writes them.
@@ -79,6 +82,9 @@ func (q *Queries) CreateEvalRun(ctx context.Context, arg CreateEvalRunParams) (E
 		arg.GitSha,
 		arg.Model,
 		arg.TicketSetHash,
+		arg.Repeats,
+		arg.PromptHash,
+		arg.ToolsHash,
 	)
 	var i EvalRun
 	err := row.Scan(
@@ -91,6 +97,9 @@ func (q *Queries) CreateEvalRun(ctx context.Context, arg CreateEvalRunParams) (E
 		&i.Summary,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.Repeats,
+		&i.PromptHash,
+		&i.ToolsHash,
 	)
 	return i, err
 }
@@ -99,7 +108,7 @@ const finishEvalRun = `-- name: FinishEvalRun :one
 UPDATE eval_runs
 SET status = $1::text, summary = $2::jsonb, finished_at = now()
 WHERE id = $3 AND status = 'running'
-RETURNING id, label, git_sha, model, ticket_set_hash, status, summary, created_at, finished_at
+RETURNING id, label, git_sha, model, ticket_set_hash, status, summary, created_at, finished_at, repeats, prompt_hash, tools_hash
 `
 
 type FinishEvalRunParams struct {
@@ -122,6 +131,9 @@ func (q *Queries) FinishEvalRun(ctx context.Context, arg FinishEvalRunParams) (E
 		&i.Summary,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.Repeats,
+		&i.PromptHash,
+		&i.ToolsHash,
 	)
 	return i, err
 }
@@ -130,31 +142,37 @@ const insertEvalResult = `-- name: InsertEvalResult :exec
 INSERT INTO eval_results (
     run_id, ticket_key, expected_outcome, actual_outcome, expected_tools, actual_tools,
     passed, unsafe_action, wrong_action, duration_ms, input_tokens, output_tokens,
-    cost_microusd, slack_channel_id, slack_thread_ts
+    cost_microusd, slack_channel_id, slack_thread_ts,
+    attempt, failed_checks, actual_refusal_code, approval_wait_ms
 ) VALUES (
     $1, $2, $3, $4,
     $5::text[], $6::text[],
     $7, $8, $9, $10, $11, $12,
-    $13, $14, $15
+    $13, $14, $15,
+    $16, $17::text[], $18, $19
 )
 `
 
 type InsertEvalResultParams struct {
-	RunID           int64
-	TicketKey       string
-	ExpectedOutcome string
-	ActualOutcome   pgtype.Text
-	ExpectedTools   []string
-	ActualTools     []string
-	Passed          bool
-	UnsafeAction    bool
-	WrongAction     bool
-	DurationMs      int32
-	InputTokens     int32
-	OutputTokens    int32
-	CostMicrousd    int64
-	SlackChannelID  pgtype.Text
-	SlackThreadTs   pgtype.Text
+	RunID             int64
+	TicketKey         string
+	ExpectedOutcome   string
+	ActualOutcome     pgtype.Text
+	ExpectedTools     []string
+	ActualTools       []string
+	Passed            bool
+	UnsafeAction      bool
+	WrongAction       bool
+	DurationMs        int32
+	InputTokens       int32
+	OutputTokens      int32
+	CostMicrousd      int64
+	SlackChannelID    pgtype.Text
+	SlackThreadTs     pgtype.Text
+	Attempt           int32
+	FailedChecks      []string
+	ActualRefusalCode pgtype.Text
+	ApprovalWaitMs    int32
 }
 
 func (q *Queries) InsertEvalResult(ctx context.Context, arg InsertEvalResultParams) error {
@@ -174,12 +192,16 @@ func (q *Queries) InsertEvalResult(ctx context.Context, arg InsertEvalResultPara
 		arg.CostMicrousd,
 		arg.SlackChannelID,
 		arg.SlackThreadTs,
+		arg.Attempt,
+		arg.FailedChecks,
+		arg.ActualRefusalCode,
+		arg.ApprovalWaitMs,
 	)
 	return err
 }
 
 const listEvalResults = `-- name: ListEvalResults :many
-SELECT id, run_id, ticket_key, expected_outcome, actual_outcome, expected_tools, actual_tools, passed, unsafe_action, wrong_action, duration_ms, input_tokens, output_tokens, cost_microusd, slack_channel_id, slack_thread_ts, created_at FROM eval_results WHERE run_id = $1 ORDER BY ticket_key
+SELECT id, run_id, ticket_key, expected_outcome, actual_outcome, expected_tools, actual_tools, passed, unsafe_action, wrong_action, duration_ms, input_tokens, output_tokens, cost_microusd, slack_channel_id, slack_thread_ts, created_at, attempt, failed_checks, actual_refusal_code, approval_wait_ms FROM eval_results WHERE run_id = $1 ORDER BY ticket_key, attempt
 `
 
 func (q *Queries) ListEvalResults(ctx context.Context, runID int64) ([]EvalResult, error) {
@@ -209,6 +231,10 @@ func (q *Queries) ListEvalResults(ctx context.Context, runID int64) ([]EvalResul
 			&i.SlackChannelID,
 			&i.SlackThreadTs,
 			&i.CreatedAt,
+			&i.Attempt,
+			&i.FailedChecks,
+			&i.ActualRefusalCode,
+			&i.ApprovalWaitMs,
 		); err != nil {
 			return nil, err
 		}

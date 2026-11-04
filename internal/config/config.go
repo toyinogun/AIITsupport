@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -116,6 +117,53 @@ type Agent struct {
 
 	// SlackEventDedupTTL is how long seen Slack event ids are kept (spec 0003).
 	SlackEventDedupTTL time.Duration `env:"SLACK_EVENT_DEDUP_TTL" default:"24h"`
+}
+
+// Eval holds `cmd/eval`'s settings (spec 0018). The harness starts its own
+// Postgres, Samba, Zammad, and fake Slack and Entra; the real model is the one
+// outside call. There is deliberately no setting for an external AD, Zammad,
+// or Graph address (TestEvalHasNoExternalSystemSetting).
+type Eval struct {
+	LLMModel        string `env:"LLM_MODEL" default:"claude-sonnet-5-5"`
+	AnthropicAPIKey string `env:"ANTHROPIC_API_KEY" required:"true" secret:"true"`
+	// MaxCostUSD is the spend cap per run, from 0.5 to 500 (AC-9).
+	MaxCostUSD string `env:"EVAL_MAX_COST_USD" default:"10"`
+	// ApprovalWait is how long the harness waits for an approval card (AC-6).
+	ApprovalWait time.Duration `env:"EVAL_APPROVAL_WAIT" default:"60s"`
+	// DatabaseURL, when set, also receives the finished run, as noord_eval (AC-10).
+	DatabaseURL string `env:"EVAL_DATABASE_URL" secret:"true"`
+	// KeepEnv leaves the containers up after the run, for debugging.
+	KeepEnv bool `env:"EVAL_KEEP_ENV"`
+}
+
+// Eval cost cap and approval wait bounds (spec 0018).
+const (
+	evalMinCostUSD  = 0.5
+	evalMaxCostUSD  = 500
+	evalMinApproval = 5 * time.Second
+	evalMaxApproval = 10 * time.Minute
+)
+
+// MaxCostMicroUSD is the cap in millionths of a dollar, valid after LoadEval.
+func (e Eval) MaxCostMicroUSD() int64 {
+	v, _ := strconv.ParseFloat(e.MaxCostUSD, 64)
+	return int64(math.Round(v * 1_000_000))
+}
+
+// LoadEval reads the eval harness's settings.
+func LoadEval(lookup LookupFunc) (Eval, error) {
+	var cfg Eval
+	err := load(&cfg, lookup)
+	if v, perr := strconv.ParseFloat(cfg.MaxCostUSD, 64); perr != nil || math.IsNaN(v) || v < evalMinCostUSD || v > evalMaxCostUSD {
+		err = errors.Join(err, fmt.Errorf("EVAL_MAX_COST_USD must be a number from %g to %g", evalMinCostUSD, float64(evalMaxCostUSD)))
+	}
+	if cfg.ApprovalWait < evalMinApproval || cfg.ApprovalWait > evalMaxApproval {
+		err = errors.Join(err, fmt.Errorf("EVAL_APPROVAL_WAIT must be from %s to %s", evalMinApproval, evalMaxApproval))
+	}
+	if err != nil {
+		return Eval{}, fmt.Errorf("eval config: %w", err)
+	}
+	return cfg, nil
 }
 
 // ToolServer holds the MCP tool server's settings. It alone holds the
@@ -423,6 +471,11 @@ type Graph struct {
 	GraphClientCert string        `env:"GRAPH_CLIENT_CERT"`
 	GraphMaxRetries int           `env:"GRAPH_MAX_RETRIES" default:"5"`
 	GraphTimeout    time.Duration `env:"GRAPH_TIMEOUT" default:"30s"`
+	// GraphBaseURL and GraphAuthorityHost point the tool server at a fake Entra
+	// (spec 0018, AC-20). Both are https URLs, unset in production, and only
+	// the eval harness sets them. Neither is a secret.
+	GraphBaseURL       string `env:"GRAPH_BASE_URL"`
+	GraphAuthorityHost string `env:"GRAPH_AUTHORITY_HOST"`
 }
 
 // Zammad is the helpdesk's REST API as the noord-assistant user (spec 0006).
@@ -750,7 +803,7 @@ func LoadToolServer(lookup LookupFunc) (ToolServer, error) {
 	var cfg ToolServer
 	err := load(&cfg, lookup)
 	err = errors.Join(err, checkZammadToken(cfg.ZammadToken), checkToolServerToken(cfg.ToolServerToken), checkToolLayer(cfg), checkRetention(cfg.Retention),
-		checkReset(cfg.Reset, cfg.Retention), checkApprovals(cfg.Approvals), checkKB(cfg.KB), checkGraphCredential(cfg.Graph))
+		checkReset(cfg.Reset, cfg.Retention), checkApprovals(cfg.Approvals), checkKB(cfg.KB), checkGraphCredential(cfg.Graph), checkGraphEndpoints(cfg.Graph))
 	if err != nil {
 		return ToolServer{}, fmt.Errorf("toolserver config: %w", err)
 	}
@@ -972,7 +1025,34 @@ func checkGraph(cfg Graph) error {
 	if cfg.GraphTimeout <= 0 {
 		errs = append(errs, errors.New("GRAPH_TIMEOUT must be positive"))
 	}
+	errs = append(errs, checkGraphEndpoints(cfg))
 	return errors.Join(errs...)
+}
+
+// checkGraphEndpoints refuses a GRAPH_BASE_URL or GRAPH_AUTHORITY_HOST that is
+// set but is not an https URL with a host and no credentials, query, or
+// fragment (spec 0018, AC-20). Unset is fine: the defaults are Microsoft's.
+func checkGraphEndpoints(cfg Graph) error {
+	var errs []error
+	for _, s := range []struct{ name, value string }{
+		{"GRAPH_BASE_URL", cfg.GraphBaseURL},
+		{"GRAPH_AUTHORITY_HOST", cfg.GraphAuthorityHost},
+	} {
+		if s.value != "" && !isHTTPSBase(s.value) {
+			errs = append(errs, fmt.Errorf("%s must be an https URL with a host and no credentials, query, or fragment", s.name))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// isHTTPSBase reports whether raw is an https URL with a host and no
+// credentials, query, or fragment.
+func isHTTPSBase(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return false
+	}
+	return u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && !strings.Contains(raw, "#")
 }
 
 // hasGraphCredential reports whether the app has a secret or a certificate.
@@ -1015,7 +1095,7 @@ func Names() []string {
 	var names []string
 	for _, t := range []reflect.Type{
 		reflect.TypeFor[Agent](), reflect.TypeFor[ToolServer](), reflect.TypeFor[Migrate](), reflect.TypeFor[Smoke](), reflect.TypeFor[Seed](),
-		reflect.TypeFor[SeedEntraMFA](), reflect.TypeFor[SeedHelpdesk](), reflect.TypeFor[Install](),
+		reflect.TypeFor[SeedEntraMFA](), reflect.TypeFor[SeedHelpdesk](), reflect.TypeFor[Install](), reflect.TypeFor[Eval](),
 	} {
 		walkFields(t, func(f reflect.StructField) {
 			names = append(names, f.Tag.Get("env"))

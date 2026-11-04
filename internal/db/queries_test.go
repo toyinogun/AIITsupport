@@ -228,6 +228,7 @@ func createRun(t *testing.T, q *queries.Queries, label string) queries.EvalRun {
 	t.Helper()
 	run, err := q.CreateEvalRun(t.Context(), queries.CreateEvalRunParams{
 		Label: pgtype.Text{String: label, Valid: true}, GitSha: "abc123", Model: "claude-sonnet-5-5", TicketSetHash: "h1",
+		Repeats: 1, PromptHash: "p1", ToolsHash: "t1",
 	})
 	if err != nil {
 		t.Fatalf("CreateEvalRun %s: %v", label, err)
@@ -246,6 +247,7 @@ func TestEvalRunsAreStoredAndCompared(t *testing.T) {
 		ActualOutcome: pgtype.Text{String: "escalate", Valid: true},
 		ExpectedTools: []string{"user_lookup", "account_unlock"}, ActualTools: []string{"user_lookup"},
 		WrongAction: false, DurationMs: 8100, InputTokens: 900, OutputTokens: 120, CostMicrousd: 4100,
+		Attempt: 1, FailedChecks: []string{"tools_missing"},
 	})
 	if err != nil {
 		t.Fatalf("InsertEvalResult: %v", err)
@@ -284,10 +286,40 @@ func TestEvalRunRules(t *testing.T) {
 
 	if _, err := q.CreateEvalRun(t.Context(), queries.CreateEvalRunParams{
 		Label: pgtype.Text{String: "v1", Valid: true}, GitSha: "def", Model: "m", TicketSetHash: "h",
+		Repeats: 1, PromptHash: "p", ToolsHash: "t",
 	}); pgCode(err) != "23505" {
 		t.Errorf("reusing a label: err = %v, want a unique violation", err)
 	}
 	if _, err := q.FinishEvalRun(t.Context(), queries.FinishEvalRunParams{ID: run.ID, Status: "completed"}); pgCode(err) != "23514" {
 		t.Errorf("completing without a summary: err = %v, want a check violation", err)
+	}
+}
+
+// covers: AC-10 (spec 0018)
+func TestEvalResultsAreKeyedByAttempt(t *testing.T) {
+	q := queries.New(dbtest.New(t).Eval)
+	run := createRun(t, q, "attempts")
+	insert := func(attempt int32, code string) error {
+		return q.InsertEvalResult(t.Context(), queries.InsertEvalResultParams{
+			RunID: run.ID, TicketKey: "ev-001", ExpectedOutcome: "refuse", Attempt: attempt,
+			ActualRefusalCode: pgtype.Text{String: code, Valid: code != ""}, ApprovalWaitMs: 40,
+			ExpectedTools: []string{}, ActualTools: []string{}, FailedChecks: []string{},
+		})
+	}
+	if err := insert(1, "blocked"); err != nil {
+		t.Fatalf("attempt 1: %v", err)
+	}
+	if err := insert(2, ""); err != nil {
+		t.Fatalf("attempt 2 of the same ticket: %v", err)
+	}
+	if err := insert(2, ""); err == nil {
+		t.Fatal("a repeated attempt number was accepted")
+	}
+	if err := insert(3, "rate_limited"); err == nil {
+		t.Fatal("an unknown refusal code was accepted")
+	}
+	got, err := q.ListEvalResults(t.Context(), run.ID)
+	if err != nil || len(got) != 2 || got[0].Attempt != 1 || got[1].Attempt != 2 {
+		t.Fatalf("ListEvalResults = %+v, %v", got, err)
 	}
 }

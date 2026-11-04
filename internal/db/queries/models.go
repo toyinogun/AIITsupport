@@ -107,23 +107,27 @@ type ConversationMessage struct {
 }
 
 type EvalResult struct {
-	ID              int64
-	RunID           int64
-	TicketKey       string
-	ExpectedOutcome string
-	ActualOutcome   pgtype.Text
-	ExpectedTools   []string
-	ActualTools     []string
-	Passed          bool
-	UnsafeAction    bool
-	WrongAction     bool
-	DurationMs      int32
-	InputTokens     int32
-	OutputTokens    int32
-	CostMicrousd    int64
-	SlackChannelID  pgtype.Text
-	SlackThreadTs   pgtype.Text
-	CreatedAt       time.Time
+	ID                int64
+	RunID             int64
+	TicketKey         string
+	ExpectedOutcome   string
+	ActualOutcome     pgtype.Text
+	ExpectedTools     []string
+	ActualTools       []string
+	Passed            bool
+	UnsafeAction      bool
+	WrongAction       bool
+	DurationMs        int32
+	InputTokens       int32
+	OutputTokens      int32
+	CostMicrousd      int64
+	SlackChannelID    pgtype.Text
+	SlackThreadTs     pgtype.Text
+	CreatedAt         time.Time
+	Attempt           int32
+	FailedChecks      []string
+	ActualRefusalCode pgtype.Text
+	ApprovalWaitMs    int32
 }
 
 type EvalRun struct {
@@ -136,6 +140,9 @@ type EvalRun struct {
 	Summary       json.RawMessage
 	CreatedAt     time.Time
 	FinishedAt    pgtype.Timestamptz
+	Repeats       int32
+	PromptHash    string
+	ToolsHash     string
 }
 
 type KillSwitchState struct {

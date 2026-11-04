@@ -234,7 +234,8 @@ func toolLayer(cfg config.ToolServer, toolCfg tools.Config, rootCAs *x509.CertPo
 		// mfa_clear (spec 0012): the tool server's own Entra app, never the seed app.
 		g, err := graph.NewWithCredentials(graph.Credentials{
 			TenantID: cfg.GraphTenantID, ClientID: cfg.GraphClientID, ClientSecret: cfg.GraphClientSecret, CertFile: cfg.GraphClientCert,
-		}, graph.Options{MaxRetries: cfg.GraphMaxRetries, Timeout: cfg.GraphTimeout, ClientIDSetting: "GRAPH_CLIENT_ID"})
+			AuthorityHost: cfg.GraphAuthorityHost,
+		}, graph.Options{BaseURL: cfg.GraphBaseURL, MaxRetries: cfg.GraphMaxRetries, Timeout: cfg.GraphTimeout, ClientIDSetting: "GRAPH_CLIENT_ID"})
 		if err != nil {
 			return layer{}, err
 		}

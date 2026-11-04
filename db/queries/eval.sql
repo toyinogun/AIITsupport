@@ -1,8 +1,8 @@
 -- Eval runs and results (spec 0003). Only noord_eval writes them.
 
 -- name: CreateEvalRun :one
-INSERT INTO eval_runs (label, git_sha, model, ticket_set_hash)
-VALUES (sqlc.narg(label), @git_sha, @model, @ticket_set_hash)
+INSERT INTO eval_runs (label, git_sha, model, ticket_set_hash, repeats, prompt_hash, tools_hash)
+VALUES (sqlc.narg(label), @git_sha, @model, @ticket_set_hash, @repeats, @prompt_hash, @tools_hash)
 RETURNING *;
 
 -- name: FinishEvalRun :one
@@ -16,16 +16,18 @@ RETURNING *;
 INSERT INTO eval_results (
     run_id, ticket_key, expected_outcome, actual_outcome, expected_tools, actual_tools,
     passed, unsafe_action, wrong_action, duration_ms, input_tokens, output_tokens,
-    cost_microusd, slack_channel_id, slack_thread_ts
+    cost_microusd, slack_channel_id, slack_thread_ts,
+    attempt, failed_checks, actual_refusal_code, approval_wait_ms
 ) VALUES (
     @run_id, @ticket_key, @expected_outcome, sqlc.narg(actual_outcome),
     @expected_tools::text[], @actual_tools::text[],
     @passed, @unsafe_action, @wrong_action, @duration_ms, @input_tokens, @output_tokens,
-    @cost_microusd, sqlc.narg(slack_channel_id), sqlc.narg(slack_thread_ts)
+    @cost_microusd, sqlc.narg(slack_channel_id), sqlc.narg(slack_thread_ts),
+    @attempt, @failed_checks::text[], sqlc.narg(actual_refusal_code), @approval_wait_ms
 );
 
 -- name: ListEvalResults :many
-SELECT * FROM eval_results WHERE run_id = @run_id ORDER BY ticket_key;
+SELECT * FROM eval_results WHERE run_id = @run_id ORDER BY ticket_key, attempt;
 
 -- name: CompareEvalRuns :many
 -- CompareEvalRuns lines up each summary metric of two labelled runs. A metric

@@ -11,7 +11,7 @@ A thin client for Zammad's REST API (spec 0006): tickets, articles, and the know
 | `client.go` | `New`, `Options`, `TokenAuth`, `BasicAuth`, `Request` (with the `From` header), `Client.Do` (one attempt, per request timeout, no redirects), the `guard` transport, `Guarded`, `ErrUserWrite` |
 | `errors.go` | `Error` (method, path, status, Zammad's message; never the token or the query), `Status`, `IsForbidden`, `IsUnauthorized` |
 | `users.go` | `User`, `Me`, `SearchUsers`, `UsersByLogin` (exact, active login, filtered client side; reads only) |
-| `tickets.go` | `NewTicket`, `NewArticle`, `TicketUpdate` (with an optional embedded article, so state and note are one request), `TicketState`, `CreateTicket`, `UpdateTicket`, `CreateArticle`, `GetTicket`, `TicketStates`, `AddTag` (`POST /api/v1/tags/add`, spec 0009) |
+| `tickets.go` | `NewTicket`, `NewArticle`, `TicketUpdate` (with an optional embedded article, so state and note are one request), `TicketState`, `CreateTicket`, `UpdateTicket`, `CreateArticle`, `GetTicket`, `ListTickets` and `DeleteTicket` (admin only; the eval harness, spec 0018), `TicketStates`, `AddTag` (`POST /api/v1/tags/add`, spec 0009) |
 | `kb.go` | `CreateCategory`, `CreateAnswer`, `PublishAnswer`, `GetAnswer` (with `include_contents`), `Answer.Translation`, and the reads `kb_search` uses (spec 0014): `KBInit` (KB id and category titles) and `SearchKB` (answer hits, answer id and locale taken from each hit's portal path) |
 | `zammadtest/fake.go` | an `httptest` fake Zammad (token and admin auth, tickets, articles, KB, 403s the assistant gets, request log with `From`, faults) |
 

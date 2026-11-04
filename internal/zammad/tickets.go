@@ -109,6 +109,21 @@ func (c *Client) GetTicket(ctx context.Context, id int) (Ticket, error) {
 	return out, err
 }
 
+// ListTickets reads one page of tickets, oldest id first. The eval harness
+// (spec 0018) uses it to find the tickets an attempt left behind.
+func (c *Client) ListTickets(ctx context.Context, page, perPage int) ([]Ticket, error) {
+	var out []Ticket
+	path := fmt.Sprintf("/api/v1/tickets?page=%d&per_page=%d&sort_by=id&order_by=asc", page, perPage)
+	err := c.Do(ctx, Request{Method: http.MethodGet, Path: path, Out: &out})
+	return out, err
+}
+
+// DeleteTicket deletes a ticket. Zammad allows it for admins only, so the
+// assistant token gets a 403; the eval harness uses the seed admin.
+func (c *Client) DeleteTicket(ctx context.Context, id int) error {
+	return c.Do(ctx, Request{Method: http.MethodDelete, Path: fmt.Sprintf("/api/v1/tickets/%d", id)})
+}
+
 // TicketStates lists Zammad's ticket states, to map names to ids.
 func (c *Client) TicketStates(ctx context.Context) ([]TicketState, error) {
 	var out []TicketState

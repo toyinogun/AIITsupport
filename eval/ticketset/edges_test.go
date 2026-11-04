@@ -110,3 +110,22 @@ func TestHostOfAndFictionalHost(t *testing.T) {
 		}
 	}
 }
+
+// covers: AC-15 (spec 0018)
+func TestWriteLock(t *testing.T) {
+	dir := t.TempDir()
+	tickets := filepath.Join(dir, "tickets_v2.yaml")
+	if got := LockPath(tickets); got != filepath.Join(dir, "tickets_v2.lock") {
+		t.Fatalf("LockPath = %s", got)
+	}
+	lock := LockPath(tickets)
+	if err := WriteLock(lock, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteLock(lock, "abc"); err != nil {
+		t.Fatalf("the same hash again should be a no op: %v", err)
+	}
+	if err := WriteLock(lock, "other"); err == nil {
+		t.Fatal("a different hash overwrote the lock")
+	}
+}

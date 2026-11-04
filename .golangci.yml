@@ -50,6 +50,18 @@ linters:
               desc: the approval routes decide and run approvals; they serve only in the tool server (spec 0012)
             - pkg: github.com/toyinogun/AIITsupport/internal/install
               desc: the installer reads every secret of a cluster; only cmd/seed runs it (spec 0015)
+            - pkg: github.com/toyinogun/AIITsupport/eval/report
+              desc: the eval harness runs outside the agent and never ships in it (spec 0018, AC-19)
+            - pkg: github.com/toyinogun/AIITsupport/eval/score
+              desc: the eval harness runs outside the agent and never ships in it (spec 0018, AC-19)
+            - pkg: github.com/toyinogun/AIITsupport/eval/runstore
+              desc: the eval harness runs outside the agent and never ships in it (spec 0018, AC-19)
+            - pkg: github.com/toyinogun/AIITsupport/eval/runner
+              desc: the eval harness runs outside the agent and never ships in it (spec 0018, AC-19)
+            - pkg: github.com/toyinogun/AIITsupport/eval/env
+              desc: the eval harness runs outside the agent and never ships in it (spec 0018, AC-19)
+            - pkg: github.com/toyinogun/AIITsupport/eval/ticketset
+              desc: the eval harness runs outside the agent and never ships in it (spec 0018, AC-19)
             - pkg: github.com/go-ldap/ldap
               desc: only the tool server may talk to AD (AGENTS.md, Rules)
             - pkg: github.com/Azure/azure-sdk-for-go/sdk/azidentity

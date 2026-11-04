@@ -13,7 +13,7 @@ ZAMMAD_SERVICES := zammad-init zammad-elasticsearch zammad-memcached zammad-post
 ZAMMAD_VOLUMES := noord_elasticsearch-data noord_postgresql-data noord_redis-data \
 	noord_zammad-backup noord_zammad-storage
 
-.PHONY: dev db-up db-down db-roles migrate build test vet gen docker clean \
+.PHONY: eval dev db-up db-down db-roles migrate build test vet gen docker clean \
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
 	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install smoke \
@@ -64,6 +64,10 @@ certs:
 ## directory-up: start Samba AD in Compose and wait until LDAPS answers
 directory-up: .env certs
 	@$(LOAD_ENV) && docker compose up -d --build --wait samba
+
+## eval: play the 50 eval tickets against the real agent and model (needs Docker and ANTHROPIC_API_KEY; ARGS="--label x --repeat 3")
+eval: .env
+	@$(LOAD_ENV) && go run ./cmd/eval run $(ARGS)
 
 ## seed: fill the directory from seed/directory/noord.yaml (safe to rerun)
 seed: .env

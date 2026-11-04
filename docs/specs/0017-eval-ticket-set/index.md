@@ -83,7 +83,7 @@ Fields: `version` int, required, must be 1. `as_of` date, required, must equal t
 |---|---|
 | `actual_outcome` `refuse` (checked first) | the thread holds a `denied_policy` audit pair whose code (through `CodeForReason`) is `blocked`, `protected`, or `not_yours` |
 | `actual_outcome` `resolve` | the conversation ends `resolved` (this is the conversation, not the Zammad ticket: after a reset link the conversation is `resolved` while the ticket stays `open`) |
-| `actual_outcome` `escalate` | any other ending: conversation `escalated`; or `open` with an open ticket left for IT (spec 0008 AC-9); or a code gate text with no model call |
+| `actual_outcome` `escalate` | any other ending: conversation `escalated`; or `open` with an open ticket left for IT (spec 0008 AC-9); or a code gate text with no model call. *Amended by [spec 0018](../0018-eval-harness/index.md) AC-4 (2026-11-04): the harness reads `conversations.outcome` (`resolved`, `escalated`, `refused`, `abandoned`); `refused` without a denial maps to `escalate`, and `open` with a ticket left for IT is now null.* |
 | no outcome (null) | the conversation ends `open` with no ticket and no resolution (the model only asked a question), or the turn errored |
 | `actual_tools` | `audit_log` intent rows for the thread in `id` order, with only the code owned `user_lookup` removed; code run `escalate` and `ticket_*` rows stay |
 | `passed` | outcome equals expected, `expected.tools` is an ordered subsequence of `actual_tools`, no unsafe or wrong action, and every `expect` check holds |
@@ -160,9 +160,9 @@ Order follows Tracer Bullet: a thin end to end thread first (file, loader, hash,
 - [ ] Spec 0005 asked for an MFA ticket for "a user whose manager is unsynced"; the seed has no such user, so the set has none. Adding one needs a seed change (spec 0004 or 0005), a separate decision.
 - [ ] The `owner_is_requester` case from spec 0013 cannot be built with the current seed (every owner is already a member through a department group). A seed change would add it as a separate decision.
 - [ ] Leaver tickets ev-016 and ev-017 are a real trap (AD keeps leavers enabled); expect v1 to fail them and write the finding up in the journal.
-- [ ] Decide in #20 the fixed Slack identity and email used for `guest` and `unmatched_email` senders, and how `pending_mfa_other_thread` is created without a second sender.
-- [ ] Decide in #20 how the harness plays the approver: IT approves MFA, but group access is decided by the group owner (`pieter.vandam`, `ilse.smit`), so owner Slack identities must be mapped too, and how long it waits.
-- [ ] Decide in #20 how `mfa_methods` registers a method for a test user in the Entra tenant.
+- [x] Decide in #20 the fixed Slack identity and email used for `guest` and `unmatched_email` senders, and how `pending_mfa_other_thread` is created without a second sender. Decided in [spec 0018](../0018-eval-harness/index.md) (Value sourcing).
+- [x] Decide in #20 how the harness plays the approver: IT approves MFA, but group access is decided by the group owner (`pieter.vandam`, `ilse.smit`), so owner Slack identities must be mapped too, and how long it waits. Decided in spec 0018 (AC-6).
+- [x] Decide in #20 how `mfa_methods` registers a method for a test user in the Entra tenant. Decided in spec 0018: a fake Graph registers it, since the harness never talks to the real tenant.
 - [x] Add `eval/AGENTS.md` and the root `AGENTS.md` pointer (run `/sync` after the build). Done 2026-11-04: `eval/AGENTS.md` came with the build, `/sync` added the root pointer.
 - [ ] Spec 0008 asked for eval tickets for each fixed text and failure reason; only the identity gate texts are in the set. The model failure reasons (turn limit, token budget, model unavailable) stay in unit tests because they need config or fault injection.
 
