@@ -51,13 +51,14 @@ func (q *Queries) AppendMessage(ctx context.Context, arg AppendMessageParams) (C
 
 const closeIdleConversationsBefore = `-- name: CloseIdleConversationsBefore :execrows
 UPDATE conversations
-SET status = 'resolved', closed_at = updated_at
+SET status = 'resolved', outcome = 'abandoned', closed_at = updated_at
 WHERE status = 'open' AND updated_at < $1::timestamptz
 `
 
 // CloseIdleConversationsBefore ends open conversations with no activity
 // since the cutoff (spec 0010, AC-8): they become resolved, closed at their
 // last activity, so the content purge counts from then. updated_at stays.
+// The outcome is abandoned, never resolved (spec 0016, AC-6).
 func (q *Queries) CloseIdleConversationsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	result, err := q.db.Exec(ctx, closeIdleConversationsBefore, cutoff)
 	if err != nil {
@@ -87,7 +88,7 @@ func (q *Queries) CountRecentConversations(ctx context.Context, arg CountRecentC
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at FROM conversations WHERE id = $1
+SELECT id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at, trace_id, outcome FROM conversations WHERE id = $1
 `
 
 func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, error) {
@@ -105,12 +106,14 @@ func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ClosedAt,
+		&i.TraceID,
+		&i.Outcome,
 	)
 	return i, err
 }
 
 const getConversationByThread = `-- name: GetConversationByThread :one
-SELECT id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at FROM conversations
+SELECT id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at, trace_id, outcome FROM conversations
 WHERE slack_channel_id = $1 AND slack_thread_ts = $2
 `
 
@@ -134,12 +137,33 @@ func (q *Queries) GetConversationByThread(ctx context.Context, arg GetConversati
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ClosedAt,
+		&i.TraceID,
+		&i.Outcome,
 	)
 	return i, err
 }
 
+const getThreadTraceID = `-- name: GetThreadTraceID :one
+SELECT trace_id FROM conversations
+WHERE slack_channel_id = $1 AND slack_thread_ts = $2
+`
+
+type GetThreadTraceIDParams struct {
+	SlackChannelID string
+	SlackThreadTs  string
+}
+
+// GetThreadTraceID is the thread's trace id; no rows means no conversation
+// yet, and a NULL id means a row from before spec 0016.
+func (q *Queries) GetThreadTraceID(ctx context.Context, arg GetThreadTraceIDParams) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, getThreadTraceID, arg.SlackChannelID, arg.SlackThreadTs)
+	var trace_id pgtype.Text
+	err := row.Scan(&trace_id)
+	return trace_id, err
+}
+
 const listInterruptedConversations = `-- name: ListInterruptedConversations :many
-SELECT c.id, c.slack_channel_id, c.slack_thread_ts, c.requester_slack_id, c.directory_account, c.zammad_ticket_id, c.status, c.last_seq, c.created_at, c.updated_at, c.closed_at
+SELECT c.id, c.slack_channel_id, c.slack_thread_ts, c.requester_slack_id, c.directory_account, c.zammad_ticket_id, c.status, c.last_seq, c.created_at, c.updated_at, c.closed_at, c.trace_id, c.outcome
 FROM conversations AS c
 JOIN conversation_messages AS m ON m.conversation_id = c.id AND m.seq = c.last_seq
 WHERE c.status = 'open'
@@ -173,6 +197,8 @@ func (q *Queries) ListInterruptedConversations(ctx context.Context, staleBefore 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ClosedAt,
+			&i.TraceID,
+			&i.Outcome,
 		); err != nil {
 			return nil, err
 		}
@@ -240,16 +266,18 @@ func (q *Queries) PurgeMessageContentBefore(ctx context.Context, cutoff time.Tim
 const setConversationStatus = `-- name: SetConversationStatus :one
 UPDATE conversations
 SET status = $1::text,
-    directory_account = COALESCE($2::text, directory_account),
-    zammad_ticket_id = COALESCE($3::bigint, zammad_ticket_id),
+    outcome = CASE WHEN $1::text <> 'open' THEN $2::text END,
+    directory_account = COALESCE($3::text, directory_account),
+    zammad_ticket_id = COALESCE($4::bigint, zammad_ticket_id),
     closed_at = CASE WHEN $1::text <> 'open' THEN now() END,
     updated_at = now()
-WHERE id = $4 AND status = 'open'
-RETURNING id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at
+WHERE id = $5 AND status = 'open'
+RETURNING id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at, trace_id, outcome
 `
 
 type SetConversationStatusParams struct {
 	Status           string
+	Outcome          pgtype.Text
 	DirectoryAccount pgtype.Text
 	ZammadTicketID   pgtype.Int8
 	ID               int64
@@ -260,6 +288,7 @@ type SetConversationStatusParams struct {
 func (q *Queries) SetConversationStatus(ctx context.Context, arg SetConversationStatusParams) (Conversation, error) {
 	row := q.db.QueryRow(ctx, setConversationStatus,
 		arg.Status,
+		arg.Outcome,
 		arg.DirectoryAccount,
 		arg.ZammadTicketID,
 		arg.ID,
@@ -277,6 +306,8 @@ func (q *Queries) SetConversationStatus(ctx context.Context, arg SetConversation
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ClosedAt,
+		&i.TraceID,
+		&i.Outcome,
 	)
 	return i, err
 }
@@ -302,21 +333,30 @@ func (q *Queries) SetConversationTicket(ctx context.Context, arg SetConversation
 
 const upsertConversation = `-- name: UpsertConversation :one
 
-INSERT INTO conversations (slack_channel_id, slack_thread_ts, requester_slack_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (slack_channel_id, slack_thread_ts) DO UPDATE SET updated_at = now()
-RETURNING id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at
+INSERT INTO conversations (slack_channel_id, slack_thread_ts, requester_slack_id, trace_id)
+VALUES ($1, $2, $3, $4::text)
+ON CONFLICT (slack_channel_id, slack_thread_ts) DO UPDATE
+SET updated_at = now(), trace_id = COALESCE(conversations.trace_id, EXCLUDED.trace_id)
+RETURNING id, slack_channel_id, slack_thread_ts, requester_slack_id, directory_account, zammad_ticket_id, status, last_seq, created_at, updated_at, closed_at, trace_id, outcome
 `
 
 type UpsertConversationParams struct {
 	SlackChannelID   string
 	SlackThreadTs    string
 	RequesterSlackID string
+	TraceID          pgtype.Text
 }
 
 // Conversations and their messages (spec 0003). Only noord_agent writes them.
+// A row from before spec 0016 has no trace id; the first message after it
+// fills it in (COALESCE keeps an id that is already stored).
 func (q *Queries) UpsertConversation(ctx context.Context, arg UpsertConversationParams) (Conversation, error) {
-	row := q.db.QueryRow(ctx, upsertConversation, arg.SlackChannelID, arg.SlackThreadTs, arg.RequesterSlackID)
+	row := q.db.QueryRow(ctx, upsertConversation,
+		arg.SlackChannelID,
+		arg.SlackThreadTs,
+		arg.RequesterSlackID,
+		arg.TraceID,
+	)
 	var i Conversation
 	err := row.Scan(
 		&i.ID,
@@ -330,6 +370,8 @@ func (q *Queries) UpsertConversation(ctx context.Context, arg UpsertConversation
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ClosedAt,
+		&i.TraceID,
+		&i.Outcome,
 	)
 	return i, err
 }

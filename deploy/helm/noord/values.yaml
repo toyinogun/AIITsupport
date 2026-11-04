@@ -241,3 +241,211 @@ zammad:
     auth:
       existingSecret: noord-zammad
       existingSecretPasswordKey: redis-password
+
+# Observability (spec 0016): the Collector, Tempo, and Grafana, each its own
+# Application (noord-collector, noord-tempo, noord-grafana) that turns on only
+# its own chart below. The ConfigMaps they mount belong to noord-agent, which
+# reads the files in files/observability/ (.Files can only read inside this
+# chart). Everything is in noord-agent, so the Pod Security level is
+# restricted and the default deny policy applies.
+observability:
+  enabled: true
+  # Grafana's tailnet host; empty means noord-<cluster>-grafana (AC-11).
+  tailscaleHost: ""
+  tempo:
+    retention: 168h   # 7 days of blocks, nothing else is backed up (AC-5)
+    storage: 5Gi
+    storageClass: ""  # empty: the cluster's default StorageClass
+
+# The OpenTelemetry Collector chart 0.176.0 (alias collector). Its own default
+# config is not used: configMap.existingName is noord-otel-collector, built
+# from files/observability/collector.yaml, so the drift test checks the config
+# that runs (AC-12). The contrib image carries the redaction processor.
+collector:
+  enabled: false
+  nameOverride: otel-collector
+  fullnameOverride: otel-collector
+  mode: deployment
+  replicaCount: 1
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: 0.162.0
+  command:
+    name: otelcol-contrib
+  configMap:
+    create: false
+    existingName: noord-otel-collector
+  presets: {}
+  # Only OTLP over HTTP is received (collector.yaml); the chart's other
+  # default ports are closed.
+  ports:
+    otlp:
+      enabled: false
+    otlp-http:
+      enabled: true
+    jaeger-compact:
+      enabled: false
+    jaeger-thrift:
+      enabled: false
+    jaeger-grpc:
+      enabled: false
+    zipkin:
+      enabled: false
+    metrics:
+      enabled: false
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+# The Tempo chart 1.24.0, single binary. Blocks on one PVC; the claim goes
+# with the StatefulSet (traces are disposable). The chart's other receivers
+# (Jaeger, OpenCensus, OTLP HTTP) listen but no policy reaches them: only the
+# Collector's OTLP gRPC (4317) and Grafana's queries (3200) are allowed.
+tempo:
+  enabled: false
+  fullnameOverride: tempo
+  nameOverride: tempo
+  tempo:
+    reportingEnabled: false   # egress is denied; no usage report
+    retention: 168h           # overridden from observability.tempo.retention by the Application
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+    extraVolumeMounts:
+      - name: tmp
+        mountPath: /tmp
+  securityContext:
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  persistence:
+    enabled: true
+    size: 5Gi
+    enableStatefulSetAutoDeletePVC: true
+  # Tempo writes /tmp for its own scratch files; the root filesystem is read only.
+  extraVolumes:
+    - name: tmp
+      emptyDir: {}
+
+# The Grafana chart 10.5.11. No sidecar: the dashboard and the datasources are
+# ConfigMaps from noord-agent. No persistence: users and state are code, and a
+# changed admin Secret takes effect on restart (AC-12). Anonymous access and
+# sign up are off; update checks and analytics are off (egress is denied).
+grafana:
+  enabled: false
+  fullnameOverride: grafana
+  nameOverride: grafana
+  replicas: 1
+  testFramework:
+    enabled: false
+  rbac:
+    create: false
+    pspEnabled: false
+  serviceAccount:
+    create: true
+    autoMount: false
+  persistence:
+    enabled: false
+  initChownData:
+    enabled: false
+  assertNoLeakedSecrets: false
+  admin:
+    existingSecret: noord-grafana
+    userKey: GRAFANA_ADMIN_USER
+    passwordKey: GRAFANA_ADMIN_PASSWORD
+  # GRAFANA_DB_PASSWORD reaches the datasource file as $__env{...}.
+  envFromSecret: noord-grafana
+  env:
+    TEMPO_URL: http://tempo:3200
+    GRAFANA_DB_HOST: noord-pg-rw.noord-agent.svc:5432
+    GRAFANA_DB_SSLMODE: verify-full
+  grafana.ini:
+    server:
+      root_url: ""
+    users:
+      allow_sign_up: false
+      allow_org_create: false
+    auth.anonymous:
+      enabled: false
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+      check_for_plugin_updates: false
+    plugins:
+      plugin_admin_enabled: false
+    news:
+      news_feed_enabled: false
+    security:
+      disable_gravatar: true
+    paths:
+      data: /var/lib/grafana
+      plugins: /var/lib/grafana/plugins
+  extraConfigmapMounts:
+    - name: noord-grafana-datasources
+      configMap: noord-grafana-datasources
+      mountPath: /etc/grafana/provisioning/datasources
+      readOnly: true
+  # CloudNativePG's CA, for sslmode verify-full to noord-pg-rw.
+  extraSecretMounts:
+    - name: pg-ca
+      secretName: noord-pg-ca
+      mountPath: /etc/noord/pg-ca
+      readOnly: true
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: noord
+          folder: Noord
+          type: file
+          disableDeletion: true
+          allowUiUpdates: false
+          updateIntervalSeconds: 30
+          options:
+            path: /var/lib/grafana/dashboards/noord
+  dashboardsConfigMaps:
+    noord: noord-grafana-dashboards
+  # The chart already mounts an emptyDir at /var/lib/grafana (no persistence).
+  extraEmptyDirMounts:
+    - name: grafana-tmp
+      mountPath: /tmp
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    runAsGroup: 472
+    fsGroup: 472
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  service:
+    type: ClusterIP

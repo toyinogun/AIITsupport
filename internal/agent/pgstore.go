@@ -27,14 +27,36 @@ func NewStore(pool *pgxpool.Pool) Store {
 	return &pgStore{pool: pool, q: queries.New(pool)}
 }
 
-func (s *pgStore) UpsertConversation(ctx context.Context, channelID, threadTS, requesterSlackID string) (Conversation, error) {
+func (s *pgStore) UpsertConversation(ctx context.Context, channelID, threadTS, requesterSlackID, traceID string) (Conversation, error) {
 	c, err := s.q.UpsertConversation(ctx, queries.UpsertConversationParams{
 		SlackChannelID: channelID, SlackThreadTs: threadTS, RequesterSlackID: requesterSlackID,
+		TraceID: pgtype.Text{String: traceID, Valid: traceID != ""},
 	})
 	if err != nil {
 		return Conversation{}, fmt.Errorf("upsert conversation: %w", err)
 	}
 	return fromRow(c), nil
+}
+
+func (s *pgStore) ThreadTrace(ctx context.Context, channelID, threadTS string) (string, error) {
+	id, err := s.q.GetThreadTraceID(ctx, queries.GetThreadTraceIDParams{SlackChannelID: channelID, SlackThreadTs: threadTS})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get thread trace: %w", err)
+	}
+	return id.String, nil
+}
+
+func (s *pgStore) RecordFailure(ctx context.Context, conversationID int64, stage, cause string) error {
+	err := s.q.InsertAgentFailure(ctx, queries.InsertAgentFailureParams{
+		ConversationID: pgtype.Int8{Int64: conversationID, Valid: conversationID != 0}, Stage: stage, Cause: cause,
+	})
+	if err != nil {
+		return fmt.Errorf("insert agent failure: %w", err)
+	}
+	return nil
 }
 
 func (s *pgStore) SetStatus(ctx context.Context, id int64, ch StatusChange) (Conversation, error) {
@@ -52,7 +74,7 @@ func (s *pgStore) SetTicket(ctx context.Context, id, ticketID int64) error {
 }
 
 func setStatus(ctx context.Context, q *queries.Queries, id int64, ch StatusChange) (Conversation, error) {
-	params := queries.SetConversationStatusParams{Status: ch.Status, ID: id}
+	params := queries.SetConversationStatusParams{Status: ch.Status, ID: id, Outcome: optText(ch.Outcome)}
 	if ch.DirectoryAccount != "" {
 		params.DirectoryAccount = pgtype.Text{String: ch.DirectoryAccount, Valid: true}
 	}
@@ -191,6 +213,8 @@ func fromRow(c queries.Conversation) Conversation {
 		TicketID:         c.ZammadTicketID.Int64,
 		Status:           c.Status,
 		LastSeq:          int(c.LastSeq),
+		Outcome:          c.Outcome.String,
+		TraceID:          c.TraceID.String,
 	}
 }
 

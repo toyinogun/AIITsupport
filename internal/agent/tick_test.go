@@ -19,7 +19,7 @@ import (
 // no card: an approval whose pending result never reached the agent.
 func knownThread(t *testing.T, h *harness) {
 	t.Helper()
-	if _, err := h.store.UpsertConversation(t.Context(), janDM, firstTS, janSlack); err != nil {
+	if _, err := h.store.UpsertConversation(t.Context(), janDM, firstTS, janSlack, ""); err != nil {
 		t.Fatal(err)
 	}
 }

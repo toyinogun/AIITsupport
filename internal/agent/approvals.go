@@ -394,7 +394,7 @@ func (a *Agent) settle(ctx context.Context, card ApprovalCard, conv Conversation
 		a.closeByCode(ctx, conv, note)
 	}
 	sctx, cancel := a.detached(ctx, a.cfg.ToolTimeout)
-	won, err := a.deps.Store.SettleCard(sctx, card.ApprovalID, v.Status, status)
+	won, err := a.deps.Store.SettleCard(sctx, card.ApprovalID, v.Status, StatusChange{Status: status, Outcome: status})
 	cancel()
 	if err != nil {
 		a.deps.Logger.Warn("agent_status_write_failed", "conversation_id", conv.ID, "cause", cause(err))

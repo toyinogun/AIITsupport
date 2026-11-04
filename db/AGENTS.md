@@ -10,7 +10,7 @@ Plain SQL for our own Postgres: goose migrations, the role script, and the sqlc 
 |---|---|
 | `migrations/NNNNN_*.sql` | goose migrations, each with `-- +goose Up` and `-- +goose Down` |
 | `queries/*.sql` | sqlc queries, one `-- name: X :one|:many|:exec` per query |
-| `roles.sql` | creates `noord_owner`, `noord_agent`, `noord_toolserver`, `noord_eval` (run as a superuser; safe to run again) |
+| `roles.sql` | creates `noord_owner`, `noord_agent`, `noord_toolserver`, `noord_eval`, and the view only `noord_grafana` with its connection limit and `statement_timeout` (run as a superuser; safe to run again) |
 | `embed.go` | package `db` (import it as `schema`): embeds `migrations/` and `roles.sql` |
 | `../sqlc.yaml` | sqlc config: schema from `migrations/`, output to `internal/db/queries` (pgx/v5), plus the type overrides (uuid, jsonb, timestamptz, date) |
 | `../internal/db/dbtest/` | `dbtest.New(t)`: a migrated scratch database per test with a pool per role |
@@ -42,6 +42,8 @@ make gen-check # fail if the generated code is stale (pre push hook and CI run t
 - At most one `pending` approval per account, tool, and target: the partial unique index `approvals_one_pending_idx` (migration 00006; per account and tool in 00005). 00006's Down expires pending access requests first, and its target check is `NOT VALID` so a down and up keeps old rows (journal 0057). `Defer` expires the account's overdue rows first (`ExpireDueApprovalsFor`).
 - `approval_cards` (migration 00004) is the agent's table: one row per approval it owes an IT card and an outcome for. It has no foreign key to `approvals`, because the agent role cannot read that table.
 - `approvals.arguments` holds the unfiltered call only while `pending` or `approved`. Every query that ends an approval must set it to NULL (a CHECK fails otherwise), and a trigger raises 55000 on any other change to it.
+- Observability data (migration 00008, spec 0016): `conversations.outcome` is null exactly while open, enforced by `conversations_outcome_pairing`; a `BEFORE INSERT OR UPDATE` trigger fills a null outcome for a closed row from its status (rolling deploys), and new code sets it explicitly. `agent_failures` is insert only for the agent. `kill_switch_state` is one row. Grafana reads only the `ops` views (owner rights, never `security_invoker`); a column in `ops` whose name holds `slack`, `requester`, `account`, `argument`, `result`, `content`, `email`, or `name` (except `tool_name`) fails `TestOpsColumnNames`. The migration refuses to run without the `noord_grafana` role and revokes `TEMPORARY` on the database from PUBLIC; `CREATE DATABASE ... TEMPLATE` does not copy that, so `dbtest` repeats it.
+- `roles.sql` also makes `noord_owner` the owner of the database it runs in, as CloudNativePG does in the cluster. Without it, migration 00008 fails on a Compose database (`CREATE SCHEMA` denied) and its `REVOKE TEMPORARY` does nothing; run `make db-roles` once on an old volume (journal 0085). `noord_grafana` is capped at 5 connections for the whole server, so `dbtest` gives it a lazy pool of one connection; never open it eagerly in a test helper.
 - A Compose volume created before roles existed needs `make db-roles` once (`make migrate` runs it). An old `.env` without `MIGRATE_DATABASE_URL` makes `make migrate` stop with a message.
 - DB tests need `TEST_DATABASE_URL` as a superuser URL; `dbtest` creates roles and scratch databases under an advisory lock, so packages can run in parallel. CI runs no migration step.
 

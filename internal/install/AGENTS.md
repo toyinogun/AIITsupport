@@ -12,7 +12,7 @@ The one command cluster installer behind `make install CLUSTER=<name>` (`seed in
 | `table.go` | `LoadTable`: the Secret table `deploy/helm/noord/files/secrets.yaml` (which Secret each workload reads, each key's source), `Inputs`, `Enabled`, `Required` |
 | `secrets.go` | `Build` (plaintext per Secret, in memory only), `Generate` (create a missing value once, or read it back from the live Secret), `randomValue` |
 | `seal.go` | `ReadSealed`, `WriteSealed`, `Reseal`: reseal a key only when its value differs from the live Secret |
-| `directory.go` | the demo components (`components`), the `certs` step (CA and Samba server pair in `~/.noord/<cluster>/`), the `overlays` step (`noord-seed-overlays`, applied straight to the cluster) |
+| `directory.go` | the demo components (`components`), the observability Applications (`withObservability`, spec 0016; their Secrets belong to the agent part), the `certs` step (CA and Samba server pair in `~/.noord/<cluster>/`), the `overlays` step (`noord-seed-overlays`, applied straight to the cluster) |
 | `cluster.go` | `OpenFolder`, `Values` (the part of a cluster's `values.yaml` the installer reads), `SetCACertificate` |
 | `env.go` | `EnvFile`: parse and write `secrets.env` (mode 0600, errors name the line, never a value) |
 | `ops.go` | the day two commands: `Release`, `Pause`, `Resume`, `Uninstall`, `SealKeyBackup`, and the key backup notice `install` prints (AC-19 to AC-22) |
@@ -33,6 +33,8 @@ The one command cluster installer behind `make install CLUSTER=<name>` (`seed in
 - The installer commits only `deploy/clusters/<name>/values.yaml` and `sealed-values.yaml`, with `LEFTHOOK=0`, and pushes to the upstream branch. Preflight refuses any other change in the tree, so keep unrelated work off the branch you install from.
 - Every external command goes through `Runner`; tests pass a fake runner, a fake `Live`, and a fake registry, never a real cluster.
 - `internal/install` is on both agent deny lists (`.golangci.yml` `agent-credential-boundary` and `cmd/agent/boundary_test.go`).
+
+- A table Secret may carry `observability: true` (like `backup` and `tailscale`): it is sealed only with `observability.enabled`. `noord-pg-grafana` has no flag, since the database role must exist for migration 00008 (`internal/migrate` waits for it too).
 
 ## Gotchas
 

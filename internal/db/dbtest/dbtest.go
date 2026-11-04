@@ -33,6 +33,7 @@ const (
 	RoleAgent      = "noord_agent"
 	RoleToolServer = "noord_toolserver"
 	RoleEval       = "noord_eval"
+	RoleGrafana    = "noord_grafana"
 )
 
 const (
@@ -50,6 +51,7 @@ type DB struct {
 	Agent      *pgxpool.Pool
 	ToolServer *pgxpool.Pool
 	Eval       *pgxpool.Pool
+	Grafana    *pgxpool.Pool
 
 	base *url.URL
 }
@@ -86,11 +88,17 @@ func New(t testing.TB) *DB {
 		t.Fatalf("create scratch database: %v", err)
 	}
 	t.Cleanup(func() { dropDatabase(t, raw, d.Name) })
+	// CREATE DATABASE does not copy database privileges from the template, so
+	// repeat the REVOKE that migration 00008 ran on the template (spec 0016).
+	if _, err := admin.Exec(ctx, "REVOKE TEMPORARY ON DATABASE "+ident(d.Name)+" FROM PUBLIC"); err != nil {
+		t.Fatalf("revoke temporary on scratch database: %v", err)
+	}
 
 	d.Owner = d.pool(t, RoleOwner)
 	d.Agent = d.pool(t, RoleAgent)
 	d.ToolServer = d.pool(t, RoleToolServer)
 	d.Eval = d.pool(t, RoleEval)
+	d.Grafana = d.lazyPool(t, RoleGrafana, 1)
 	return d
 }
 
@@ -111,6 +119,25 @@ func (d *DB) pool(t testing.TB, role string) *pgxpool.Pool {
 	if err := p.Ping(t.Context()); err != nil {
 		p.Close()
 		t.Fatalf("connect as %s: %v", role, err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
+// lazyPool is a pool that connects only when a test uses it, with at most
+// maxConns connections. noord_grafana is capped at 5 connections across the
+// whole server (db/roles.sql), so a test that never uses it must not hold one,
+// or parallel test binaries run it out of connections.
+func (d *DB) lazyPool(t testing.TB, role string, maxConns int32) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(d.URL(role))
+	if err != nil {
+		t.Fatalf("parse url for %s: %v", role, err)
+	}
+	cfg.MaxConns = maxConns
+	p, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("pool for %s: %v", role, err)
 	}
 	t.Cleanup(p.Close)
 	return p

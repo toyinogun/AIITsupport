@@ -12,3 +12,20 @@ dependencies:
     version: 20.0.0
     repository: https://zammad.github.io/zammad-helm
     condition: zammad.enabled
+# Observability (spec 0016, AC-12), rendered by the three component
+# Applications noord-collector, noord-tempo, and noord-grafana, each of which
+# turns on only its own chart. Vendored for the same reason as Zammad. Chart
+# and image versions are bumped by hand (Dependabot cannot see them).
+  - name: opentelemetry-collector
+    alias: collector
+    version: 0.176.0
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    condition: collector.enabled
+  - name: tempo
+    version: 1.24.0
+    repository: https://grafana.github.io/helm-charts
+    condition: tempo.enabled
+  - name: grafana
+    version: 10.5.11
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled

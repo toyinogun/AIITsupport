@@ -1,0 +1,30 @@
+# Provisioned datasources (spec 0016, AC-11). Hosts and secrets come from
+# environment variables, so the one file serves Compose and the cluster.
+apiVersion: 1
+datasources:
+  - name: Tempo
+    uid: noord-tempo
+    type: tempo
+    access: proxy
+    url: $__env{TEMPO_URL}
+    isDefault: true
+    editable: false
+  - name: Noord ops (Postgres)
+    uid: noord-pg
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: $__env{GRAFANA_DB_HOST}
+    user: noord_grafana
+    editable: false
+    jsonData:
+      database: noord
+      sslmode: $__env{GRAFANA_DB_SSLMODE}
+      # Read only with verify-full: the CloudNativePG CA the chart mounts.
+      tlsConfigurationMethod: file-path
+      sslRootCertFile: /etc/noord/pg-ca/ca.crt
+      postgresVersion: 1700
+      timescaledb: false
+      maxOpenConns: 4
+      maxIdleConns: 2
+    secureJsonData:
+      password: $__env{GRAFANA_DB_PASSWORD}

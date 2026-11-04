@@ -20,7 +20,7 @@ import (
 )
 
 // Roles are the app roles the migrations grant to; the owner runs them.
-var Roles = []string{"noord_agent", "noord_toolserver", "noord_eval"}
+var Roles = []string{"noord_agent", "noord_toolserver", "noord_eval", "noord_grafana"}
 
 // pollInterval is how often Wait tries again.
 const pollInterval = 2 * time.Second

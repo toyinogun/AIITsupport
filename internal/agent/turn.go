@@ -15,10 +15,11 @@ import (
 // turn is one DM message being handled. Its fields are touched only by the
 // worker running it.
 type turn struct {
-	a     *Agent
-	in    Inbound
-	ctx   context.Context // the turn deadline (AGENT_MESSAGE_TIMEOUT)
-	start time.Time
+	a       *Agent
+	in      Inbound
+	ctx     context.Context // the turn deadline (AGENT_MESSAGE_TIMEOUT)
+	start   time.Time
+	traceID string // the conversation's trace id (spec 0016)
 
 	conv      Conversation
 	hasConv   bool
@@ -55,10 +56,11 @@ func (a *Agent) runTurn(in Inbound) {
 	start := a.deps.Now()
 	ctx, cancel := context.WithTimeout(a.workCtx, a.cfg.MessageTimeout)
 	defer cancel()
-	ctx, span := tracer.Start(ctx, "agent.turn", trace.WithAttributes(attribute.String("event_type", in.EventType)))
+	traceID := a.turnTraceID(ctx, in)
+	ctx, span := tracer.Start(conversationContext(ctx, traceID), "agent.turn", trace.WithAttributes(attribute.String("event_type", in.EventType)))
 	defer span.End()
 
-	t := &turn{a: a, in: in, ctx: ctx, start: start}
+	t := &turn{a: a, in: in, ctx: ctx, start: start, traceID: traceID.String()}
 	outcome := t.run()
 
 	attrs := []attribute.KeyValue{
@@ -83,7 +85,7 @@ func (t *turn) run() string {
 		t.post(TextEmptyMessage, "empty_message")
 		return OutcomeEmpty
 	}
-	conv, err := t.a.deps.Store.UpsertConversation(t.ctx, t.in.ChannelID, t.in.ThreadTS, t.in.UserID)
+	conv, err := t.a.deps.Store.UpsertConversation(t.ctx, t.in.ChannelID, t.in.ThreadTS, t.in.UserID, t.traceID)
 	if err != nil {
 		return t.failurePath(t.storeFailure(err))
 	}
@@ -198,7 +200,7 @@ func (t *turn) deadlinePassed() bool { return t.ctx.Err() != nil }
 // directory match, and the hourly cap.
 func (t *turn) refuse(r Reason, text string) string {
 	t.reason = r
-	t.setStatus(StatusChange{Status: StatusEscalated})
+	t.setStatus(escalatedChange(""))
 	t.a.logEscalated(t.ctx, t.in.EventID, r, false, cause(nil))
 	t.post(text, string(r))
 	return OutcomeEscalated
@@ -229,6 +231,7 @@ func (t *turn) postNoUnfurl(text, kind string) {
 	defer cancel()
 	if err := t.a.deps.Poster.ReplyNoUnfurl(ctx, t.in.ChannelID, t.in.ThreadTS, text); err != nil {
 		t.a.deps.Logger.Warn("agent_post_failed", "event_id", t.in.EventID, "kind", kind, "cause", cause(err))
+		t.a.recordFailure(t.ctx, t.conv.ID, stageSlack, cause(err))
 	}
 }
 

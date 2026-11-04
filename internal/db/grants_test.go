@@ -58,6 +58,14 @@ var probes = map[string]tableProbe{
 			"SELECT '\\x00', 'a', 'u', 'c', 't', 1, gen_random_uuid(), now() WHERE false",
 		grantedCol: "status", lockedCol: "token_hash",
 	},
+	"agent_failures": {
+		insert:    "INSERT INTO agent_failures (stage, cause) SELECT 'llm', 'x' WHERE false",
+		lockedCol: "cause",
+	},
+	"kill_switch_state": {
+		insert:     "INSERT INTO kill_switch_state (mode, changed_at, checked_at) SELECT 'read_only', now(), now() WHERE false",
+		grantedCol: "mode", lockedCol: "id",
+	},
 	"approval_cards": {
 		insert: "INSERT INTO approval_cards (approval_id, conversation_id, tool_name, slack_channel_id, expires_at) " +
 			"SELECT gen_random_uuid(), 1, 't', 'c', now() WHERE false",
@@ -86,11 +94,13 @@ var grants = map[string]map[string]access{
 		"llm_usage":             {sel: true, ins: true},
 		"slack_events":          {sel: true, ins: true, del: true},
 		"approval_cards":        {sel: true, ins: true, update: true},
+		"agent_failures":        {ins: true},
 	},
 	dbtest.RoleToolServer: {
-		"approvals":   {sel: true, ins: true, update: true},
-		"audit_log":   {sel: true, ins: true},
-		"reset_links": {sel: true, ins: true, del: true, update: true},
+		"approvals":         {sel: true, ins: true, update: true},
+		"audit_log":         {sel: true, ins: true},
+		"reset_links":       {sel: true, ins: true, del: true, update: true},
+		"kill_switch_state": {sel: true, ins: true, update: true},
 	},
 	dbtest.RoleEval: {
 		"audit_log":     {sel: true},

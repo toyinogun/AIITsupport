@@ -22,7 +22,7 @@ OpenTelemetry tracing setup. With no `OTEL_EXPORTER_OTLP_ENDPOINT` it leaves the
 ## Gotchas
 
 - The global tracer provider is first set wins for tracers taken at init (`internal/agent`'s package level tracer). Tests install one provider per test binary (see `traceSinks` in `internal/agent/hygiene_test.go`), and restore the global error handler after a test that calls `Setup`.
-- Traces are checked in tests only until a Collector exists (#18), which adds its own redaction processor as a second layer.
+- The Collector (`deploy/helm/noord/files/observability/collector.yaml`, spec 0016) is the second redaction layer: its `redaction` processor keeps only `allowed_keys` and masks values that match `blocked_values`. `collector_test.go` fails when `allowed_keys` differ from `logging.AllowedKeys()` plus `service.name`, so add a new log or span key in both places. Keep `summary: silent` (any other value adds `redaction.*` keys). The `@` pattern must match the whole token (`\\S*@\\S*`); a bare `@` masks only the character.
 
 ## Commands
 

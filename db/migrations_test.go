@@ -21,8 +21,8 @@ import (
 // appTables are the eight tables migration 00002 creates (spec 0003) plus
 // 00003's reset_links (spec 0011) and 00004's approval_cards (spec 0012).
 var appTables = []string{
-	"approval_cards", "approvals", "audit_log", "conversation_messages", "conversations",
-	"eval_results", "eval_runs", "llm_usage", "reset_links", "slack_events",
+	"agent_failures", "approval_cards", "approvals", "audit_log", "conversation_messages", "conversations",
+	"eval_results", "eval_runs", "kill_switch_state", "llm_usage", "reset_links", "slack_events",
 }
 
 // emptyDatabase makes an unmigrated database owned by noord_owner and returns
@@ -150,8 +150,8 @@ func TestMigrationGoesDownAndUpCleanly(t *testing.T) {
 	if _, err := p.Up(t.Context()); err != nil {
 		t.Fatalf("up again: %v", err)
 	}
-	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 6 {
-		t.Errorf("version after up again = %d, %v; want 6", v, err)
+	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 8 {
+		t.Errorf("version after up again = %d, %v; want 8", v, err)
 	}
 }
 
@@ -200,5 +200,46 @@ func TestMigrationRefusesAnyRoleButTheOwner(t *testing.T) {
 	}
 	if got := publicTables(t, admin); len(got) != 0 {
 		t.Errorf("a refused migration left tables behind: %v", got)
+	}
+}
+
+// covers: spec 0016 AC-6. The migration gives closed rows the outcome that
+// matches their status before the pairing check is added.
+func TestMigrationBackfillsOutcome(t *testing.T) {
+	name, admin := emptyDatabase(t)
+	p := provider(t, name, ownerUser())
+	if _, err := p.UpTo(t.Context(), 7); err != nil {
+		t.Fatalf("up to 7: %v", err)
+	}
+	for _, status := range []string{"resolved", "escalated"} {
+		if _, err := admin.Exec(t.Context(), "INSERT INTO conversations (slack_channel_id, slack_thread_ts, requester_slack_id, status, closed_at) "+
+			"VALUES ('c', $1, 'u', $1, now())", status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := admin.Exec(t.Context(), "INSERT INTO conversations (slack_channel_id, slack_thread_ts, requester_slack_id) VALUES ('c', 'open', 'u')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Up(t.Context()); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	if n := count(t, admin, "SELECT count(*) FROM conversations WHERE outcome = status AND status <> 'open'"); n != 2 {
+		t.Errorf("%d closed rows backfilled, want 2", n)
+	}
+	if n := count(t, admin, "SELECT count(*) FROM conversations WHERE status = 'open' AND outcome IS NULL"); n != 1 {
+		t.Errorf("open row lost its null outcome")
+	}
+}
+
+// covers: spec 0016 AC-9. The migration revokes TEMPORARY on the database
+// from PUBLIC, so the view only role cannot create a temporary table.
+func TestMigrationRevokesTemporaryFromPublic(t *testing.T) {
+	name, admin := emptyDatabase(t)
+	if _, err := provider(t, name, ownerUser()).Up(t.Context()); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	var temp bool
+	if err := admin.QueryRow(t.Context(), "SELECT has_database_privilege('noord_grafana', current_database(), 'TEMP')").Scan(&temp); err != nil || temp {
+		t.Errorf("noord_grafana TEMP = %v, %v; want false", temp, err)
 	}
 }

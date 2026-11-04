@@ -21,12 +21,12 @@ func TestRetentionPassClosesThenPurges(t *testing.T) {
 	clock := now
 	store := agenttest.NewStore(func() time.Time { return clock })
 	ctx := t.Context()
-	idle, _ := store.UpsertConversation(ctx, janDM, "1.0", janSlack)
+	idle, _ := store.UpsertConversation(ctx, janDM, "1.0", janSlack, "")
 	if err := store.AppendMessage(ctx, idle.ID, agent.RoleUser, json.RawMessage(`[{"type":"text","text":"hi"}]`)); err != nil {
 		t.Fatal(err)
 	}
 	clock = now.Add(31 * 24 * time.Hour)
-	active, _ := store.UpsertConversation(ctx, janDM, "2.0", janSlack)
+	active, _ := store.UpsertConversation(ctx, janDM, "2.0", janSlack, "")
 	if err := store.AppendMessage(ctx, active.ID, agent.RoleUser, json.RawMessage(`[{"type":"text","text":"hi"}]`)); err != nil {
 		t.Fatal(err)
 	}

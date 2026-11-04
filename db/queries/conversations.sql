@@ -1,10 +1,19 @@
 -- Conversations and their messages (spec 0003). Only noord_agent writes them.
 
 -- name: UpsertConversation :one
-INSERT INTO conversations (slack_channel_id, slack_thread_ts, requester_slack_id)
-VALUES (@slack_channel_id, @slack_thread_ts, @requester_slack_id)
-ON CONFLICT (slack_channel_id, slack_thread_ts) DO UPDATE SET updated_at = now()
+-- A row from before spec 0016 has no trace id; the first message after it
+-- fills it in (COALESCE keeps an id that is already stored).
+INSERT INTO conversations (slack_channel_id, slack_thread_ts, requester_slack_id, trace_id)
+VALUES (@slack_channel_id, @slack_thread_ts, @requester_slack_id, sqlc.narg(trace_id)::text)
+ON CONFLICT (slack_channel_id, slack_thread_ts) DO UPDATE
+SET updated_at = now(), trace_id = COALESCE(conversations.trace_id, EXCLUDED.trace_id)
 RETURNING *;
+
+-- name: GetThreadTraceID :one
+-- GetThreadTraceID is the thread's trace id; no rows means no conversation
+-- yet, and a NULL id means a row from before spec 0016.
+SELECT trace_id FROM conversations
+WHERE slack_channel_id = @slack_channel_id AND slack_thread_ts = @slack_thread_ts;
 
 -- name: GetConversationByThread :one
 SELECT * FROM conversations
@@ -18,6 +27,7 @@ SELECT * FROM conversations WHERE id = @id;
 -- while filling in the account or ticket id; leaving open sets closed_at.
 UPDATE conversations
 SET status = @status::text,
+    outcome = CASE WHEN @status::text <> 'open' THEN sqlc.narg(outcome)::text END,
     directory_account = COALESCE(sqlc.narg(directory_account)::text, directory_account),
     zammad_ticket_id = COALESCE(sqlc.narg(zammad_ticket_id)::bigint, zammad_ticket_id),
     closed_at = CASE WHEN @status::text <> 'open' THEN now() END,
@@ -66,8 +76,9 @@ WHERE m.conversation_id = c.id
 -- CloseIdleConversationsBefore ends open conversations with no activity
 -- since the cutoff (spec 0010, AC-8): they become resolved, closed at their
 -- last activity, so the content purge counts from then. updated_at stays.
+-- The outcome is abandoned, never resolved (spec 0016, AC-6).
 UPDATE conversations
-SET status = 'resolved', closed_at = updated_at
+SET status = 'resolved', outcome = 'abandoned', closed_at = updated_at
 WHERE status = 'open' AND updated_at < @cutoff::timestamptz;
 
 -- name: CountRecentConversations :one

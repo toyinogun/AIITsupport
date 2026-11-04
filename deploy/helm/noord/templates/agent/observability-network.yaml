@@ -1,0 +1,99 @@
+{{- if and (eq .Values.component "agent") .Values.observability.enabled }}
+{{- /* The three workloads' allows (spec 0016, AC-12). On top of the default
+deny and DNS: the agent and the tool server to the Collector (agent/network.yaml),
+the Collector to Tempo, and Grafana to Tempo and to the database (its ingress
+rule is in agent/network.yaml). Grafana's only ingress is the tailnet proxy of
+its Ingress. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-collector
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: toolserver
+      ports:
+        - {protocol: TCP, port: 4318}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - {protocol: TCP, port: 4317}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tempo
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - {protocol: TCP, port: 4317}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - {protocol: TCP, port: 3200}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana
+  namespace: noord-agent
+  labels:
+    {{- include "noord.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- include "noord.tailscaleProxy" (list . "noord-agent" "grafana") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 3000}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - {protocol: TCP, port: 3200}
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: noord-pg
+      ports:
+        - {protocol: TCP, port: 5432}
+{{- end }}

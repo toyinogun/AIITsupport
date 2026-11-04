@@ -99,7 +99,7 @@ func TestGenerate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"PG_AGENT_PASSWORD", "PG_OWNER_PASSWORD", "PG_TOOLSERVER_PASSWORD", "TOOLSERVER_TOKEN"}; strings.Join(filled, ",") != strings.Join(want, ",") {
+	if want := []string{"PG_AGENT_PASSWORD", "PG_GRAFANA_PASSWORD", "PG_OWNER_PASSWORD", "PG_TOOLSERVER_PASSWORD", "TOOLSERVER_TOKEN"}; strings.Join(filled, ",") != strings.Join(want, ",") {
 		t.Errorf("filled = %v, want %v", filled, want)
 	}
 	if env.Get("PG_AGENT_PASSWORD") != "fromlive" || env.Get("PG_EVAL_PASSWORD") != "kept" {

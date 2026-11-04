@@ -78,6 +78,9 @@ func (t *turn) identify() (string, bool) {
 		return t.failurePath(fail(ReasonMessageTimeout)), true
 	}
 	res, err := t.a.callTool(t.ctx, r, toolUserLookup, nil)
+	if err != nil {
+		t.a.recordFailure(t.ctx, t.conv.ID, stageTool, cause(err))
+	}
 	t.toolCalls++
 	if err != nil {
 		return t.failurePath(failErr(ReasonToolServerUnavailable, err)), true

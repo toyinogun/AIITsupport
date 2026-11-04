@@ -22,14 +22,15 @@ var ErrStoreDown = errors.New("agenttest: the store is down")
 // Store is an in memory agent.Store that answers like the SQL. Like
 // Postgres, it fails a call whose context has ended.
 type Store struct {
-	mu      sync.Mutex
-	Now     func() time.Time
-	convs   []*row
-	msgs    map[int64][]agent.StoredMessage
-	usage   []agent.Usage
-	failOn  map[string]bool
-	failErr map[string]error
-	cards   []*cardRow
+	mu       sync.Mutex
+	Now      func() time.Time
+	convs    []*row
+	msgs     map[int64][]agent.StoredMessage
+	usage    []agent.Usage
+	failOn   map[string]bool
+	failures []FailureRow
+	failErr  map[string]error
+	cards    []*cardRow
 }
 
 type cardRow struct {
@@ -68,7 +69,7 @@ func (s *Store) check(ctx context.Context, method string) error {
 }
 
 // UpsertConversation returns the thread's conversation, creating it open.
-func (s *Store) UpsertConversation(ctx context.Context, channelID, threadTS, requesterSlackID string) (agent.Conversation, error) {
+func (s *Store) UpsertConversation(ctx context.Context, channelID, threadTS, requesterSlackID, traceID string) (agent.Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.check(ctx, "UpsertConversation"); err != nil {
@@ -77,15 +78,57 @@ func (s *Store) UpsertConversation(ctx context.Context, channelID, threadTS, req
 	for _, r := range s.convs {
 		if r.ChannelID == channelID && r.ThreadTS == threadTS {
 			r.updatedAt = s.Now()
+			if r.TraceID == "" {
+				r.TraceID = traceID
+			}
 			return r.Conversation, nil
 		}
 	}
 	r := &row{Conversation: agent.Conversation{
 		ID: int64(len(s.convs) + 1), ChannelID: channelID, ThreadTS: threadTS,
-		RequesterSlackID: requesterSlackID, Status: agent.StatusOpen,
+		RequesterSlackID: requesterSlackID, Status: agent.StatusOpen, TraceID: traceID,
 	}, createdAt: s.Now(), updatedAt: s.Now()}
 	s.convs = append(s.convs, r)
 	return r.Conversation, nil
+}
+
+// FailureRow is one recorded agent_failures row; ConversationID 0 is none.
+type FailureRow struct {
+	ConversationID int64
+	Stage, Cause   string
+}
+
+// RecordFailure keeps the row for Failures, or fails like a down database.
+func (s *Store) RecordFailure(ctx context.Context, conversationID int64, stage, cause string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "RecordFailure"); err != nil {
+		return err
+	}
+	s.failures = append(s.failures, FailureRow{ConversationID: conversationID, Stage: stage, Cause: cause})
+	return nil
+}
+
+// Failures returns the recorded rows in order.
+func (s *Store) Failures() []FailureRow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]FailureRow(nil), s.failures...)
+}
+
+// ThreadTrace is the thread's trace id, empty when there is none.
+func (s *Store) ThreadTrace(ctx context.Context, channelID, threadTS string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(ctx, "ThreadTrace"); err != nil {
+		return "", err
+	}
+	for _, r := range s.convs {
+		if r.ChannelID == channelID && r.ThreadTS == threadTS {
+			return r.TraceID, nil
+		}
+	}
+	return "", nil
 }
 
 // SetStatus changes an open conversation; agent.ErrNotOpen otherwise.
@@ -104,6 +147,11 @@ func (s *Store) setStatus(id int64, ch agent.StatusChange) (agent.Conversation, 
 		return agent.Conversation{}, agent.ErrNotOpen
 	}
 	r.Status = ch.Status
+	r.Outcome = ""
+	if ch.Status != agent.StatusOpen {
+		// Like the SQL: the trigger fills an outcome the change left out.
+		r.Outcome = cmp.Or(ch.Outcome, ch.Status)
+	}
 	if ch.DirectoryAccount != "" {
 		r.DirectoryAccount = ch.DirectoryAccount
 	}
@@ -259,7 +307,7 @@ func (s *Store) CloseIdleConversations(ctx context.Context, cutoff time.Time) (i
 	var n int64
 	for _, r := range s.convs {
 		if r.Status == agent.StatusOpen && r.updatedAt.Before(cutoff) {
-			r.Status, r.closedAt = agent.StatusResolved, r.updatedAt
+			r.Status, r.Outcome, r.closedAt = agent.StatusResolved, agent.ConvAbandoned, r.updatedAt
 			n++
 		}
 	}
@@ -453,7 +501,7 @@ func (s *Store) GetApprovalCard(ctx context.Context, id uuid.UUID) (agent.Approv
 }
 
 // SettleCard settles once and moves an open conversation, like the transaction.
-func (s *Store) SettleCard(ctx context.Context, id uuid.UUID, outcome, status string) (bool, error) {
+func (s *Store) SettleCard(ctx context.Context, id uuid.UUID, outcome string, change agent.StatusChange) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.check(ctx, "SettleCard"); err != nil {
@@ -464,7 +512,7 @@ func (s *Store) SettleCard(ctx context.Context, id uuid.UUID, outcome, status st
 		return false, nil
 	}
 	c.Settled, c.Outcome = true, outcome
-	if _, err := s.setStatus(c.ConversationID, agent.StatusChange{Status: status}); err != nil && !errors.Is(err, agent.ErrNotOpen) {
+	if _, err := s.setStatus(c.ConversationID, change); err != nil && !errors.Is(err, agent.ErrNotOpen) {
 		return false, err
 	}
 	return true, nil

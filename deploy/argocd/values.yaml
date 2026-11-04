@@ -14,6 +14,14 @@ repo:
 demo:
   enabled: true
 
+# The Collector, Tempo, and Grafana Applications (spec 0016, AC-12).
+observability:
+  enabled: true
+  tempo:
+    retention: 168h
+    storage: 5Gi
+    storageClass: ""
+
 # ArgoCD itself, installed by make install only when the cluster has none
 # (AC-3). Read by the installer, never by a template.
 argocd:

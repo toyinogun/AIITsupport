@@ -88,6 +88,7 @@ func (a *API) decide(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	span.SetAttributes(attribute.String("approval_id", id.String()))
 	body, ok := decodeDecision(r)
 	if !ok {
 		http.Error(w, "the body must be exactly {clicker, approve} plus an optional clicker_email", http.StatusBadRequest)
@@ -214,6 +215,7 @@ func (a *API) cancel(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	span.SetAttributes(attribute.String("approval_id", id.String()))
 	if !decodeCancel(r) {
 		http.Error(w, `the body must be exactly {"reason": "owner_unreachable"}`, http.StatusBadRequest)
 		return

@@ -39,7 +39,8 @@ func (d *Dispatcher) Execute(ctx context.Context, approved queries.Approval) aud
 	ctx, cancel := context.WithTimeout(ctx, d.cfg.ExecuteTimeout)
 	defer cancel()
 	ctx, span := d.tracer.Start(ctx, "tool.call", trace.WithAttributes(
-		attribute.String("tool", t.Name), attribute.String("tier", string(t.Tier))))
+		attribute.String("tool", t.Name), attribute.String("tier", string(t.Tier)),
+		attribute.String("approval_id", a.ID.String())))
 	defer span.End()
 
 	account := a.RequesterAccount.String

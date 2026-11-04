@@ -52,8 +52,10 @@ type Secret struct {
 	// Backup marks a Secret that exists only with backup.enabled (AC-18).
 	Backup bool `yaml:"backup"`
 	// Tailscale marks a Secret that exists only with platform.tailscale.enabled (AC-4).
-	Tailscale bool           `yaml:"tailscale"`
-	Keys      map[string]Key `yaml:"keys"`
+	Tailscale bool `yaml:"tailscale"`
+	// Observability marks a Secret that exists only with observability.enabled (spec 0016).
+	Observability bool           `yaml:"observability"`
+	Keys          map[string]Key `yaml:"keys"`
 }
 
 // Key is one key of a Secret and where its value comes from.
@@ -95,6 +97,8 @@ type Conditions struct {
 	Reset     bool // reset.enabled
 	Backup    bool // backup.enabled
 	Tailscale bool // platform.tailscale.enabled
+	// Observability is observability.enabled (spec 0016).
+	Observability bool
 }
 
 // holds reports whether a key applies to an install with these conditions.
@@ -218,11 +222,11 @@ func (t Table) Enabled(components []string) []string {
 }
 
 // Active lists the Enabled Secrets that apply under these conditions: a
-// backup Secret only with backups on.
+// backup Secret only with backups on, Grafana's only with observability on.
 func (t Table) Active(components []string, c Conditions) []string {
 	var names []string
 	for _, name := range t.Enabled(components) {
-		if (!t.Secrets[name].Backup || c.Backup) && (!t.Secrets[name].Tailscale || c.Tailscale) {
+		if (!t.Secrets[name].Backup || c.Backup) && (!t.Secrets[name].Tailscale || c.Tailscale) && (!t.Secrets[name].Observability || c.Observability) {
 			names = append(names, name)
 		}
 	}

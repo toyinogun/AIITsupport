@@ -63,7 +63,7 @@ func TestFailureReasons(t *testing.T) {
 		{name: "tools list down", model: agenttest.NewModel(), setup: func(h *harness) { h.tools.ListErr = errors.New("connection refused") }, reason: agent.ReasonToolServerUnavailable},
 		{name: "store down", model: agenttest.NewModel(), setup: func(h *harness) { h.store.FailOn("SumUsage") }, reason: agent.ReasonStoreUnavailable},
 		{name: "token budget", model: agenttest.NewModel(), setup: func(h *harness) {
-			c, _ := h.store.UpsertConversation(context.Background(), janDM, firstTS, janSlack)
+			c, _ := h.store.UpsertConversation(context.Background(), janDM, firstTS, janSlack, "")
 			h.store.SeedUsage(agent.Usage{ConversationID: c.ID, Tokens: eval.Tokens{Input: 30000}})
 		}, reason: agent.ReasonTokenBudget},
 	}

@@ -37,6 +37,14 @@ spec:
       owner: noord_owner
       secret:
         name: noord-pg-owner
+      # The dashboard's view only role (spec 0016, AC-9). A managed role cannot
+      # carry a statement timeout, so a fresh database creates the role here
+      # with it; the managed role below then sets its password and its
+      # connection limit. An existing database needs the one ALTER ROLE in
+      # docs/runbooks/observability.md.
+      postInitSQL:
+        - CREATE ROLE noord_grafana LOGIN NOINHERIT
+        - ALTER ROLE noord_grafana SET statement_timeout = '10s'
   managed:
     roles:
       {{- range list "agent" "toolserver" "eval" }}
@@ -50,4 +58,13 @@ spec:
         passwordSecret:
           name: noord-pg-{{ . }}
       {{- end }}
+      # Grafana's view only role: at most five connections (AC-9). inherit is
+      # off; it holds no membership.
+      - name: noord_grafana
+        ensure: present
+        login: true
+        inherit: false
+        connectionLimit: 5
+        passwordSecret:
+          name: noord-pg-grafana
 {{- end }}

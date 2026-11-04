@@ -33,11 +33,11 @@ func TestPgToolResultTransaction(t *testing.T) {
 	tdb := dbtest.New(t)
 	s := agent.NewStore(tdb.Agent)
 	ctx := t.Context()
-	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", "")
 	if err != nil || c.Status != agent.StatusOpen || c.LastSeq != 0 {
 		t.Fatalf("upsert = %+v, %v", c, err)
 	}
-	if again, _ := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0OTHER"); again.ID != c.ID || again.RequesterSlackID != "U0JAN" {
+	if again, _ := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0OTHER", ""); again.ID != c.ID || again.RequesterSlackID != "U0JAN" {
 		t.Errorf("second upsert = %+v, want the same row and requester", again)
 	}
 	if c, err = s.SetStatus(ctx, c.ID, agent.StatusChange{Status: agent.StatusOpen, DirectoryAccount: "jan.devries"}); err != nil || c.DirectoryAccount != "jan.devries" {
@@ -51,7 +51,7 @@ func TestPgToolResultTransaction(t *testing.T) {
 	if err := s.AppendToolResult(ctx, c.ID, result, &agent.StatusChange{Status: agent.StatusResolved}); err != nil {
 		t.Fatal(err)
 	}
-	c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", "")
 	if c.TicketID != 42 || c.Status != agent.StatusResolved || c.DirectoryAccount != "jan.devries" || c.LastSeq != 2 {
 		t.Errorf("after two results = %+v", c)
 	}
@@ -64,7 +64,7 @@ func TestPgToolResultTransaction(t *testing.T) {
 	if err != nil || len(msgs) != 3 || msgs[2].Seq != 3 {
 		t.Errorf("messages = %+v, %v; want the third result kept", msgs, err)
 	}
-	if c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN"); c.Status != agent.StatusResolved {
+	if c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", ""); c.Status != agent.StatusResolved {
 		t.Errorf("status = %s, want resolved", c.Status)
 	}
 	if _, err := s.SetStatus(ctx, c.ID, agent.StatusChange{Status: agent.StatusEscalated}); !errors.Is(err, agent.ErrNotOpen) {
@@ -78,9 +78,9 @@ func TestPgUsageAndHourlyCount(t *testing.T) {
 	tdb := dbtest.New(t)
 	s := agent.NewStore(tdb.Agent)
 	ctx := t.Context()
-	c, _ := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
-	_, _ = s.UpsertConversation(ctx, "D0JAN", "2.0", "U0JAN")
-	_, _ = s.UpsertConversation(ctx, "D0KEV", "3.0", "U0KEVIN")
+	c, _ := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", "")
+	_, _ = s.UpsertConversation(ctx, "D0JAN", "2.0", "U0JAN", "")
+	_, _ = s.UpsertConversation(ctx, "D0KEV", "3.0", "U0KEVIN", "")
 	price, _ := eval.Price("claude-sonnet-5-5")
 	tokens := eval.Tokens{Input: 1000, Output: 100, CacheRead: 2000, CacheWrite: 500}
 	for range 2 {
@@ -118,7 +118,7 @@ func TestPgListInterrupted(t *testing.T) {
 		content json.RawMessage
 	},
 	) agent.Conversation {
-		c, err := s.UpsertConversation(ctx, "D0JAN", thread, "U0JAN")
+		c, err := s.UpsertConversation(ctx, "D0JAN", thread, "U0JAN", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -162,7 +162,7 @@ func TestPgSetTicket(t *testing.T) {
 	tdb := dbtest.New(t)
 	s := agent.NewStore(tdb.Agent)
 	ctx := t.Context()
-	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestPgSetTicket(t *testing.T) {
 	if err := s.SetTicket(ctx, c.ID, 27); err != nil {
 		t.Fatalf("second set ticket: %v", err)
 	}
-	c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", "")
 	if c.TicketID != 26 || c.Status != agent.StatusEscalated {
 		t.Errorf("after set ticket = %+v, want ticket 26 and still escalated", c)
 	}
@@ -192,7 +192,7 @@ func TestPgRetention(t *testing.T) {
 	ctx := t.Context()
 	text := mustBlocks(t, anthropic.NewTextBlock("hello"))
 	conv := func(thread string, n int) int64 {
-		c, err := s.UpsertConversation(ctx, "D0JAN", thread, "U0JAN")
+		c, err := s.UpsertConversation(ctx, "D0JAN", thread, "U0JAN", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,7 +286,7 @@ func TestPgApprovalCards(t *testing.T) {
 	tdb := dbtest.New(t)
 	s := agent.NewStore(tdb.Agent)
 	ctx := t.Context()
-	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN")
+	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,13 +345,13 @@ func TestPgApprovalCards(t *testing.T) {
 	if err != nil || len(list) != 2 || list[0].ApprovalID != first.ApprovalID {
 		t.Fatalf("unsettled = %+v, %v", list, err)
 	}
-	if won, err := s.SettleCard(ctx, first.ApprovalID, "denied", agent.StatusEscalated); err != nil || !won {
+	if won, err := s.SettleCard(ctx, first.ApprovalID, "denied", agent.StatusChange{Status: agent.StatusEscalated, Outcome: agent.ConvEscalated}); err != nil || !won {
 		t.Fatalf("settle = %v, %v", won, err)
 	}
-	if won, err := s.SettleCard(ctx, first.ApprovalID, "denied", agent.StatusEscalated); err != nil || won {
+	if won, err := s.SettleCard(ctx, first.ApprovalID, "denied", agent.StatusChange{Status: agent.StatusEscalated, Outcome: agent.ConvEscalated}); err != nil || won {
 		t.Errorf("second settle = %v, %v", won, err)
 	}
-	if c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN"); c.Status != agent.StatusEscalated {
+	if c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", ""); c.Status != agent.StatusEscalated {
 		t.Errorf("status = %s", c.Status)
 	}
 	if list, _ = s.ListUnsettledApprovalCards(ctx, 100); len(list) != 1 || list[0].ApprovalID != adopted.ApprovalID {
@@ -366,7 +366,7 @@ func TestPgGroupOwnerCard(t *testing.T) {
 	tdb := dbtest.New(t)
 	s := agent.NewStore(tdb.Agent)
 	ctx := t.Context()
-	c, err := s.UpsertConversation(ctx, "D0NOOR", "1.0", "U0NOOR")
+	c, err := s.UpsertConversation(ctx, "D0NOOR", "1.0", "U0NOOR", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,5 +391,114 @@ func TestPgGroupOwnerCard(t *testing.T) {
 	adopted := agent.ApprovalCard{ApprovalID: uuid.New(), ToolName: "group_access_request", ExpiresAt: time.Now().Add(8 * time.Hour)}
 	if created, err := s.AdoptApprovalCard(ctx, adopted, "D0NOOR", "1.0"); err != nil || !created {
 		t.Errorf("adopt with no channel = %v, %v", created, err)
+	}
+}
+
+// covers: AC-1. A new row keeps the id it was given; a row without one takes
+// the next id offered and then keeps it; a stored id is never replaced. An
+// unknown thread has no trace.
+func TestPgThreadTrace(t *testing.T) {
+	tdb := dbtest.New(t)
+	s := agent.NewStore(tdb.Agent)
+	ctx := t.Context()
+	const first, second = "0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210"
+
+	if id, err := s.ThreadTrace(ctx, "D0JAN", "1.0"); err != nil || id != "" {
+		t.Fatalf("ThreadTrace on an unknown thread = %q, %v; want empty", id, err)
+	}
+	c, err := s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", first)
+	if err != nil || c.TraceID != first {
+		t.Fatalf("insert = %+v, %v; want trace id %s", c, err, first)
+	}
+	if c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", second); c.TraceID != first {
+		t.Errorf("stored id replaced: %s", c.TraceID)
+	}
+	if id, _ := s.ThreadTrace(ctx, "D0JAN", "1.0"); id != first {
+		t.Errorf("ThreadTrace = %q, want %s", id, first)
+	}
+
+	// A row from before spec 0016 has no id and takes the next one.
+	if _, err := tdb.Owner.Exec(ctx, "UPDATE conversations SET trace_id = NULL"); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := s.ThreadTrace(ctx, "D0JAN", "1.0"); err != nil || id != "" {
+		t.Fatalf("ThreadTrace on an old row = %q, %v; want empty", id, err)
+	}
+	if c, _ = s.UpsertConversation(ctx, "D0JAN", "1.0", "U0JAN", second); c.TraceID != second {
+		t.Errorf("old row got %q, want %s", c.TraceID, second)
+	}
+	if _, err := s.UpsertConversation(ctx, "D0JAN", "2.0", "U0JAN", "NOT-HEX"); err == nil {
+		t.Error("a malformed trace id was stored")
+	}
+}
+
+// covers: spec 0016 AC-6, AC-7. Each closing path stores its outcome through
+// the real SQL: a close with an outcome, a settle, the idle close, and a
+// failure row with and without a conversation.
+func TestPgOutcomesAndFailures(t *testing.T) {
+	tdb := dbtest.New(t)
+	s := agent.NewStore(tdb.Agent)
+	ctx := t.Context()
+	outcome := func(thread string) string {
+		t.Helper()
+		var got *string
+		if err := tdb.Owner.QueryRow(ctx, "SELECT outcome FROM conversations WHERE slack_thread_ts = $1", thread).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got == nil {
+			return ""
+		}
+		return *got
+	}
+
+	open, _ := s.UpsertConversation(ctx, "D0JAN", "open", "U0JAN", "")
+	if _, err := s.SetStatus(ctx, open.ID, agent.StatusChange{Status: agent.StatusOpen, DirectoryAccount: "jan.devries", Outcome: agent.ConvResolved}); err != nil {
+		t.Fatal(err)
+	}
+	if got := outcome("open"); got != "" {
+		t.Errorf("a change that keeps the conversation open stored outcome %q", got)
+	}
+
+	for thread, ch := range map[string]agent.StatusChange{
+		"resolved":  {Status: agent.StatusResolved, Outcome: agent.ConvResolved},
+		"escalated": {Status: agent.StatusEscalated, Outcome: agent.ConvEscalated},
+		"refused":   {Status: agent.StatusEscalated, Outcome: agent.ConvRefused},
+		"nooutcome": {Status: agent.StatusEscalated}, // an old style change: the trigger fills it
+	} {
+		c, _ := s.UpsertConversation(ctx, "D0JAN", thread, "U0JAN", "")
+		if _, err := s.SetStatus(ctx, c.ID, ch); err != nil {
+			t.Fatalf("%s: %v", thread, err)
+		}
+	}
+	for thread, want := range map[string]string{"resolved": "resolved", "escalated": "escalated", "refused": "refused", "nooutcome": "escalated"} {
+		if got := outcome(thread); got != want {
+			t.Errorf("thread %s outcome = %q, want %q", thread, got, want)
+		}
+	}
+
+	if _, err := s.SetStatus(ctx, open.ID, agent.StatusChange{Status: agent.StatusResolved, Outcome: agent.ConvRefused}); err == nil {
+		t.Error("a resolved conversation with outcome refused was stored")
+	}
+
+	idle, _ := s.UpsertConversation(ctx, "D0JAN", "idle", "U0JAN", "")
+	if _, err := tdb.Owner.Exec(ctx, "UPDATE conversations SET updated_at = now() - interval '40 days' WHERE id = $1", idle.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.CloseIdleConversations(ctx, time.Now().Add(-30*24*time.Hour)); err != nil || n != 1 {
+		t.Fatalf("close idle = %d, %v", n, err)
+	}
+	if got := outcome("idle"); got != "abandoned" {
+		t.Errorf("idle close outcome = %q, want abandoned", got)
+	}
+
+	if err := s.RecordFailure(ctx, open.ID, "llm", "anthropic_529"); err != nil {
+		t.Errorf("failure with a conversation: %v", err)
+	}
+	if err := s.RecordFailure(ctx, 0, "slack", "slack_ratelimited"); err != nil {
+		t.Errorf("failure with none: %v", err)
+	}
+	var withConv, without int
+	if err := tdb.Owner.QueryRow(ctx, "SELECT count(*) FILTER (WHERE conversation_id IS NOT NULL), count(*) FILTER (WHERE conversation_id IS NULL) FROM agent_failures").Scan(&withConv, &without); err != nil || withConv != 1 || without != 1 {
+		t.Errorf("failure rows with and without a conversation = %d, %d, %v; want 1, 1", withConv, without, err)
 	}
 }

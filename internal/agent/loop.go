@@ -105,6 +105,7 @@ func (t *turn) callModel(params anthropic.MessageNewParams) (*anthropic.Message,
 	if err != nil {
 		span.SetStatus(codes.Error, "model call failed")
 		span.SetAttributes(attribute.String("cause", cause(err)))
+		t.a.recordFailure(t.ctx, t.conv.ID, stageLLM, cause(err))
 		if t.deadlinePassed() {
 			return nil, failErr(ReasonMessageTimeout, err)
 		}
@@ -178,6 +179,9 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 	res, callErr := t.a.callTool(t.ctx, *t.requester, first.name, first.input)
 	res, link := stripResetLink(first.name, res) // before anything else sees it (spec 0011, AC-5)
 	answered := callErr == nil
+	if !answered { // an unanswered call; a result with IsError is already an audit error row
+		t.a.recordFailure(t.ctx, t.conv.ID, stageTool, cause(callErr))
+	}
 	t.toolCalls++
 
 	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewToolResultBlock(first.id, toolResultText(res), res.IsError)}
@@ -188,7 +192,8 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 	if err != nil {
 		return &failure{reason: ReasonStoreUnavailable, cause: cause(err), unknown: !answered}
 	}
-	change := statusChangeFor(first.name, res, t.conv.TicketID)
+	reason, _ := first.input["reason"].(string)
+	change := statusChangeFor(first.name, res, t.conv.TicketID, reason)
 	ctx, cancel := t.a.detached(t.ctx, t.a.cfg.ToolTimeout)
 	defer cancel()
 	card := t.a.pendingCard(first.name, res)
@@ -235,13 +240,14 @@ func (t *turn) runToolStep(resp *anthropic.Message) *failure {
 // conversation, keeping its ticket, and an ok escalate ends it as
 // escalated, storing its ticket only when the conversation has none
 // (spec 0009, AC-8). current is the conversation's ticket id.
-func statusChangeFor(tool string, r mcpclient.Result, current int64) *StatusChange {
+func statusChangeFor(tool string, r mcpclient.Result, current int64, reason string) *StatusChange {
 	if r.IsError {
 		return nil
 	}
 	switch tool {
 	case toolEscalate:
-		ch := &StatusChange{Status: StatusEscalated}
+		c := escalatedChange(reason)
+		ch := &c
 		if id, ok := ticketID(r.Data["ticket_id"]); ok && current == 0 {
 			ch.TicketID = id
 		}
@@ -252,10 +258,12 @@ func statusChangeFor(tool string, r mcpclient.Result, current int64) *StatusChan
 		}
 	case toolTicketUpdate:
 		if state, _ := r.Data["state"].(string); state == "closed" {
-			return &StatusChange{Status: StatusResolved}
+			c := resolvedChange()
+			return &c
 		}
 	case toolPasswordResetLink:
-		return &StatusChange{Status: StatusResolved}
+		c := resolvedChange()
+		return &c
 	}
 	return nil
 }

@@ -17,7 +17,7 @@ ZAMMAD_VOLUMES := noord_elasticsearch-data noord_postgresql-data noord_redis-dat
 	lint fmt fmt-check gen-check tidy-check vuln secrets hooks check \
 	certs directory-up seed directory-reset directory-login directory-lock \
 	entra-sync entra-mfa noord-reset helpdesk-up helpdesk-seed helpdesk-reset install smoke \
-	release pause resume uninstall seal-key-backup cluster-init deploy-check
+	obs-up obs-down release pause resume uninstall seal-key-backup cluster-init deploy-check
 
 ## dev: start Postgres, run migrations, then run both binaries (Ctrl-C stops all)
 dev: .env migrate build
@@ -30,6 +30,15 @@ dev: .env migrate build
 .env:
 	cp .env.example .env
 	@echo "Created .env from .env.example. Put real secrets in .env only."
+
+## obs-up: start the Collector, Tempo and Grafana (spec 0016); send traces with OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:54318
+obs-up:
+	docker compose --profile observability up -d --wait otel-collector tempo grafana
+	@echo "Grafana: http://127.0.0.1:53000 (admin / noord-dev); Collector OTLP HTTP: http://127.0.0.1:54318"
+
+## obs-down: stop the observability profile
+obs-down:
+	docker compose --profile observability stop otel-collector tempo grafana
 
 ## db-up: start Postgres in Compose and wait until it is healthy
 db-up:

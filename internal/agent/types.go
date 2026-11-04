@@ -154,7 +154,9 @@ type Conversation struct {
 	DirectoryAccount string // empty until the first match
 	TicketID         int64  // 0 until ticket_create
 	Status           string
-	LastSeq          int // 0 when nothing is stored yet
+	LastSeq          int    // 0 when nothing is stored yet
+	Outcome          string // empty while open (spec 0016, AC-6)
+	TraceID          string // 32 hex characters, empty on a row from before spec 0016
 }
 
 // StoredMessage is one stored message. Content is a JSON array of content
@@ -171,6 +173,9 @@ type StatusChange struct {
 	Status           string
 	DirectoryAccount string
 	TicketID         int64
+	// Outcome is how a closing change ends the conversation (spec 0016, AC-6);
+	// empty while the status stays open.
+	Outcome string
 }
 
 // Usage is one model call's llm_usage row.
@@ -187,7 +192,15 @@ var ErrNotOpen = errors.New("agent: the conversation is not open")
 
 // Store is the agent's Postgres. NewStore returns the real one.
 type Store interface {
-	UpsertConversation(ctx context.Context, channelID, threadTS, requesterSlackID string) (Conversation, error)
+	// UpsertConversation stores traceID on a new row, or on an existing row
+	// that has none (spec 0016, AC-1).
+	UpsertConversation(ctx context.Context, channelID, threadTS, requesterSlackID, traceID string) (Conversation, error)
+	// RecordFailure inserts one agent_failures row (spec 0016, AC-7);
+	// conversationID 0 means none. cause is a fixed token.
+	RecordFailure(ctx context.Context, conversationID int64, stage, cause string) error
+	// ThreadTrace is the thread's stored trace id, empty when the thread has
+	// no conversation yet or its row has no id.
+	ThreadTrace(ctx context.Context, channelID, threadTS string) (string, error)
 	// SetStatus changes an open conversation; ErrNotOpen otherwise.
 	SetStatus(ctx context.Context, id int64, ch StatusChange) (Conversation, error)
 	// SetTicket stores a ticket id on a conversation in any status, unless
@@ -251,7 +264,7 @@ type ApprovalStore interface {
 	// SettleCard records the outcome once and, when the conversation is
 	// still open, moves it to status, in one transaction. settled is false
 	// when another settle won.
-	SettleCard(ctx context.Context, approvalID uuid.UUID, outcome, status string) (settled bool, err error)
+	SettleCard(ctx context.Context, approvalID uuid.UUID, outcome string, change StatusChange) (settled bool, err error)
 	// AdoptApprovalCard inserts the card row of an approval whose pending
 	// result never reached the agent, when its thread (threadChannel,
 	// threadTS) is a known conversation (AC-14). created is false when the

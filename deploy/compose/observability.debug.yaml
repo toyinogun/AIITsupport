@@ -1,0 +1,10 @@
+# Compose only (spec 0016 AC-13): second --config for the Collector that adds
+# the debug exporter for the redaction live check. The cluster never has it.
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/tempo, debug]

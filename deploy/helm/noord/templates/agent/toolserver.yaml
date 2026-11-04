@@ -43,6 +43,9 @@ spec:
               "LDAP_CA_CERT" "/etc/noord/ca/ca.crt"
               "KILL_SWITCH_FILE" "/etc/noord/kill-switch/mode"
               "ZAMMAD_DEFAULT_GROUP" .Values.toolserver.zammadDefaultGroup }}
+            {{- if .Values.observability.enabled }}
+            {{- $_ := set $env "OTEL_EXPORTER_OTLP_ENDPOINT" "http://otel-collector.noord-agent.svc:4318" }}
+            {{- end }}
             {{- if .Values.demo.enabled }}
             {{- $_ := set $env "LDAP_URL" "ldaps://samba.noord-directory.svc.cluster.local:636" }}
             {{- /* The Zammad chart's web Service with fullnameOverride: zammad

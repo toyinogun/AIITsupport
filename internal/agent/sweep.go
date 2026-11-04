@@ -41,8 +41,16 @@ func (a *Agent) Sweep(ctx context.Context) {
 // that starts in the thread meanwhile finds it closed and the two never act
 // on it together. A conversation it cannot claim is left alone.
 func (a *Agent) recoverInterrupted(ctx context.Context, c Conversation) {
+	// The reason comes from the stored history and must be known before the
+	// claim: the claim only updates open rows, so the outcome cannot be fixed
+	// afterwards (spec 0016, AC-6).
+	calls := a.callsOrNone(ctx, c.ID) // a failed read escalates as restart
+	reason := escalateRestart
+	if blocked, _ := blockedUnescalated(calls); blocked {
+		reason = escalatePrivileged
+	}
 	sctx, cancel := a.detached(ctx, a.cfg.ToolTimeout)
-	_, err := a.deps.Store.SetStatus(sctx, c.ID, StatusChange{Status: StatusEscalated})
+	_, err := a.deps.Store.SetStatus(sctx, c.ID, escalatedChange(reason))
 	cancel()
 	if err != nil {
 		if !errors.Is(err, ErrNotOpen) {
@@ -50,11 +58,12 @@ func (a *Agent) recoverInterrupted(ctx context.Context, c Conversation) {
 		}
 		return
 	}
+	a.recordFailure(ctx, c.ID, stageSweep, string(ReasonRestart))
 	in := Inbound{EventID: "", ChannelID: c.ChannelID, ThreadTS: c.ThreadTS}
 	var o escalationOutcome
 	r, account, why, ok := a.reidentify(ctx, c)
 	if ok {
-		o = a.escalateInterrupted(ctx, c, r, account)
+		o = a.escalateInterrupted(ctx, c, r, account, calls, reason)
 	}
 	a.logEscalated(ctx, "", ReasonRestart, o.exists(), why)
 	// The restart text says IT has it, so it needs a ticket.
@@ -69,12 +78,7 @@ func (a *Agent) recoverInterrupted(ctx context.Context, c Conversation) {
 // privileged_request when its stored history holds a blocked result, else
 // restart (spec 0009, AC-11). It stores the ticket the call used when the
 // conversation has none, and posts to IT.
-func (a *Agent) escalateInterrupted(ctx context.Context, c Conversation, r mcpclient.Requester, account string) escalationOutcome {
-	calls := a.callsOrNone(ctx, c.ID) // a failed read escalates as restart
-	reason := escalateRestart
-	if blocked, _ := blockedUnescalated(calls); blocked {
-		reason = escalatePrivileged
-	}
+func (a *Agent) escalateInterrupted(ctx context.Context, c Conversation, r mcpclient.Requester, account string, calls []storedCall, reason string) escalationOutcome {
 	e := codeEscalation{
 		reason:    reason,
 		title:     EscalationTitle,

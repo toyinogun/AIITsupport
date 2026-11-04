@@ -2,5 +2,14 @@ dependencies:
 - name: zammad
   repository: https://zammad.github.io/zammad-helm
   version: 20.0.0
-digest: sha256:8cdc38712e8df21b2f7c29b358a0aa0ac8d9928577688621331d9ec00f37a554
-generated: "2026-10-21T22:56:21.252742+02:00"
+- name: opentelemetry-collector
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.176.0
+- name: tempo
+  repository: https://grafana.github.io/helm-charts
+  version: 1.24.0
+- name: grafana
+  repository: https://grafana.github.io/helm-charts
+  version: 10.5.11
+digest: sha256:429aa1072ca7c0b53c2cdddd1e1243f7ca92d6fbf5db6df706a33214ba56e03c
+generated: "2026-10-31T18:33:17.210495+01:00"

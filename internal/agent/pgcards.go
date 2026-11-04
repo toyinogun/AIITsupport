@@ -87,7 +87,7 @@ func (s *pgStore) GetApprovalCard(ctx context.Context, approvalID uuid.UUID) (Ap
 
 // SettleCard settles the card and, when still open, the conversation, in
 // one transaction (AC-15).
-func (s *pgStore) SettleCard(ctx context.Context, approvalID uuid.UUID, outcome, status string) (bool, error) {
+func (s *pgStore) SettleCard(ctx context.Context, approvalID uuid.UUID, outcome string, change StatusChange) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin settle: %w", err)
@@ -105,7 +105,7 @@ func (s *pgStore) SettleCard(ctx context.Context, approvalID uuid.UUID, outcome,
 	if n == 0 {
 		return false, nil
 	}
-	if _, err := setStatus(ctx, q, card.ConversationID, StatusChange{Status: status}); err != nil && !errors.Is(err, ErrNotOpen) {
+	if _, err := setStatus(ctx, q, card.ConversationID, change); err != nil && !errors.Is(err, ErrNotOpen) {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -1,0 +1,82 @@
+# OpenTelemetry Collector (contrib). Spec 0016.
+# Second redaction layer (AC-4): the agent and tool server already redact in
+# process; this drops every attribute key that is not on internal/logging's
+# allow list. A drift test (internal/telemetry) keeps allowed_keys equal to
+# that list plus service.name; change both together.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+extensions:
+  # The chart's probes ask the collector's health endpoint (port 13133).
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+processors:
+  redaction:
+    allow_all_keys: false
+    allowed_keys:
+      - addr
+      - api
+      - approval_id
+      - attempt
+      - attempts
+      - backoff_ms
+      - cache_read_tokens
+      - cache_write_tokens
+      - call_id
+      - cause
+      - channel_id
+      - code
+      - conversation_id
+      - dropped
+      - escalation_reason
+      - event_id
+      - event_type
+      - input_tokens
+      - kind
+      - latency_ms
+      - model
+      - model_calls
+      - outcome
+      - output_tokens
+      - read_only
+      - reason
+      - removed
+      - rows
+      - service
+      - service.name
+      - stop_reason
+      - ticket
+      - tier
+      - tool
+      - tool_calls
+      - trace_id
+    # A whole token around an @ (a bare "@" pattern would mask only the @ and
+    # leave the name and domain), and a Slack user id (U or W, then 8 or more
+    # capitals or digits).
+    blocked_values:
+      - "\\S*@\\S*"
+      - "\\b[UW][A-Z0-9]{8,}\\b"
+    # Any summary adds redaction.* attributes, which are not on the allow list.
+    summary: silent
+  batch: {}
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [redaction, batch]
+      exporters: [otlp/tempo]
