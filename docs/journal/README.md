@@ -108,5 +108,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0084](0084-create-database-template-drops-the-temp-revoke.md) | 2026-10-31 | `CREATE DATABASE ... TEMPLATE` does not copy privileges, so the temp table revoke was missing in tests | #18 Observability & ops dashboard | ~15 min | no |
 | [0085](0085-ops-migration-failed-on-the-dev-database.md) | 2026-10-31 | Migration 00008 failed on the Compose database, and the new role ran the tests out of connections | #18 Observability & ops dashboard | ~25 min | no |
 | [0086](0086-install-wait-never-finished-after-the-0016-merge.md) | 2026-11-04 | The install wait never finished: pinned image tag, then an Ingress and Service sync wave deadlock across two Applications | #18 Observability & ops dashboard | ~1 hour | both |
+| [0087](0087-agent-posted-traces-to-the-wrong-path.md) | 2026-11-04 | The agent posted traces to `/` instead of `/v1/traces`, so no trace ever reached the Collector | #18 Observability & ops dashboard | ~30 min | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
