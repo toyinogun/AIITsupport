@@ -22,7 +22,7 @@ repo:
 image:
   registry: ghcr.io
   owner: toyinogun
-  tag: a24e49d55c1dfcdef8fda009795dca47e10372e5
+  tag: 79201cdcb197eb1f510fc28e292276f55f30708b
 # The demo directory (task 2) and helpdesk (task 3) run here.
 demo:
   enabled: true
