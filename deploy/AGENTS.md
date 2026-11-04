@@ -39,7 +39,7 @@ helm dependency update deploy/helm/noord   # after bumping the Zammad version in
 - The Zammad chart's values live under `zammad:` in `helm/noord/values.yaml`; `zammad.enabled` stays false there and only the `noord-client` Application turns it on. Rendering the client part without it fails with a clear message.
 - Pod Security: `noord-agent` is `restricted`, `noord-directory` and `noord-client` are `baseline`. Our own pods run non root with a read only root filesystem and writable `emptyDir`s; no pod may be privileged (the Zammad chart's volume permissions init container is turned off for that reason).
 
-- Observability (spec 0016): `observability.enabled` (default true) adds three Applications in `noord-agent` (Tempo and the Collector wave 1, Grafana wave 2) and, in `noord-agent` itself, the ConfigMaps they mount, their NetworkPolicies, Grafana's tailnet Ingress, and the `noord-grafana` Secret. `noord-pg-grafana` and the managed role `noord_grafana` exist whatever the switch says, because migration 00008 needs the role. Nothing is edited in Grafana's UI.
+- Observability (spec 0016): `observability.enabled` (default true) adds three Applications in `noord-agent` (Tempo and the Collector wave 1, Grafana wave 2) and, in `noord-agent` itself, the ConfigMaps they mount, their NetworkPolicies, and the `noord-grafana` Secret. Grafana's tailnet Ingress belongs to the `noord-grafana` Application, next to its Service: in `noord-agent` it deadlocked the install (journal 0086). `noord-pg-grafana` and the managed role `noord_grafana` exist whatever the switch says, because migration 00008 needs the role. Nothing is edited in Grafana's UI.
 
 ## Gotchas
 
