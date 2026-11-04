@@ -163,7 +163,7 @@ Order follows Tracer Bullet: a thin end to end thread first (file, loader, hash,
 - [ ] Decide in #20 the fixed Slack identity and email used for `guest` and `unmatched_email` senders, and how `pending_mfa_other_thread` is created without a second sender.
 - [ ] Decide in #20 how the harness plays the approver: IT approves MFA, but group access is decided by the group owner (`pieter.vandam`, `ilse.smit`), so owner Slack identities must be mapped too, and how long it waits.
 - [ ] Decide in #20 how `mfa_methods` registers a method for a test user in the Entra tenant.
-- [ ] Add `eval/AGENTS.md` and the root `AGENTS.md` pointer (run `/sync` after the build).
+- [x] Add `eval/AGENTS.md` and the root `AGENTS.md` pointer (run `/sync` after the build). Done 2026-11-04: `eval/AGENTS.md` came with the build, `/sync` added the root pointer.
 - [ ] Spec 0008 asked for eval tickets for each fixed text and failure reason; only the identity gate texts are in the set. The model failure reasons (turn limit, token budget, model unavailable) stay in unit tests because they need config or fault injection.
 
 ## Rationale
