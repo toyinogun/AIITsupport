@@ -142,3 +142,16 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+// covers: AC-12 (spec 0017). The ticket set loader reads the directory truth
+// from internal/seed, so the agent must never reach it, and package eval (which
+// the agent does import for prices) must stay free of internal/seed.
+func TestAgentDoesNotReachTheTicketSet(t *testing.T) {
+	const ticketset = "github.com/toyinogun/AIITsupport/eval/ticketset"
+	if slices.Contains(listDeps(t, "."), ticketset) {
+		t.Errorf("cmd/agent pulls in %s", ticketset)
+	}
+	if bad := deniedDeps(listDeps(t, "../../eval")); len(bad) > 0 {
+		t.Errorf("package eval pulls in client system packages: %v", bad)
+	}
+}

@@ -1,7 +1,7 @@
 # 0017. Eval ticket set
 
 **Date**: 2026-11-04
-**Status**: Proposed
+**Status**: Accepted
 
 ## Summary
 
