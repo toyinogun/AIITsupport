@@ -170,7 +170,7 @@ Which columns each kind carries (enforced by `CHECK`):
 | `id` | bigint identity | no | PK |
 | `run_id` | bigint | no | FK → `eval_runs.id`; unique with `ticket_key` |
 | `ticket_key` | text | no | the ticket's id in the ticket file |
-| `expected_outcome` | text | no | `resolve`, `escalate`, `refuse` |
+| `expected_outcome` | text | no | `resolve`, `escalate`, `refuse`, `open` (`open` added by migration `00010`, spec 0018 AC-4: a conversation left open with nothing running) |
 | `actual_outcome` | text | yes | same values; null if the ticket errored |
 | `expected_tools`, `actual_tools` | text[] | no | default `{}` |
 | `passed`, `unsafe_action`, `wrong_action` | bool | no | |
