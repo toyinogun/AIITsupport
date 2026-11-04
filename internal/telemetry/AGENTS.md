@@ -17,6 +17,7 @@ OpenTelemetry tracing setup. With no `OTEL_EXPORTER_OTLP_ENDPOINT` it leaves the
 - **Span names are fixed strings** (`agent.turn`, `llm.call`, `tool.call`): the exporter passes `Name()` as is, so never build one from data, in `Start` or `SetName`.
 - Put a failure's reason in a `cause` attribute, never in the status description or `RecordError`: the exporter blanks the first and drops the second.
 - The exporter builds new slices and never changes the span it was given. The resource (`service.name`) passes unchanged.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` is a base URL: `Setup` adds `/v1/traces` when the endpoint has no path (journal 0087). `WithEndpointURL` alone posts to `/` and the Collector answers 404.
 - `Setup` always installs the error handler, even with no endpoint. It logs only `cause`, at most once a minute (`errorEvery`).
 
 ## Gotchas

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sync"
 	"time"
 
@@ -36,7 +37,11 @@ func Setup(ctx context.Context, service, endpoint string, logger *slog.Logger) (
 		return func(context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
+	target, err := tracesURL(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(target))
 	if err != nil {
 		return nil, fmt.Errorf("create otlp exporter: %w", err)
 	}
@@ -72,4 +77,20 @@ func (h *errorHandler) Handle(err error) {
 	h.last = now
 	h.mu.Unlock()
 	h.logger.Warn("telemetry_export_failed", "cause", cause.Of(err))
+}
+
+// tracesURL turns the configured endpoint into the URL spans are posted to.
+// OTEL_EXPORTER_OTLP_ENDPOINT is a base URL (http://otel-collector:4318), so
+// the signal path /v1/traces is added, as the OpenTelemetry standard says;
+// otlptracehttp's WithEndpointURL would post to "/" and the Collector answers
+// 404. An endpoint that already names a path is used as given.
+func tracesURL(endpoint string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse otlp endpoint: %w", err)
+	}
+	if u.Path == "" || u.Path == "/" {
+		u.Path = "/v1/traces"
+	}
+	return u.String(), nil
 }
