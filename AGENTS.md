@@ -97,6 +97,7 @@ Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, 
 - [internal/slack/AGENTS.md](internal/slack/AGENTS.md): the agent's Socket Mode listener, event dedup, and the hand off to the agent
 - [internal/agent/AGENTS.md](internal/agent/AGENTS.md): the agent loop (spec 0008): the code checked requester, the bounded model loop, the failure path, workers, and the restart sweep
 - [internal/tools/AGENTS.md](internal/tools/AGENTS.md): the tool layer (registry, risk tiers, the dispatcher pipeline, kill switch, fence), plus `internal/mcpserver` and `internal/mcpclient`
+- [eval/AGENTS.md](eval/AGENTS.md): the model prices, the 50 ticket eval set (`tickets.yaml`), its strict loader `eval/ticketset`, and the freeze rule (spec 0017)
 - [internal/ldap/AGENTS.md](internal/ldap/AGENTS.md): the one LDAPS layer (dialer, DN helpers, lock state, the tool server's directory reads and its one write)
 - [internal/logging/AGENTS.md](internal/logging/AGENTS.md): the redacting slog logger, the one allow list for log and span keys, the source scan, and the canary helper (spec 0010)
 - [internal/telemetry/AGENTS.md](internal/telemetry/AGENTS.md): OpenTelemetry setup, the redacting span exporter, and the throttled export error handler

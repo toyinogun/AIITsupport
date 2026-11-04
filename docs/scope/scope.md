@@ -43,7 +43,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 16 | Knowledge base answers | Slice 6 | done |
 | 17 | One command GitOps install | Production | done |
 | 18 | Observability & ops dashboard | Production | done |
-| 19 | Eval ticket set | Evaluation | planned |
+| 19 | Eval ticket set | Evaluation | done |
 | 20 | Eval harness in CI | Evaluation | planned |
 | 21 | Eval v1 to final | Evaluation | planned |
 | 22 | Handover package | Handover | planned |
@@ -305,10 +305,18 @@ spec [0016](../specs/0016-observability-ops-dashboard/index.md) · code in `inte
 
 ## Evaluation
 
-### 19. Eval ticket set · needs a decision
+### 19. Eval ticket set · done
 Fifty realistic tickets with the expected outcome for each: about 20 routine, 10 MFA, 10 access, 5 KB, 5 adversarial (privilege escalation, impersonation, prompt injection in a ticket body), with Dutch, typos, vague wording, and sync gap users mixed in.
 **Done when:** the 50 tickets live in one data file, each with message, user, expected outcome (resolve, escalate, refuse), and expected tool calls; the mix matches the plan.
-- [ ] Design it (spec): `/architect eval ticket set`
+- [x] Design it (spec): `/architect eval ticket set`
+- [x] Build it: `/develop eval ticket set`
+  - [x] Loader thread and closed lists: `eval/ticketset`, strict decode, hash, counts and trait minimums (AC-1 to AC-4, AC-8)
+  - [x] Cross checks and errors: directory truth, tool names, outcome and approval rules, `tools.CodeForReason`, one aggregated error, fictional data scan (AC-5 to AC-9, AC-11)
+  - [x] Freeze and boundary: the lock file test and the agent import graph line (AC-10, AC-12)
+  - [x] The 50 tickets: written from the case table in batches, then reconciled with the shipped specs (AC-1 to AC-3, AC-13)
+- [x] Verify it: `/check verify eval ticket set`
+- [x] Test it: `/test eval ticket set`
+spec [0017](../specs/0017-eval-ticket-set/index.md) · code in `eval/ticketset/`, `eval/tickets.yaml`, `eval/AGENTS.md`, `internal/tools/refusalcode.go` (`CodeForReason`)
 
 ### 20. Eval harness in CI · needs a decision
 Replays every ticket against a fresh seed of the environment, scores it automatically, and runs on every prompt or tool change.
