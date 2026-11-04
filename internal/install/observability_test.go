@@ -278,11 +278,32 @@ func TestGrafanaRoleAndIngress(t *testing.T) {
 	if !strings.Contains(sql, "CREATE ROLE noord_grafana") || !strings.Contains(sql, "statement_timeout = '10s'") {
 		t.Errorf("postInitSQL = %q, want the role with a 10s statement timeout", sql)
 	}
+	if object(docs, "Ingress", "grafana") != nil {
+		t.Error("the agent part renders Grafana's Ingress; it must ship with Grafana's Service")
+	}
+}
+
+// covers: spec 0016 AC-11, AC-12. Grafana's tailnet Ingress is part of the
+// noord-grafana Application, next to the Service it points at. An Ingress in
+// noord-agent waits for an address that needs a Service from a later
+// Application, which holds noord-agent in Progressing for good (journal 0086).
+func TestGrafanaIngressShipsWithItsService(t *testing.T) {
+	docs := renderPart(t, componentGrafana, "--set", "grafana.enabled=true")
+	if object(docs, "Service", "grafana") == nil {
+		t.Fatal("the grafana part renders no Service named grafana")
+	}
 	ing := object(docs, "Ingress", "grafana")
+	if ing == nil {
+		t.Fatal("the grafana part renders no Ingress named grafana")
+	}
 	ispec, _ := ing["spec"].(map[string]any)
 	svc, _ := ispec["defaultBackend"].(map[string]any)["service"].(map[string]any)
 	if ispec["ingressClassName"] != "tailscale" || svc["name"] != "grafana" || ispec["rules"] != nil {
 		t.Errorf("Grafana's Ingress = %v, want tailscale to the grafana Service only", ispec)
+	}
+	meta, _ := ing["metadata"].(map[string]any)
+	if meta["namespace"] != "noord-agent" {
+		t.Errorf("Grafana's Ingress namespace = %v, want noord-agent", meta["namespace"])
 	}
 }
 
