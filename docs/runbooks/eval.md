@@ -38,4 +38,5 @@ The workflow runs on the `k3sprox` runners (see [the CI runner runbook](ci-runne
 | `stop_reason` `infra` | three model calls in a row failed | check the API key, the model id, and rate limits |
 | `stop_reason` `cost_cap` | the run reached `EVAL_MAX_COST_USD` | raise the cap on purpose, or look for a loop |
 | Zammad never seeds, disk full | Docker's disk is full (journal 0089) | `docker system prune`, then run again |
+| `unknown flag: --profile` from `docker compose` | the runner has no Compose plugin (journal 0091) | the workflow installs a pinned one; check that step ran |
 | Many tickets `approval_missing` | the model stopped before asking for access or MFA | a real agent result, not a harness fault |
