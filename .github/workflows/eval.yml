@@ -47,6 +47,22 @@ jobs:
       - uses: ./.github/actions/setup-go
         with:
           cache-key: ${{ github.job }}
+      - name: Install the Docker Compose plugin
+        # The k3sprox runner has the docker CLI (talking to the dind sidecar)
+        # but no Compose plugin, and the harness starts Zammad with
+        # `docker compose`. Pinned version and checksum; a no-op when present.
+        env:
+          COMPOSE_VERSION: v5.1.4
+          COMPOSE_SHA256: 33b208d7e76639db742fae84b966cc01dacae58ca3fc4dabbc907045aefdf0c4
+        run: |
+          if docker compose version >/dev/null 2>&1; then exit 0; fi
+          dir="$HOME/.docker/cli-plugins"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/docker-compose" \
+            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+          echo "${COMPOSE_SHA256}  $dir/docker-compose" | sha256sum -c -
+          chmod +x "$dir/docker-compose"
+          docker compose version
       - name: Play the 50 tickets
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
