@@ -11,6 +11,11 @@ import (
 	"github.com/toyinogun/AIITsupport/internal/cause"
 )
 
+func withDescription(m map[string][]string, d string) map[string][]string {
+	m["description"] = []string{d}
+	return m
+}
+
 func TestToUser(t *testing.T) {
 	attrs := func(uac ...string) map[string][]string {
 		m := map[string][]string{
@@ -30,11 +35,15 @@ func TestToUser(t *testing.T) {
 		{"a normal account is enabled", attrs("512"), true},
 		{"the disabled bit marks it disabled", attrs("514"), false},
 		{"no userAccountControl reads as enabled", attrs(), true},
+		{"the description is carried", withDescription(attrs("512"), "contract ended"), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := toUser(goldap.NewEntry(evaDN, tc.attrs))
 
 			want := User{DN: evaDN, Username: "eva.peters", DisplayName: "Eva Peters", Department: "Sales", Mail: "eva.peters@noord.example", Enabled: tc.enabled}
+			if d := tc.attrs["description"]; len(d) > 0 {
+				want.Description = d[0]
+			}
 			if got != want {
 				t.Errorf("toUser = %+v, want %+v", got, want)
 			}
