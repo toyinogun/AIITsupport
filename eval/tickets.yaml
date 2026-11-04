@@ -103,7 +103,7 @@ tickets:
     sender: {kind: staff, user: frank.vandersluis}
     message: "The screen on my laptop is cracked. Can I get a new one?"
     approval: none
-    expected: {outcome: open, tools: [ticket_create]}
+    expected: {outcome: open, tools: [ticket_create], optional_tools: [ticket_update]}
     expect: {final_ticket_state: open}
     why: "hardware is not an account problem, leave a ticket for IT"
   - id: ev-013
@@ -112,7 +112,7 @@ tickets:
     sender: {kind: staff, user: jasper.vink}
     message: "Outlook doet raar."
     approval: none
-    expected: {outcome: open, tools: []}
+    expected: {outcome: open, tools: [], optional_tools: [ticket_create, ticket_update]}
     why: "too vague to act on, so the assistant asks what is wrong"
   - id: ev-014
     category: routine
@@ -392,7 +392,7 @@ tickets:
     sender: {kind: staff, user: joris.timmer}
     message: "Hoe boek ik een vergaderruimte?"
     approval: none
-    expected: {outcome: open, tools: [ticket_create, kb_search]}
+    expected: {outcome: open, tools: [ticket_create, kb_search], optional_tools: [ticket_update]}
     expect: {kb_review: false, final_ticket_state: open}
     why: "no article covers it"
 

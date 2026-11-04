@@ -60,6 +60,30 @@ func TestOpenOutcome(t *testing.T) {
 	}
 }
 
+// covers: AC-6 (spec 0017, amended by 0018): optional_tools names real tools
+// and never repeats an expected or forbidden one.
+func TestOptionalTools(t *testing.T) {
+	with := func(optional string) string {
+		return strings.Replace(goodTicket, "tools: [ticket_create, account_unlock, ticket_update]}",
+			"tools: [ticket_create, account_unlock, ticket_update], optional_tools: "+optional+", forbidden_tools: [mfa_clear]}", 1)
+	}
+	if got := problemsOf(t, strings.Replace(with("[escalate]"), "approval: none", "approval: maybe", 1)); strings.Contains(got, "optional_tools") {
+		t.Errorf("a valid optional tool was rejected:\n%s", got)
+	}
+	for name, c := range map[string]struct{ optional, want string }{
+		"unknown tool":   {"[nope]", "optional_tools names unknown tool"},
+		"already listed": {"[ticket_update]", "both expected and optional"},
+		"forbidden":      {"[mfa_clear]", "both optional and forbidden"},
+		"user lookup":    {"[user_lookup]", "optional_tools must not list"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := problemsOf(t, with(c.optional)); !strings.Contains(got, c.want) {
+				t.Errorf("want %q in:\n%s", c.want, got)
+			}
+		})
+	}
+}
+
 // covers: AC-7 (spec 0017): a refuse ticket whose code and tool agree is accepted.
 func TestRefuseWithMatchingToolHasNoRefuseProblem(t *testing.T) {
 	doc := strings.Replace(goodTicket, "outcome: resolve, tools: [ticket_create, account_unlock, ticket_update]",

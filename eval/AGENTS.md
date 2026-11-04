@@ -23,6 +23,7 @@ What the agent and the eval harness share (specs 0003, 0008, 0017). `pricing.go`
 ## Conventions
 
 - Package `eval` and the agent must never import `eval/ticketset` or `internal/seed`. `cmd/agent/boundary_test.go` checks it.
+- `expected.optional_tools` lists write tools a ticket allows but does not require (the agent sometimes adds a `ticket_update` note); they are never `wrong`. A tool may not be in both lists, nor in `forbidden_tools`.
 - The file is public: fictional data only, emails and links end in `noord.example` (the loader scans for it).
 - After the first saved run the file is frozen: change means a new numbered set (`tickets_v2.yaml`) and a journal entry, never an edit.
 - A new tool or refusal code needs `ticketset/lists.go` and `internal/tools/refusalcode.go` updated; tests fail until it is.

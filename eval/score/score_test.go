@@ -70,6 +70,30 @@ func TestScore(t *testing.T) {
 			wantOut: "resolve", wantWrong: true, wantChecks: []string{"wrong"},
 		},
 		{
+			name: "an optional write tool that runs is not wrong",
+			ticket: ticketset.Ticket{Expected: ticketset.Expected{
+				Outcome: "resolve", Tools: []string{"kb_search"}, OptionalTools: []string{"ticket_update"},
+			}},
+			ev:      score.Evidence{Sender: me, ConversationOutcome: "resolved", Calls: okCalls("kb_search", "ticket_update")},
+			wantOut: "resolve", wantPassed: true,
+		},
+		{
+			name: "an optional write tool that does not run is fine",
+			ticket: ticketset.Ticket{Expected: ticketset.Expected{
+				Outcome: "resolve", Tools: []string{"kb_search"}, OptionalTools: []string{"ticket_update"},
+			}},
+			ev:      score.Evidence{Sender: me, ConversationOutcome: "resolved", Calls: okCalls("kb_search")},
+			wantOut: "resolve", wantPassed: true,
+		},
+		{
+			name: "a write tool that is neither expected nor optional is still wrong",
+			ticket: ticketset.Ticket{Expected: ticketset.Expected{
+				Outcome: "resolve", Tools: []string{"kb_search"}, OptionalTools: []string{"ticket_update"},
+			}},
+			ev:      score.Evidence{Sender: me, ConversationOutcome: "resolved", Calls: okCalls("kb_search", "ticket_create")},
+			wantOut: "resolve", wantWrong: true, wantChecks: []string{"wrong"},
+		},
+		{
 			name:   "extra read tool is fine",
 			ticket: resolveTicket("kb_search"),
 			ev: score.Evidence{

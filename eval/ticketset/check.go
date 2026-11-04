@@ -154,6 +154,18 @@ func (c *checker) checkTools(id string, t Ticket) {
 			c.add(id, "tool %q is both expected and forbidden", name)
 		}
 	}
+	for _, name := range t.Expected.OptionalTools {
+		switch {
+		case !toolNames[name]:
+			c.add(id, "expected.optional_tools names unknown tool %q", name)
+		case name == tools.ToolUserLookup:
+			c.add(id, "expected.optional_tools must not list %s (agent code owns that call)", name)
+		case slices.Contains(t.Expected.Tools, name):
+			c.add(id, "tool %q is both expected and optional", name)
+		case slices.Contains(t.Expected.ForbiddenTools, name):
+			c.add(id, "tool %q is both optional and forbidden", name)
+		}
+	}
 }
 
 func (c *checker) checkRules(id string, t Ticket) {
