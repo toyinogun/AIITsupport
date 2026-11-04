@@ -42,14 +42,17 @@ processors:
       - model_calls
       - outcome
       - output_tokens
+      - passed
       - read_only
       - reason
       - removed
       - rows
+      - run_label
       - service
       - service.name
       - stop_reason
       - ticket
+      - ticket_key
       - tier
       - tool
       - tool_calls

@@ -1,0 +1,73 @@
+# Eval harness (spec 0018, AC-16). Plays the 50 eval tickets against the real
+# model after a merge to main when the prompt, the tools, the tickets, or the
+# harness change, and on demand. It never runs on a pull request: the API key
+# lives in the `eval` Environment, limited to main, and must not be reachable
+# from a pull request build. It is not part of ci-ok. Setup: docs/runbooks/eval.md.
+name: eval
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - internal/agent/prompt/**
+      - internal/tools/**
+      - internal/mcpserver/**
+      - cmd/toolserver/**
+      - eval/**
+      - "!eval/runs/**"
+      - cmd/eval/**
+      - internal/seed/**
+      - seed/**
+  workflow_dispatch:
+    inputs:
+      model:
+        description: The model id to run; empty uses LLM_MODEL's default.
+        required: false
+        default: ""
+
+# Two eval runs never overlap, and a running one is never cancelled.
+concurrency:
+  group: eval
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  eval:
+    # Only a push to main or a manual run by someone with write access gets here.
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && 'k3sprox' || 'ubuntu-latest' }}
+    environment: eval
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: ${{ github.job }}
+      - name: Play the 50 tickets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ inputs.model }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          args=()
+          if [ -n "$MODEL" ]; then args+=(--model "$MODEL"); fi
+          label="ci-${GITHUB_SHA::7}-${MODEL:-default}-${RUN_ATTEMPT}"
+          echo "EVAL_LABEL=$label" >> "$GITHUB_ENV"
+          go run ./cmd/eval run --label "$label" --out "$RUNNER_TEMP/eval" "${args[@]}"
+      - name: Show the summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/eval/$EVAL_LABEL.md" ]; then
+            cat "$RUNNER_TEMP/eval/$EVAL_LABEL.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eval-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/eval/
+          retention-days: 90
+          if-no-files-found: ignore

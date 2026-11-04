@@ -44,7 +44,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 17 | One command GitOps install | Production | done |
 | 18 | Observability & ops dashboard | Production | done |
 | 19 | Eval ticket set | Evaluation | done |
-| 20 | Eval harness in CI | Evaluation | planned |
+| 20 | Eval harness in CI | Evaluation | in-progress |
 | 21 | Eval v1 to final | Evaluation | planned |
 | 22 | Handover package | Handover | planned |
 | 23 | Public repo & README | Handover | planned |
@@ -318,10 +318,26 @@ Fifty realistic tickets with the expected outcome for each: about 20 routine, 10
 - [x] Test it: `/test eval ticket set`
 spec [0017](../specs/0017-eval-ticket-set/index.md) · code in `eval/ticketset/`, `eval/tickets.yaml`, `eval/AGENTS.md`, `internal/tools/refusalcode.go` (`CodeForReason`)
 
-### 20. Eval harness in CI · needs a decision
+### 20. Eval harness in CI
 Replays every ticket against a fresh seed of the environment, scores it automatically, and runs on every prompt or tool change.
 **Done when:** one command runs all 50 and prints resolution rate, correct escalation, unsafe actions, wrong actions, time to resolve, and cost per ticket; CI runs it on prompt or tool changes; each run is saved.
-- [ ] Design it (spec): `/architect eval harness`
+- [x] Design it (spec): `/architect eval harness`
+- [ ] Build it: `/develop eval harness`
+  - [x] Tracer thread: config, Graph override settings, log keys, containers, tool server child, one ticket scored (AC-2, AC-3, AC-17, AC-20)
+  - [x] Scoring and saving: `eval/score`, the migration, hashes, run and result rows (AC-4, AC-5, AC-10, AC-11, AC-14); the runner calls them in step 4
+  - [ ] All 50 tickets: identities, setup, approver clicks, database clone per attempt, outside undo, stops, repeats (AC-1, AC-6 to AC-9, AC-18, AC-19)
+    - [x] Built and run live on five tickets (ev-001, 021, 025, 031, 040): setup tokens, approver clicks, evidence, scoring, saving, stdout lines
+    - [x] Outside undo and verify (`evalreset`, `env_dirty` stop), live on four writing tickets
+    - [x] Cost cap, infra stop, repeats (`runner.Play`, `--repeat`); tested with a fake player, not yet run live
+  - [ ] Reports and CLI: JSON and Markdown, `compare`, `report`, freeze, exit codes (AC-12, AC-13, AC-15)
+    - [x] `eval/report`, `report`, `compare`, `--freeze`, `--force`, label check; tested, not run live
+    - [x] Exit codes 0, 1, 3, the `EVAL_DATABASE_URL` copy, `make eval`; tested, not run live
+  - [ ] CI: `eval.yml`, the `eval` Environment, first full run and runner memory (AC-16)
+    - [x] `eval.yml`, its test, `docs/runbooks/eval.md`, the canary test
+    - [ ] Create the `eval` Environment and secret in GitHub, first full run, runner memory
+- [ ] Verify it: `/check verify eval harness`
+- [ ] Test it: `/test eval harness`
+spec [0018](../specs/0018-eval-harness/index.md) · code in `cmd/eval/`, `eval/`, `internal/seed/evalreset/`, `.github/workflows/eval.yml`
 
 ### 21. Eval v1 to final
 Run v1, publish it as is, fix the top failures, run again. The gap between the two runs is the story.

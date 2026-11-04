@@ -31,7 +31,10 @@ var allowed = map[string]bool{
 	"service": true, "outcome": true, "cause": true, "reason": true, "kind": true, "code": true,
 	"tool": true, "tier": true, "event_type": true, "api": true, "escalation_reason": true,
 	"stop_reason": true, "model": true, "addr": true,
+	"ticket_key": true, // an eval ticket id such as ev-001, fictional (spec 0018, AC-17)
+	"run_label":  true, // an eval run label, a fixed token chosen by the engineer or CI
 	// counts and flags
+	"passed":  true, // an eval ticket's pass flag (spec 0018, AC-17)
 	"attempt": true, "attempts": true, "backoff_ms": true, "latency_ms": true, "model_calls": true,
 	"tool_calls": true, "ticket": true, "removed": true, "read_only": true, "rows": true,
 	"dropped":      true, // markers or links removed from a reply (spec 0014, AC-10)

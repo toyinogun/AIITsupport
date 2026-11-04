@@ -55,7 +55,7 @@ The agent loop (spec 0008). The Slack listener hands every accepted message to `
 
 - The model's thinking blocks come back in the response and are stored and resent unchanged (an append only history). Never edit a stored message.
 - `token_budget` weighs cache reads at their price (spec 0014, AC-18, amending spec 0008): the check sums the conversation's usage (`Store.SumUsage`) through `eval.ModelPrice.BudgetTokens`, so a cache read counts about a tenth of an input token. Each call reads about 6,700 cached prompt and tool tokens; a KB answer counts about 4,300 to 12,100 of the 30000 budget, an access request's happy path about 11,600 (journals 0058, 0059).
-- `Agent.Wait` exists only in tests (`export_test.go`); production waits through `Run`.
+- `Agent.Wait` exists only in tests (`export_test.go`); production waits through `Run`. `Agent.WaitIdle(ctx, channel, thread)` (`waitidle.go`, spec 0018) is the one exported wait: it returns when no worker runs for the thread and no approval card of its conversation is unsettled. Only the eval harness and tests call it.
 - `ListInterruptedConversations` matches `content @> '[{"type": "tool_use"}]'`, so stored content must stay the SDK param JSON.
 
 ## Commands

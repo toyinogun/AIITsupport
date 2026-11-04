@@ -7,6 +7,7 @@ package graphtest
 
 import (
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"maps"
 	"net/http"
@@ -98,12 +99,42 @@ type Fake struct {
 	defaultAuth map[string]string
 	writes      int
 	requests    []string
+	// clientID and clientSecret are what the token endpoint accepts (TLS mode).
+	clientID, clientSecret string
 }
 
 // New starts a fake Graph that stops when the test ends.
 func New(t testing.TB) *Fake {
 	t.Helper()
-	f := &Fake{
+	f := newFake()
+	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.Server.Close)
+	return f
+}
+
+// StartTLS starts a fake Graph over TLS with a token endpoint, for the eval
+// harness (spec 0018, AC-20): the real tool server reaches it through
+// GRAPH_BASE_URL and GRAPH_AUTHORITY_HOST and trusts CAPEM through
+// SSL_CERT_FILE. clientID and clientSecret are the only credentials its token
+// endpoint accepts. The caller stops it with Close.
+func StartTLS(clientID, clientSecret string) *Fake {
+	f := newFake()
+	f.clientID, f.clientSecret = clientID, clientSecret
+	f.Server = httptest.NewTLSServer(http.HandlerFunc(f.serve))
+	return f
+}
+
+// Close stops a fake started with StartTLS.
+func (f *Fake) Close() { f.Server.Close() }
+
+// CAPEM is the certificate a TLS fake presents, PEM encoded: the CA bundle a
+// client must trust to reach it.
+func (f *Fake) CAPEM() []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.Server.Certificate().Raw})
+}
+
+func newFake() *Fake {
+	return &Fake{
 		PageSize: 2,
 		users:    map[string]map[string]any{},
 		deleted:  map[string]map[string]any{},
@@ -116,9 +147,6 @@ func New(t testing.TB) *Fake {
 		prefs:          map[string]string{},
 		defaultAuth:    map[string]string{},
 	}
-	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
-	t.Cleanup(f.Server.Close)
-	return f
 }
 
 // URL is the base URL to point a graph client at.
@@ -313,6 +341,9 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	f.requests = append(f.requests, r.Method+" "+r.URL.Path)
 	f.mu.Unlock()
 
+	if f.serveToken(w, r) {
+		return
+	}
 	if r.Header.Get("Authorization") != "Bearer "+Token {
 		writeError(w, http.StatusUnauthorized, "InvalidAuthenticationToken", "bad token")
 		return
@@ -700,4 +731,43 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
+}
+
+// serveToken answers the Entra sign in endpoints a client credential uses: the
+// tenant discovery document and the token endpoint. It reports whether it
+// handled the request. Only a fake started with StartTLS has credentials to
+// check; any other fake leaves these paths to the Graph routes.
+func (f *Fake) serveToken(w http.ResponseWriter, r *http.Request) bool {
+	if f.clientID == "" {
+		return false
+	}
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	switch {
+	case len(parts) == 4 && parts[1] == "v2.0" && parts[2] == ".well-known" && parts[3] == "openid-configuration":
+		base := "https://" + r.Host + "/" + parts[0]
+		writeJSON(w, http.StatusOK, map[string]any{
+			"token_endpoint":         base + "/oauth2/v2.0/token",
+			"authorization_endpoint": base + "/oauth2/v2.0/authorize",
+			"issuer":                 base + "/v2.0",
+		})
+		return true
+	case len(parts) == 4 && parts[1] == "oauth2" && parts[2] == "v2.0" && parts[3] == "token":
+		if r.Method != http.MethodPost || r.ParseForm() != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "bad token request")
+			return true
+		}
+		if r.PostForm.Get("client_id") != f.clientID || r.PostForm.Get("client_secret") != f.clientSecret {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_client", "error_description": "bad client credentials"})
+			return true
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"token_type": "Bearer", "expires_in": 3600, "access_token": Token})
+		return true
+	}
+	return false
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }

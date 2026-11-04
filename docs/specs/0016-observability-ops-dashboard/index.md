@@ -176,5 +176,5 @@ Tracer Bullet, as the project default: first a thin thread that shows a real tra
 - [ ] Amend spec 0003 (data model) with the new columns and tables, and spec 0010's follow up list: tick the Collector redaction layer and the idle close counting (this spec).
 - [ ] Decide later whether approved actions should join the conversation trace (needs the conversation's trace id carried on the `approvals` row). Not needed for the scope's done line.
 - [ ] Connect `grafana/mcp-grafana` (named in spec 0001) in your own MCP settings once the stack is up; it is not required to build this.
-- [ ] Eval (#20) should read `conversations.outcome` instead of inferring from `status`.
+- [x] Eval (#20) should read `conversations.outcome` instead of inferring from `status`. Done in spec 0018 (AC-4).
 - [ ] The `tempo`, `opentelemetry`, and `grafana-oss` skills are installed and listed in `AGENTS.md`; no skill is missing.

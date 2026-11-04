@@ -1436,3 +1436,72 @@ func TestLoadToolServerKillSwitchSyncInterval(t *testing.T) {
 		}
 	}
 }
+
+// covers: AC-20 (spec 0018). GRAPH_BASE_URL and GRAPH_AUTHORITY_HOST are
+// optional; when set they must be https URLs with a host and nothing else.
+func TestLoadToolServerGraphEndpoints(t *testing.T) {
+	cases := []struct {
+		name, setting, value string
+		wantErr              bool
+	}{
+		{"unset", "GRAPH_BASE_URL", "", false},
+		{"https base", "GRAPH_BASE_URL", "https://127.0.0.1:8443/v1.0", false},
+		{"https authority", "GRAPH_AUTHORITY_HOST", "https://127.0.0.1:8443", false},
+		{"http base", "GRAPH_BASE_URL", "http://127.0.0.1:8443", true},
+		{"no host", "GRAPH_AUTHORITY_HOST", "https://", true},
+		{"credentials", "GRAPH_BASE_URL", "https://user:pw@example.test", true},
+		{"query", "GRAPH_BASE_URL", "https://example.test/?a=b", true},
+		{"fragment", "GRAPH_AUTHORITY_HOST", "https://example.test/#x", true},
+		{"bare host", "GRAPH_AUTHORITY_HOST", "example.test", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := minimalToolServerEnv()
+			env[tc.setting] = tc.value
+			_, err := LoadToolServer(envFrom(env))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if err != nil && !strings.Contains(err.Error(), tc.setting) {
+				t.Errorf("error %q does not name %s", err, tc.setting)
+			}
+			if err != nil && tc.value != "" && strings.Contains(err.Error(), tc.value) {
+				t.Errorf("error repeats the value")
+			}
+		})
+	}
+}
+
+// covers: AC-9 (spec 0018). LoadEval needs the API key, applies the defaults,
+// bounds the cost cap and the approval wait, and has no external system URL.
+func TestLoadEval(t *testing.T) {
+	cfg, err := LoadEval(envFrom(map[string]string{"ANTHROPIC_API_KEY": "key"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxCostMicroUSD() != 10_000_000 || cfg.ApprovalWait != 60*time.Second || cfg.KeepEnv {
+		t.Errorf("defaults = %d, %s, %v", cfg.MaxCostMicroUSD(), cfg.ApprovalWait, cfg.KeepEnv)
+	}
+	for name, env := range map[string]map[string]string{
+		"no key":     {},
+		"cost low":   {"ANTHROPIC_API_KEY": "k", "EVAL_MAX_COST_USD": "0.1"},
+		"cost high":  {"ANTHROPIC_API_KEY": "k", "EVAL_MAX_COST_USD": "501"},
+		"cost text":  {"ANTHROPIC_API_KEY": "k", "EVAL_MAX_COST_USD": "ten"},
+		"wait short": {"ANTHROPIC_API_KEY": "k", "EVAL_APPROVAL_WAIT": "1s"},
+		"wait long":  {"ANTHROPIC_API_KEY": "k", "EVAL_APPROVAL_WAIT": "11m"},
+	} {
+		if _, err := LoadEval(envFrom(env)); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
+func TestEvalHasNoExternalSystemSetting(t *testing.T) {
+	for _, name := range Fields(&Eval{}) {
+		for _, bad := range []string{"LDAP", "ZAMMAD", "GRAPH", "SLACK"} {
+			if strings.Contains(name, bad) {
+				t.Errorf("Eval declares %s: the harness must not reach an external system", name)
+			}
+		}
+	}
+}

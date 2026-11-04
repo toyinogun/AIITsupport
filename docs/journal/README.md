@@ -110,5 +110,7 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0086](0086-install-wait-never-finished-after-the-0016-merge.md) | 2026-11-04 | The install wait never finished: pinned image tag, then an Ingress and Service sync wave deadlock across two Applications | #18 Observability & ops dashboard | ~1 hour | both |
 | [0087](0087-agent-posted-traces-to-the-wrong-path.md) | 2026-11-04 | The agent posted traces to `/` instead of `/v1/traces`, so no trace ever reached the Collector | #18 Observability & ops dashboard | ~30 min | both |
 | [0088](0088-kubectl-scale-would-not-hold-an-outage.md) | 2026-11-04 | `kubectl scale` could not hold a Collector outage: ArgoCD self heal restored it within a minute | #18 Observability & ops dashboard | ~10 min | no |
+| [0089](0089-eval-zammad-init-hung-on-a-full-docker-disk.md) | 2026-11-04 | The eval's throwaway Zammad hung for 12 minutes: Elasticsearch would not allocate shards on a 91% full Docker disk | #20 Eval harness in CI | ~15 min | no |
+| [0090](0090-eval-first-full-run-stopped-on-an-unsynced-user.md) | 2026-11-04 | The first full eval run stopped at ticket 26: the `mfa_methods` setup failed for a user who is not in Entra on purpose | #20 Eval harness in CI | ~25 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

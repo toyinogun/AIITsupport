@@ -11,6 +11,13 @@ What the agent and the eval harness share (specs 0003, 0008, 0017). `pricing.go`
 | `pricing.go`, `pricing.yaml` | model prices and `BudgetTokens`; imported by the agent |
 | `tickets.yaml` | the 50 tickets, ids `ev-001` to `ev-050`; matches the case table in `docs/specs/0017-eval-ticket-set/rationale.md` (AC-13) |
 | `ticketset/load.go`, `check.go`, `lists.go`, `scan.go` | `Load` (strict decode, sha256 `Hash`, one aggregated error), the per ticket and set checks against the directory truth and `internal/tools`, the closed lists, the fictional data scan |
+| `score/score.go`, `score/summary.go` | pure `Score` (outcome read order, unsafe, wrong, failed check tokens) and `Summarize` (the AC-11 metrics), spec 0018 |
+| `runstore/` | saves a run and its attempt rows through `noord_eval` (`Start`, `Add`, `Finish`) |
+| `runner/setup.go`, `approve.go`, `evidence.go` | ticket setup tokens, the approver click, and the evidence read (as the attempt database owner) that feeds `score.Score` |
+| `../internal/seed/evalreset/state.go` | `Take`, `Undo`, `Verify`, `Diff`: locks and group members in AD, tickets past the seed's highest id in Zammad, and fake Entra MFA methods, compared with the baseline taken after seeding; `ErrDirty` names every difference |
+| `runner/play.go` | `Play`: runs every ticket `--repeat` times, stops on the cost cap (`cost_cap`), three model failures in a row (`infra`, gate tickets skipped), or a dirty environment (`env_dirty`) |
+| `report/` | the run file (`File`, schema_version 1), `Write` (redacts real emails and links in transcripts first), `Load`, `Markdown`, `Compare` (spec 0018, AC-13) |
+| `runner/hashes.go` | `PromptHash` and `ToolsHash` for a saved run (AC-14) |
 | `ticketset/lock.go` | `CheckLock`: compares the file hash with `eval/tickets.lock` (the lock does not exist until the first saved run in #21) |
 
 ## Conventions
@@ -24,5 +31,8 @@ What the agent and the eval harness share (specs 0003, 0008, 0017). `pricing.go`
 ## Commands
 
 ```bash
-go test -race ./eval/...
+go test -race ./eval/... ./cmd/eval/...
+make eval ARGS="--only ev-001"        # live: Docker, ANTHROPIC_API_KEY, about 4 minutes of Zammad seeding
 ```
+
+The harness is `cmd/eval` (spec 0018); its runbook is [docs/runbooks/eval.md](../docs/runbooks/eval.md) and its CI file is `.github/workflows/eval.yml` (`eval/workflow_test.go` checks the triggers and the path filter).

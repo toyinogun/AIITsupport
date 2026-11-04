@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -233,6 +234,10 @@ func (f *Fake) route(w http.ResponseWriter, r *http.Request, who string, body ma
 		writeJSON(w, http.StatusOK, []any{})
 	case r.Method == http.MethodPost && p == "/api/v1/tickets":
 		f.createTicket(w, body)
+	case r.Method == http.MethodGet && p == "/api/v1/tickets":
+		f.listTickets(w)
+	case r.Method == http.MethodDelete && ticketPath.MatchString(p):
+		f.deleteTicket(w, who, idFrom(ticketPath, p, 1))
 	case r.Method == http.MethodPut && ticketPath.MatchString(p):
 		f.updateTicket(w, idFrom(ticketPath, p, 1), body)
 	case r.Method == http.MethodGet && ticketPath.MatchString(p):
@@ -319,6 +324,33 @@ func (f *Fake) updateTicket(w http.ResponseWriter, id int, body map[string]any) 
 		}
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+func (f *Fake) listTickets(w http.ResponseWriter) {
+	ids := make([]int, 0, len(f.tickets))
+	for id := range f.tickets {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	out := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, f.tickets[id])
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// deleteTicket is admin only, as in Zammad.
+func (f *Fake) deleteTicket(w http.ResponseWriter, who string, id int) {
+	if who != "admin" {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "Not authorized"})
+		return
+	}
+	if _, ok := f.tickets[id]; !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no ticket"})
+		return
+	}
+	delete(f.tickets, id)
+	writeJSON(w, http.StatusOK, map[string]any{})
 }
 
 func (f *Fake) getTicket(w http.ResponseWriter, id int) {

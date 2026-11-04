@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
@@ -79,6 +80,10 @@ type Options struct {
 // CertFile, the path of a PEM with its certificate and key (spec 0015, AC-24).
 type Credentials struct {
 	TenantID, ClientID, ClientSecret, CertFile string
+	// AuthorityHost, when set, replaces Microsoft's sign in host and turns
+	// instance discovery off (spec 0018, AC-20). Only the eval harness sets it,
+	// to reach a fake token endpoint. It must be an https URL.
+	AuthorityHost string
 }
 
 // Client sends one Graph request at a time.
@@ -136,8 +141,15 @@ func NewWithCredentials(creds Credentials, opts Options) (*Client, error) {
 }
 
 func credential(creds Credentials) (azcore.TokenCredential, error) {
+	var client azcore.ClientOptions
+	discovery := false
+	if creds.AuthorityHost != "" {
+		client.Cloud = cloud.Configuration{ActiveDirectoryAuthorityHost: creds.AuthorityHost}
+		discovery = true
+	}
 	if creds.CertFile == "" {
-		return azidentity.NewClientSecretCredential(creds.TenantID, creds.ClientID, creds.ClientSecret, nil)
+		return azidentity.NewClientSecretCredential(creds.TenantID, creds.ClientID, creds.ClientSecret,
+			&azidentity.ClientSecretCredentialOptions{ClientOptions: client, DisableInstanceDiscovery: discovery})
 	}
 	raw, err := os.ReadFile(creds.CertFile)
 	if err != nil {
@@ -147,7 +159,8 @@ func credential(creds Credentials) (azcore.TokenCredential, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse the client certificate %s: %w", creds.CertFile, err)
 	}
-	return azidentity.NewClientCertificateCredential(creds.TenantID, creds.ClientID, certs, key, nil)
+	return azidentity.NewClientCertificateCredential(creds.TenantID, creds.ClientID, certs, key,
+		&azidentity.ClientCertificateCredentialOptions{ClientOptions: client, DisableInstanceDiscovery: discovery})
 }
 
 // Base is the Graph root this client talks to, for building @odata.id references.

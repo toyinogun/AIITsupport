@@ -82,6 +82,17 @@ var everyMethod = map[string]func(ctx context.Context, c *zammad.Client, custome
 		_, err = c.GetTicket(ctx, tk.ID)
 		return err
 	},
+	"ListTickets": func(ctx context.Context, c *zammad.Client, _ int) error {
+		_, err := c.ListTickets(ctx, 1, 50)
+		return err
+	},
+	"DeleteTicket": func(ctx context.Context, c *zammad.Client, customer int) error {
+		tk, err := c.CreateTicket(ctx, zammad.NewTicket{Title: "x", Group: "IT Support", CustomerID: customer, Article: zammad.NewArticle{Body: "b", ContentType: "text/plain", Type: zammad.ArticleWeb, Sender: zammad.SenderCustomer}}, "")
+		if err != nil {
+			return err
+		}
+		return c.DeleteTicket(ctx, tk.ID)
+	},
 	"AddTag": func(ctx context.Context, c *zammad.Client, customer int) error {
 		tk, err := c.CreateTicket(ctx, zammad.NewTicket{Title: "x", Group: "IT Support", CustomerID: customer, Article: zammad.NewArticle{Body: "b", ContentType: "text/plain", Type: zammad.ArticleWeb, Sender: zammad.SenderCustomer}}, "")
 		if err != nil {
@@ -224,5 +235,25 @@ func TestGuardAllowsUserReads(t *testing.T) {
 	}
 	if !strings.Contains(f.Requests()[0].Path, "/users/me") {
 		t.Errorf("requests %+v", f.Requests())
+	}
+}
+
+// covers: AC-7 (spec 0018). Only the admin deletes a ticket; the assistant
+// token gets a 403, so the tool server can never delete one.
+func TestAssistantCannotDeleteTickets(t *testing.T) {
+	f := zammadtest.New(t)
+	customer := f.AddUser("eva.peters")
+	tk, err := adminClient(t, f).CreateTicket(t.Context(), zammad.NewTicket{
+		Title: "x", Group: "IT Support", CustomerID: customer,
+		Article: zammad.NewArticle{Body: "b", ContentType: "text/plain", Type: zammad.ArticleWeb, Sender: zammad.SenderCustomer},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tokenClient(t, f).DeleteTicket(t.Context(), tk.ID); !zammad.IsForbidden(err) {
+		t.Fatalf("assistant delete = %v, want a 403", err)
+	}
+	if err := adminClient(t, f).DeleteTicket(t.Context(), tk.ID); err != nil {
+		t.Fatalf("admin delete: %v", err)
 	}
 }
