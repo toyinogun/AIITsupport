@@ -65,6 +65,10 @@ jobs:
           docker compose version
       - name: Play the 50 tickets
         env:
+          # The harness bind mounts files from its temp dir into Zammad. The
+          # dind sidecar only shares /home/runner/_work with this container, so
+          # a temp dir under /tmp would mount as an empty directory.
+          TMPDIR: ${{ runner.temp }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MODEL: ${{ inputs.model }}
           RUN_ATTEMPT: ${{ github.run_attempt }}

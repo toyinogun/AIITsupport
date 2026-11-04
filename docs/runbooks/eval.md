@@ -39,4 +39,5 @@ The workflow runs on the `k3sprox` runners (see [the CI runner runbook](ci-runne
 | `stop_reason` `cost_cap` | the run reached `EVAL_MAX_COST_USD` | raise the cap on purpose, or look for a loop |
 | Zammad never seeds, disk full | Docker's disk is full (journal 0089) | `docker system prune`, then run again |
 | `unknown flag: --profile` from `docker compose` | the runner has no Compose plugin (journal 0091) | the workflow installs a pinned one; check that step ran |
+| `Errno::EISDIR ... /opt/noord-seed/ca.pem` | a bind mount source is not on the dind sidecar's disk | keep the harness temp dir under `$RUNNER_TEMP` (the workflow sets `TMPDIR`); journal 0092 |
 | Many tickets `approval_missing` | the model stopped before asking for access or MFA | a real agent result, not a harness fault |

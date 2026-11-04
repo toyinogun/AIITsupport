@@ -113,5 +113,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0089](0089-eval-zammad-init-hung-on-a-full-docker-disk.md) | 2026-11-04 | The eval's throwaway Zammad hung for 12 minutes: Elasticsearch would not allocate shards on a 91% full Docker disk | #20 Eval harness in CI | ~15 min | no |
 | [0090](0090-eval-first-full-run-stopped-on-an-unsynced-user.md) | 2026-11-04 | The first full eval run stopped at ticket 26: the `mfa_methods` setup failed for a user who is not in Entra on purpose | #20 Eval harness in CI | ~25 min | no |
 | [0091](0091-eval-ci-run-failed-the-runner-had-no-docker-compose.md) | 2026-11-04 | The first CI eval run failed in 50 seconds: the k3sprox runner has the docker CLI but no Compose plugin | #20 Eval harness in CI | ~20 min | no |
+| [0092](0092-eval-ci-zammad-seed-found-a-directory-where-ca-pem-should-be.md) | 2026-11-04 | The CI eval's Zammad seed failed with `EISDIR` on `ca.pem`: a bind mount from the runner's `/tmp` is empty inside the dind sidecar | #20 Eval harness in CI | ~20 min | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
