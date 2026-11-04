@@ -33,6 +33,10 @@ Builds Noord's fictional on prem Active Directory (spec 0004): a Samba AD contai
 ```bash
 make directory-reset          # replace the Samba container and seed it
 make seed                     # seed again; "already seeded" when the marker matches
+make directory-login NAME=<username>  # bind as a seeded user and show the lock state
+make directory-lock NAME=<username>   # lock a seeded user by failed binds
+make certs                    # dev CA and Samba server cert in .dev/certs (keeps existing files)
+make helpdesk-up              # start Zammad in Compose (profile helpdesk, http://127.0.0.1:58080) and wait until healthy
 go run ./cmd/seed validate    # check the seed file, no network, no passwords
 TEST_SAMBA=1 go test -race ./internal/seed/...   # live tests against a throwaway container
 make entra-sync [ONLY=<username>]  # make Entra match SYNC-Entra-Users; skips when SEED_GRAPH_* is unset

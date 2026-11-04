@@ -21,6 +21,14 @@ Everything ArgoCD installs (spec 0015): the bootstrap chart that renders the App
 
 ```bash
 make install CLUSTER=<name>   # check, seal, commit and push the cluster folder, apply, wait (exit 2: preflight stopped, nothing changed)
+make smoke CLUSTER=<name>     # run the smoke check on an installed cluster (readiness, tool list, migration version; AC-17)
+make release CLUSTER=<name> SHA=<sha> # pin a cluster to the images of a commit; run make install after it, because install alone never moves the pinned image tag (AC-19, journal 0086)
+make pause CLUSTER=<name>     # stop the agent and the seed Jobs (AC-20)
+make resume CLUSTER=<name>    # start the agent again and rerun every seed step (AC-20)
+make uninstall CLUSTER=<name> # delete the cluster's Applications and every volume claim, database included; backups, ~/.noord/<name> and ArgoCD stay (AC-21)
+make cluster-init CLUSTER=<name> # make deploy/clusters/<name>/ from the template and the live cluster
+make seal-key-backup CLUSTER=<name> # save the Sealed Secrets keys to ~/.noord/<name>/ (AC-22)
+make deploy-check             # lint and render the charts for every cluster folder and validate them against the schemas (needs helm)
 helm template noord-client deploy/helm/noord -f deploy/clusters/k3sprox/values.yaml -f <sealed stand in> \
   --set component=client --set zammad.enabled=true --skip-tests   # render one part locally
 helm dependency update deploy/helm/noord   # after bumping the Zammad version in Chart.yaml; commit Chart.lock and the new archive

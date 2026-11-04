@@ -42,7 +42,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 15 | Access requests via group owner | Slice 5 | done |
 | 16 | Knowledge base answers | Slice 6 | done |
 | 17 | One command GitOps install | Production | done |
-| 18 | Observability & ops dashboard | Production | in-progress |
+| 18 | Observability & ops dashboard | Production | done |
 | 19 | Eval ticket set | Evaluation | planned |
 | 20 | Eval harness in CI | Evaluation | planned |
 | 21 | Eval v1 to final | Evaluation | planned |
@@ -289,7 +289,7 @@ Package everything and deploy through GitOps to an EU hosted cluster, with Postg
 - [x] Test it: `/test gitops install`
 spec [0015](../specs/0015-gitops-install/index.md) · code in `internal/install/`, `internal/migrate/`, `cmd/seed/`, `deploy/`, `Dockerfile`, `.github/`
 
-### 18. Observability & ops dashboard · in-progress
+### 18. Observability & ops dashboard · done
 One trace per conversation and a simple dashboard the IT person can read: tickets handled, escalations, approvals waiting, errors, cost.
 **Done when:** you can follow one Slack conversation through every tool call in a trace, redacted; the dashboard shows the last 24 hours at a glance.
 - [x] Design it (spec): `/architect observability & ops dashboard`
@@ -300,7 +300,7 @@ One trace per conversation and a simple dashboard the IT person can read: ticket
   - [x] The dashboard as code: panels, provisioning, trace links (AC-10, AC-11)
   - [x] Into the cluster: vendored charts, secrets, network allows, Pod Security, runbook, live proof on k3sprox (AC-5, AC-11, AC-12, AC-16)
 - [x] Verify it: `/check verify observability & ops dashboard`
-- [ ] Test it: `/test observability & ops dashboard`
+- [x] Test it: `/test observability & ops dashboard`
 spec [0016](../specs/0016-observability-ops-dashboard/index.md) · code in `internal/telemetry/`, `internal/agent/`, `internal/tools/`, `db/`, `deploy/helm/noord/files/observability/`, `deploy/` (the observability charts), `docs/runbooks/observability.md`
 
 ## Evaluation

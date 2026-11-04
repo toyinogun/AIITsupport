@@ -30,34 +30,17 @@ Mock FDE engagement. The plan lives in `docs/scope/scope.md`; start there.
 ```bash
 make dev       # Postgres in Compose, goose migrations, then both binaries (creates .env from .env.example)
 make test      # go test -race ./...  (DB tests run only when TEST_DATABASE_URL is set)
-make vet       # go vet ./...
+make check     # everything CI runs except the image builds: lint, gen-check, tidy-check, vuln, secrets, test
+make lint      # golangci-lint run (linters plus a format check)
+make fmt       # format every Go file (gofumpt + goimports); fmt-check only reports
 make gen       # regenerate sqlc code; must leave no diff
 make build     # both binaries into bin/
 make docker    # both images from the one Dockerfile (--build-arg CMD=agent|toolserver)
 make db-up     # Postgres only, on 127.0.0.1:55432
 make hooks     # install the git hook shims (lefthook via go tool); run once per clone
-make lint      # golangci-lint run (linters plus a format check)
-make fmt       # format every Go file (gofumpt + goimports); fmt-check only reports
-make check     # everything CI runs except the image builds: lint, gen-check, tidy-check, vuln, secrets, test
-make gen-check # fail if the sqlc output is out of date
-make tidy-check # fail if go.mod or tools.mod needs go mod tidy
-make vuln      # govulncheck on the app code
-make secrets   # gitleaks over the full git history
-make directory-reset # fresh Samba AD container, seeded from seed/directory/noord.yaml (Postgres untouched)
-make seed      # seed the running directory; safe to rerun, says "already seeded" or asks for a reset
-make directory-login NAME=<username> # bind as a seeded user and show the lock state
-make directory-lock NAME=<username>  # lock a seeded user by failed binds
-make certs     # dev CA and Samba server cert in .dev/certs (keeps existing files)
-TEST_SAMBA=1 make test # also runs the live Samba directory tests (needs Docker)
-make entra-sync [ONLY=<username>] # make the Entra tenant match SYNC-Entra-Users (skips when SEED_GRAPH_* is unset)
-make entra-mfa NAME=<username> [CLEAR=1] # list (or clear) a user's MFA methods with the tool server app
-make noord-reset # directory-reset, entra-sync, then helpdesk-reset (not atomic)
-make helpdesk-up    # start Zammad in Compose (profile helpdesk, http://127.0.0.1:58080) and wait until healthy
-make helpdesk-seed  # seed Zammad from seed/helpdesk/; says "already seeded" or asks for a reset
-make helpdesk-reset # fresh Zammad containers and volumes, then seed (Samba and pgdata untouched)
-TEST_ZAMMAD=1 go test -race -run Live ./internal/seed/helpdesk/ # live helpdesk tests after helpdesk-reset, .env loaded
-make install CLUSTER=<name> # seal, commit and push the cluster folder, install or update it through ArgoCD (spec 0015; exit 2: nothing changed)
 ```
+
+Every `make` target has a `## name: description` line above it in the `Makefile` (`grep '^## ' Makefile` lists them all). Commands for one area live in that area's AGENTS.md: directory, Entra, and helpdesk seeding in [internal/seed](internal/seed/AGENTS.md), cluster install and day two (`release`, `pause`, `uninstall`, and the rest) in [deploy](deploy/AGENTS.md), the Compose observability profile (`obs-up`) in [internal/telemetry](internal/telemetry/AGENTS.md).
 
 Hooks: pre commit runs a format check on staged Go files, lint, and gitleaks on the staged changes; pre push runs `go test -race` and `gen-check`. A Claude Code PostToolUse hook (`.claude/hooks/format-go.py`) formats each Go file after an edit.
 
@@ -76,14 +59,11 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - Tests use the standard library `testing` package, live next to the code (`*_test.go`), and must pass with `-race`.
 - Never hardcode model ids, prices, or limits; they are config values or `eval/pricing.yaml`.
 - The credential boundary is checked twice: the depguard rule `agent-credential-boundary` in `.golangci.yml` and `cmd/agent/boundary_test.go`. A new client system package goes on both deny lists.
-- Only `cmd/seed` binds as the domain Administrator (`SEED_*` settings); `internal/seed` is on both deny lists, so the agent can never import it. See [internal/seed/AGENTS.md](internal/seed/AGENTS.md).
-- `internal/install` (the cluster installer, only `cmd/seed` uses it) is on both deny lists too. See [internal/install/AGENTS.md](internal/install/AGENTS.md).
-- `internal/zammad` never writes a Zammad user, organization, or user token: its transport refuses them (`ErrUserWrite`), because Zammad lets any agent token do it. See [internal/zammad/AGENTS.md](internal/zammad/AGENTS.md).
-- Entra has two app registrations: only `cmd/seed` holds the seed app (`SEED_GRAPH_*`, user writes); the tool server app (`GRAPH_*`) reads users and changes phone methods only. `internal/graph` refuses any user without the `noord-sync` marker (`ErrNotManaged`). See [internal/graph/AGENTS.md](internal/graph/AGENTS.md).
+- Credential guards live next to the code, read the AGENTS.md before touching them: only `cmd/seed` binds as the domain Administrator and holds the seed Entra app, `internal/seed` and `internal/install` are on both deny lists, `internal/zammad` never writes a Zammad user, organization, or user token, and `internal/graph` refuses any user without the `noord-sync` marker. See [internal/seed](internal/seed/AGENTS.md), [internal/install](internal/install/AGENTS.md), [internal/zammad](internal/zammad/AGENTS.md), and [internal/graph](internal/graph/AGENTS.md).
 - Log with `log/slog` only; the standard `log` package is denied (depguard `no-std-log`). slog messages are static strings with snake_case keys (sloglint).
 - Every log and span key must be on `internal/logging`'s allow list (the source scan fails CI otherwise); any other value prints `[redacted]`. Never log error text: log `cause` from `cause.Of`. See [internal/logging/AGENTS.md](internal/logging/AGENTS.md) (spec 0010).
 - Silence a real false positive with `//nolint:<linter> // <reason>` on the narrowest line. A wider exclusion goes in `.golangci.yml` with a comment saying why.
-- CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match. Jobs run on ephemeral ARC runners in the k3sprox cluster (label `k3sprox`, amd64, one fresh pod with its own dockerd per job); only a push to `main` or a PR whose head is this repo runs there, anything else (a fork, or a deleted one) runs on `ubuntu-latest`, so outside code never reaches the cluster. A new job copies the same `runs-on` expression. See [docs/runbooks/ci-runner.md](docs/runbooks/ci-runner.md).
+- CI (`.github/workflows/ci.yml`) has one required check, `ci-ok`. Actions are pinned by full commit SHA. The Postgres image tag in `compose.yaml` and the workflow must match. A new job copies the same `runs-on` expression, so outside code never reaches the k3sprox runners. See [docs/runbooks/ci-runner.md](docs/runbooks/ci-runner.md).
 
 ## Agent skills
 
@@ -96,25 +76,20 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md` (plus `rationa
 - [testcontainers-go](.agents/skills/testcontainers-go/): `testcontainers/claude-skills`, throwaway containers in Go tests (the live Samba tests); linked from `.claude/skills/`
 
 Declined: Agent Skills and MCP servers for `golangci-lint`, `lefthook`, `gitleaks`, `govulncheck` (2026-10-17, spec 0002)
-
 Declined: ActiveDirectoryMCP (it would hold admin credentials outside the tool server; spec 0004)
-
 Declined: Agent Skills for Microsoft Graph and Entra (`merill/msgraph`, `microsoft/azure-skills` entra-app-registration, `github/awesome-copilot` msgraph-sdk; none covers the Azure SDK for Go) (2026-10-18, spec 0005)
-
 Declined: Microsoft Graph and Entra MCP servers (Microsoft's EnterpriseMCP is delegated only and needs admin provisioning rights; community ones would hold a client secret outside the tool server; spec 0005)
-
 MCP servers: `grafana/mcp-grafana` (recommended, feature #18 on)
-
 Declined: Agent Skills for Slack and Zammad (none covers `slack-go` or Zammad's REST API; the Slack ones target Bolt for Python/JS) (2026-10-18, feature #8)
-
 Declined: Slack and Zammad MCP servers (Slack's official one needs user OAuth tokens; the community Zammad ones would hold a Zammad token outside the tool server) (2026-10-18, feature #8)
-
 Declined: Agent Skills for the MCP Go SDK (`victorzhuk/skills` z-go-mcp-server, `doc-scout/mcp-server` mcp-builder-go; none official, and `mcp-server-patterns` already covers the generic part; use the `go-sdk` examples and pkg.go.dev) (2026-10-18, feature #9)
 
 ## Context files
 
 - [internal/config/AGENTS.md](internal/config/AGENTS.md) (how settings are declared, validated, and kept in sync with `.env.example`)
 - [db/AGENTS.md](db/AGENTS.md) (goose migrations, sqlc queries, and the generated code)
+- [internal/db/AGENTS.md](internal/db/AGENTS.md): the pgx pool, the generated `queries/` package, `dbtest`, and what each DB test file locks
+- [internal/migrate/AGENTS.md](internal/migrate/AGENTS.md): the migration runner behind `seed migrate` (wait for the roles, apply, current and latest version)
 - [internal/audit/AGENTS.md](internal/audit/AGENTS.md): the audit recorder and approvals, the only writer of `audit_log` and `approvals`
 - [internal/seed/AGENTS.md](internal/seed/AGENTS.md): the Noord directory and helpdesk seeders (`cmd/seed`, `seed/directory/`, `seed/helpdesk/`), their markers, locks, and live tests
 - [internal/graph/AGENTS.md](internal/graph/AGENTS.md): the thin Microsoft Graph client, its managed marker fence, retries, and the fake Graph
