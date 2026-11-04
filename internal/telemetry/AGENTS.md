@@ -29,6 +29,8 @@ OpenTelemetry tracing setup. With no `OTEL_EXPORTER_OTLP_ENDPOINT` it leaves the
 
 ```bash
 go test -race ./internal/telemetry/
+make obs-up    # start the Collector, Tempo, and Grafana in Compose (profile observability, Grafana on http://127.0.0.1:53000); send traces with OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:54318 (spec 0016)
+make obs-down  # stop that profile
 ```
 
 ## Related specs
