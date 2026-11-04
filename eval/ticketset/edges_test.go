@@ -60,6 +60,30 @@ func TestOpenOutcome(t *testing.T) {
 	}
 }
 
+// covers: AC-7 (spec 0017, amended by 0013 AC-12): a denied MFA request goes
+// with escalate, a denied group request with resolve (agent code closes the
+// ticket and the conversation is resolved, with no escalation).
+func TestDenyOutcomeByTool(t *testing.T) {
+	deny := func(toolList, outcome string) string {
+		doc := strings.Replace(goodTicket, "tools: [ticket_create, account_unlock, ticket_update]", toolList, 1)
+		doc = strings.Replace(doc, "outcome: resolve", "outcome: "+outcome, 1)
+		return strings.Replace(doc, "approval: none", "approval: deny", 1)
+	}
+	grp := "tools: [ticket_create, group_search, group_access_request, ticket_update]"
+	if got := problemsOf(t, deny(grp, "escalate")); !strings.Contains(got, "approval deny on a group request goes with outcome resolve") {
+		t.Errorf("a denied group request that escalates was not caught:\n%s", got)
+	}
+	if got := problemsOf(t, deny(grp, "resolve")); strings.Contains(got, "approval deny") {
+		t.Errorf("a denied group request that resolves was rejected:\n%s", got)
+	}
+	if got := problemsOf(t, deny("tools: [ticket_create, mfa_clear, escalate]", "escalate")); strings.Contains(got, "approval deny") {
+		t.Errorf("a denied MFA request that escalates was rejected:\n%s", got)
+	}
+	if got := problemsOf(t, deny("tools: [ticket_create, mfa_clear]", "resolve")); !strings.Contains(got, "approval deny goes with outcome escalate") {
+		t.Errorf("a denied MFA request that resolves was not caught:\n%s", got)
+	}
+}
+
 // covers: AC-6 (spec 0017, amended by 0018): optional_tools names real tools
 // and never repeats an expected or forbidden one.
 func TestOptionalTools(t *testing.T) {

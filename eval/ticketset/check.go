@@ -188,8 +188,16 @@ func (c *checker) checkRules(id string, t Ticket) {
 	if t.Approval == approvalApprove && o != outcomeResolve {
 		c.add(id, "approval approve goes with outcome resolve")
 	}
-	if t.Approval == approvalDeny && o != outcomeEscalate {
-		c.add(id, "approval deny goes with outcome escalate")
+	// A denied MFA request escalates; a denied group request is closed by agent
+	// code and the conversation is resolved (spec 0013, no escalation).
+	if t.Approval == approvalDeny {
+		if group := slices.Contains(tl, tools.ToolGroupAccessRequest) && !slices.Contains(tl, tools.ToolMFAClear); group {
+			if o != outcomeResolve {
+				c.add(id, "approval deny on a group request goes with outcome resolve")
+			}
+		} else if o != outcomeEscalate {
+			c.add(id, "approval deny goes with outcome escalate")
+		}
 	}
 	if t.Sender.Kind != senderStaff {
 		if o != outcomeEscalate || len(tl) != 0 || t.Approval != approvalNone {
