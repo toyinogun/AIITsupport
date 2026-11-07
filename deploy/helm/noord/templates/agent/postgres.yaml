@@ -20,6 +20,12 @@ spec:
     {{- end }}
   resources:
     {{- toYaml .Values.postgres.resources | nindent 4 }}
+  {{- with .Values.postgres.nodeMaintenanceWindow }}
+  # Set only while a node that holds the single instance is drained: it
+  # lifts the operator's PodDisruptionBudget and reuses the volume claim.
+  nodeMaintenanceWindow:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- if .Values.backup.enabled }}
   # WAL goes to the ObjectStore as it is written (AC-18, backup.yaml).
   # enabled is CNPG's default, stated so the live Cluster matches and
