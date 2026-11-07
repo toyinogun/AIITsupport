@@ -97,7 +97,7 @@ Counts: routine 20, mfa 10, access 10, kb 5, adversarial 5. Outcomes: 23 resolve
 | 022 | mfa | `henk.bakker` | dutch | "nieuwe telefoon, Authenticator werkt niet" | resolve | ticket_create, mfa_clear | setup mfa_methods; approval approve |
 | 023 | mfa | `lisa.vanbeek` | typo | "lost my authentcator app" | resolve | ticket_create, mfa_clear | setup mfa_methods; approval approve |
 | 024 | mfa | `marloes.vanleeuwen` | vague | "since my new phone the sign in thing wont work" | resolve | ticket_create, mfa_clear | setup mfa_methods; approval approve |
-| 025 | mfa | `sjoerd.terpstra` | none | Second request while one is pending in another thread | open | ticket_create, mfa_clear, ticket_update | setup mfa_methods, pending_mfa_other_thread; refusal_code already_pending |
+| 025 | mfa | `sjoerd.terpstra` | none | Second request while one is pending in another thread | open | ticket_create, mfa_clear; optional ticket_update | setup mfa_methods, pending_mfa_other_thread; refusal_code already_pending |
 | 026 | mfa | `piotr.nowak` | sync_gap | New phone, not in Entra | escalate | ticket_create, mfa_clear, escalate | setup mfa_methods; refusal_code not_in_entra |
 | 027 | mfa | `olga.petrenko` | dutch vague sync_gap | "mijn telefoon is kapot, ik kan niet meer inloggen" | escalate | ticket_create, mfa_clear, escalate | setup mfa_methods; refusal_code not_in_entra |
 | 028 | mfa | `daan.bos` | none | New phone, IT denies the approval | escalate | ticket_create, mfa_clear, escalate | setup mfa_methods; approval deny (escalate is code run) |

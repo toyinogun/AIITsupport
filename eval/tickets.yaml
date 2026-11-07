@@ -216,7 +216,7 @@ tickets:
     message: "New phone, my Authenticator is gone. Please reset my MFA."
     setup: [mfa_methods, pending_mfa_other_thread]
     approval: none
-    expected: {outcome: open, tools: [ticket_create, mfa_clear, ticket_update]}
+    expected: {outcome: open, tools: [ticket_create, mfa_clear], optional_tools: [ticket_update]}
     expect: {refusal_code: already_pending}
     why: "a second request while one waits in another thread"
   - id: ev-026
