@@ -22,6 +22,7 @@ Noord's one LDAPS layer (spec 0007): the dialer verified against our CA, the OU 
 - Each `Client` or `Writer` call dials, binds, runs, and closes; there is no shared connection. The connection closes when the call's context ends.
 - `Client` cannot write. `Writer` holds the tool layer's two writes: `ClearLockout` (`AccountDeps`) and `AddMember` (`GroupDeps`, spec 0013).
 - The password reset is a second, separate write: `PasswordWriter.SetPassword` binds as `svc-pwreset` (`RESET_LDAP_BIND_*`), and only `internal/resetpage` holds one. It replaces `unicodePwd` (quoted, UTF-16LE) and sets `lockoutTime` to 0 in one modify, with the policy hints control.
+- `User.Description` (the AD `description`) is read with the other user attributes. It is the only hint the directory gives that someone has left (spec 0004, AC-4); `user_lookup` passes it on as `directory_note` (journal 0093).
 - TLS is always verified against the CA file. There is no skip verify option.
 - This package and `go-ldap` are on both agent deny lists (depguard `agent-credential-boundary` and `cmd/agent/boundary_test.go`).
 

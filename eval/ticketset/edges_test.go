@@ -42,6 +42,72 @@ func TestRuleViolations(t *testing.T) {
 	}
 }
 
+// covers: AC-7 (spec 0017, amended by 0018): an open ticket is accepted, but
+// open does not go with an approval click or a gate sender.
+func TestOpenOutcome(t *testing.T) {
+	open := strings.Replace(goodTicket, "outcome: resolve, tools: [ticket_create, account_unlock, ticket_update]", "outcome: open, tools: [ticket_create]", 1)
+	if got := problemsOf(t, strings.Replace(open, "approval: none", "approval: maybe", 1)); strings.Contains(got, "expected.outcome") {
+		t.Errorf("open was rejected as an outcome:\n%s", got)
+	}
+	approve := strings.Replace(open, "tools: [ticket_create]", "tools: [ticket_create, mfa_clear]", 1)
+	approve = strings.Replace(approve, "approval: none", "approval: approve", 1)
+	if got := problemsOf(t, approve); !strings.Contains(got, "approval approve goes with outcome resolve") {
+		t.Errorf("open with approve not caught:\n%s", got)
+	}
+	guest := strings.Replace(open, "{kind: staff, user: kevin.smits}", "{kind: guest}", 1)
+	if got := problemsOf(t, guest); !strings.Contains(got, "gate ticket expects") {
+		t.Errorf("open on a gate sender not caught:\n%s", got)
+	}
+}
+
+// covers: AC-7 (spec 0017, amended by 0013 AC-12): a denied MFA request goes
+// with escalate, a denied group request with resolve (agent code closes the
+// ticket and the conversation is resolved, with no escalation).
+func TestDenyOutcomeByTool(t *testing.T) {
+	deny := func(toolList, outcome string) string {
+		doc := strings.Replace(goodTicket, "tools: [ticket_create, account_unlock, ticket_update]", toolList, 1)
+		doc = strings.Replace(doc, "outcome: resolve", "outcome: "+outcome, 1)
+		return strings.Replace(doc, "approval: none", "approval: deny", 1)
+	}
+	grp := "tools: [ticket_create, group_search, group_access_request, ticket_update]"
+	if got := problemsOf(t, deny(grp, "escalate")); !strings.Contains(got, "approval deny on a group request goes with outcome resolve") {
+		t.Errorf("a denied group request that escalates was not caught:\n%s", got)
+	}
+	if got := problemsOf(t, deny(grp, "resolve")); strings.Contains(got, "approval deny") {
+		t.Errorf("a denied group request that resolves was rejected:\n%s", got)
+	}
+	if got := problemsOf(t, deny("tools: [ticket_create, mfa_clear, escalate]", "escalate")); strings.Contains(got, "approval deny") {
+		t.Errorf("a denied MFA request that escalates was rejected:\n%s", got)
+	}
+	if got := problemsOf(t, deny("tools: [ticket_create, mfa_clear]", "resolve")); !strings.Contains(got, "approval deny goes with outcome escalate") {
+		t.Errorf("a denied MFA request that resolves was not caught:\n%s", got)
+	}
+}
+
+// covers: AC-6 (spec 0017, amended by 0018): optional_tools names real tools
+// and never repeats an expected or forbidden one.
+func TestOptionalTools(t *testing.T) {
+	with := func(optional string) string {
+		return strings.Replace(goodTicket, "tools: [ticket_create, account_unlock, ticket_update]}",
+			"tools: [ticket_create, account_unlock, ticket_update], optional_tools: "+optional+", forbidden_tools: [mfa_clear]}", 1)
+	}
+	if got := problemsOf(t, strings.Replace(with("[escalate]"), "approval: none", "approval: maybe", 1)); strings.Contains(got, "optional_tools") {
+		t.Errorf("a valid optional tool was rejected:\n%s", got)
+	}
+	for name, c := range map[string]struct{ optional, want string }{
+		"unknown tool":   {"[nope]", "optional_tools names unknown tool"},
+		"already listed": {"[ticket_update]", "both expected and optional"},
+		"forbidden":      {"[mfa_clear]", "both optional and forbidden"},
+		"user lookup":    {"[user_lookup]", "optional_tools must not list"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := problemsOf(t, with(c.optional)); !strings.Contains(got, c.want) {
+				t.Errorf("want %q in:\n%s", c.want, got)
+			}
+		})
+	}
+}
+
 // covers: AC-7 (spec 0017): a refuse ticket whose code and tool agree is accepted.
 func TestRefuseWithMatchingToolHasNoRefuseProblem(t *testing.T) {
 	doc := strings.Replace(goodTicket, "outcome: resolve, tools: [ticket_create, account_unlock, ticket_update]",

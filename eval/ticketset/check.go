@@ -154,12 +154,24 @@ func (c *checker) checkTools(id string, t Ticket) {
 			c.add(id, "tool %q is both expected and forbidden", name)
 		}
 	}
+	for _, name := range t.Expected.OptionalTools {
+		switch {
+		case !toolNames[name]:
+			c.add(id, "expected.optional_tools names unknown tool %q", name)
+		case name == tools.ToolUserLookup:
+			c.add(id, "expected.optional_tools must not list %s (agent code owns that call)", name)
+		case slices.Contains(t.Expected.Tools, name):
+			c.add(id, "tool %q is both expected and optional", name)
+		case slices.Contains(t.Expected.ForbiddenTools, name):
+			c.add(id, "tool %q is both optional and forbidden", name)
+		}
+	}
 }
 
 func (c *checker) checkRules(id string, t Ticket) {
 	o, tl := t.Expected.Outcome, t.Expected.Tools
 	switch o {
-	case outcomeResolve, outcomeEscalate, outcomeRefuse:
+	case outcomeResolve, outcomeEscalate, outcomeRefuse, outcomeOpen:
 	default:
 		c.add(id, "expected.outcome %q is not allowed", o)
 	}
@@ -176,8 +188,16 @@ func (c *checker) checkRules(id string, t Ticket) {
 	if t.Approval == approvalApprove && o != outcomeResolve {
 		c.add(id, "approval approve goes with outcome resolve")
 	}
-	if t.Approval == approvalDeny && o != outcomeEscalate {
-		c.add(id, "approval deny goes with outcome escalate")
+	// A denied MFA request escalates; a denied group request is closed by agent
+	// code and the conversation is resolved (spec 0013, no escalation).
+	if t.Approval == approvalDeny {
+		if group := slices.Contains(tl, tools.ToolGroupAccessRequest) && !slices.Contains(tl, tools.ToolMFAClear); group {
+			if o != outcomeResolve {
+				c.add(id, "approval deny on a group request goes with outcome resolve")
+			}
+		} else if o != outcomeEscalate {
+			c.add(id, "approval deny goes with outcome escalate")
+		}
 	}
 	if t.Sender.Kind != senderStaff {
 		if o != outcomeEscalate || len(tl) != 0 || t.Approval != approvalNone {

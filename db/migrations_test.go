@@ -150,8 +150,8 @@ func TestMigrationGoesDownAndUpCleanly(t *testing.T) {
 	if _, err := p.Up(t.Context()); err != nil {
 		t.Fatalf("up again: %v", err)
 	}
-	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 9 {
-		t.Errorf("version after up again = %d, %v; want 9", v, err)
+	if v, err := p.GetDBVersion(t.Context()); err != nil || v != 10 {
+		t.Errorf("version after up again = %d, %v; want 10", v, err)
 	}
 }
 

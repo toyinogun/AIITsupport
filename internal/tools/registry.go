@@ -214,7 +214,7 @@ func productionTools() []Tool {
 		{
 			Name: ToolUserLookup,
 			Description: "Look up the requester's own Noord account: whether it is enabled, whether it is locked, " +
-				"and when the lock ends. Takes no arguments and can only return the requester's own account.",
+				"when the lock ends, and the directory note IT keeps on the account. Takes no arguments and can only return the requester's own account.",
 			Tier:    audit.TierRead,
 			Target:  TargetRequester,
 			Handler: ReadHandler(userLookup),

@@ -53,6 +53,9 @@ type User struct {
 	Department  string
 	Mail        string
 	Enabled     bool
+	// Description is the free text IT keeps on the account ("contract ended").
+	// It is the only hint the directory gives that someone has left.
+	Description string
 }
 
 // Lock is a user's lock state with when it ends.
@@ -69,7 +72,7 @@ type Group struct {
 	Name string // sAMAccountName
 }
 
-var userAttrs = []string{"sAMAccountName", "displayName", "department", "mail", "userAccountControl"}
+var userAttrs = []string{"sAMAccountName", "displayName", "department", "mail", "userAccountControl", "description"}
 
 // FindUsersByMail returns the enabled users whose mail matches, searched
 // from the base DN. The value is escaped; the caller still compares case and
@@ -264,6 +267,7 @@ func toUser(e *goldap.Entry) User {
 		Department:  e.GetAttributeValue("department"),
 		Mail:        e.GetAttributeValue("mail"),
 		Enabled:     uac&ufAccountDisable == 0,
+		Description: e.GetAttributeValue("description"),
 	}
 }
 

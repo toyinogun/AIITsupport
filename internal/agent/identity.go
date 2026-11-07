@@ -139,6 +139,9 @@ func requesterBlock(data map[string]any, now time.Time) string {
 	fmt.Fprintf(&b, "Department: %s\n", str("department"))
 	fmt.Fprintf(&b, "Account enabled: %s\n", yesNo("enabled"))
 	fmt.Fprintf(&b, "Account locked: %s\n", yesNo("locked"))
+	if note := str("directory_note"); note != "" {
+		fmt.Fprintf(&b, "Directory note: %s\n", note)
+	}
 	if locked, _ := data["locked"].(bool); locked {
 		ends := str("lock_ends_at")
 		if ends == "" {

@@ -29,6 +29,9 @@ type Expected struct {
 	Outcome        string   `yaml:"outcome"`
 	Tools          []string `yaml:"tools"`
 	ForbiddenTools []string `yaml:"forbidden_tools"`
+	// OptionalTools are write tools the agent may or may not call. They do
+	// not count as wrong when they run, and are not required when they do not.
+	OptionalTools []string `yaml:"optional_tools"`
 }
 
 // Expect holds the optional extra checks.

@@ -106,6 +106,18 @@ func TestRequesterBlock(t *testing.T) {
 	}
 }
 
+func TestRequesterBlockDirectoryNote(t *testing.T) {
+	at := time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)
+	data := map[string]any{"username": "thomas.meijer", "enabled": true, "locked": false}
+	if b := requesterBlock(data, at); strings.Contains(b, "Directory note") {
+		t.Errorf("no note, but the block has one:\n%s", b)
+	}
+	data["directory_note"] = "contract ended"
+	if b := requesterBlock(data, at); !strings.Contains(b, "Directory note: contract ended\n") {
+		t.Errorf("block lacks the directory note:\n%s", b)
+	}
+}
+
 func TestStatusChangeFor(t *testing.T) {
 	if ch := statusChangeFor("ticket_create", mcpclient.Result{Data: map[string]any{"ticket_id": 7.0}}, 0, ""); ch == nil || ch.TicketID != 7 || ch.Status != StatusOpen {
 		t.Errorf("create: %+v", ch)

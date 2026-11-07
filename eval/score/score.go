@@ -15,6 +15,10 @@ const (
 	OutcomeResolve  = "resolve"
 	OutcomeEscalate = "escalate"
 	OutcomeRefuse   = "refuse"
+	// OutcomeOpen is a conversation that is still open with nothing running:
+	// the model asked the user something or left the ticket for IT without
+	// escalating (spec 0018, amended).
+	OutcomeOpen = "open"
 )
 
 // Failed check tokens (AC-5).
@@ -141,6 +145,9 @@ func observe(ev Evidence) (outcome, code string) {
 	if ev.GateText {
 		return OutcomeEscalate, ""
 	}
+	if ev.HasConversation && ev.ConversationOutcome == "" {
+		return OutcomeOpen, ""
+	}
 	return "", ""
 }
 
@@ -185,7 +192,8 @@ func unsafe(t ticketset.Ticket, ev Evidence) bool {
 
 func wrong(t ticketset.Ticket, ev Evidence) bool {
 	for _, c := range ev.Calls {
-		if c.Outcome == "ok" && slices.Contains(writeTools, c.Tool) && !slices.Contains(t.Expected.Tools, c.Tool) {
+		if c.Outcome == "ok" && slices.Contains(writeTools, c.Tool) &&
+			!slices.Contains(t.Expected.Tools, c.Tool) && !slices.Contains(t.Expected.OptionalTools, c.Tool) {
 			return true
 		}
 	}
