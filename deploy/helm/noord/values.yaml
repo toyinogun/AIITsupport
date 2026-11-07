@@ -77,6 +77,10 @@ postgres:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: "1", memory: 1Gi}
+  # CloudNativePG's node maintenance window. Set {inProgress: true,
+  # reusePVC: true} in a cluster's values only while draining the node that
+  # holds the single instance, then remove it again.
+  nodeMaintenanceWindow: {}
 
 # Backups of noord-pg (AC-18): WAL archiving and a daily base backup through
 # the Barman Cloud plugin, to s3://<bucket>/<cluster>/ at endpoint. The token

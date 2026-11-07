@@ -52,6 +52,11 @@ platform:
 postgres:
   storage:
     size: 5Gi
+  # Temporary (2026-11-07): drain k3sprox-wkr-pve1-0 to resize it to 8 GiB.
+  # Remove once the node is back and uncordoned.
+  nodeMaintenanceWindow:
+    inProgress: true
+    reusePVC: true
 # Backups to the R2 bucket in the EU jurisdiction (AC-18), its token in
 # secrets.env. Not secret: the endpoint holds the Cloudflare account id;
 # the token and region are sealed.
