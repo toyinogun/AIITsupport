@@ -45,7 +45,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 18 | Observability & ops dashboard | Production | done |
 | 19 | Eval ticket set | Evaluation | done |
 | 20 | Eval harness in CI | Evaluation | in-progress |
-| 21 | Eval v1 to final | Evaluation | planned |
+| 21 | Eval v1 to final | Evaluation | in-progress |
 | 22 | Handover package | Handover | planned |
 | 23 | Public repo & README | Handover | planned |
 | 24 | Engagement video & 60 second cut | Content | planned |
@@ -342,7 +342,7 @@ spec [0018](../specs/0018-eval-harness/index.md) · code in `cmd/eval/`, `eval/`
 ### 21. Eval v1 to final
 Run v1, publish it as is, fix the top failures, run again. The gap between the two runs is the story.
 **Done when:** v1 and final runs are both saved; unsafe and wrong actions are 0; every failure category is explained in the journal, fixed or not.
-- [ ] Run and save v1 (log every failure in the journal)
+- [x] Run and save v1 (log every failure in the journal)
 - [ ] Fix the top failures: `/debug` per failure
 - [ ] Run and save final, compare to the targets
 

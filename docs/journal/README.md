@@ -116,5 +116,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0092](0092-eval-ci-zammad-seed-found-a-directory-where-ca-pem-should-be.md) | 2026-11-04 | The CI eval's Zammad seed failed with `EISDIR` on `ca.pem`: a bind mount from the runner's `/tmp` is empty inside the dind sidecar | #20 Eval harness in CI | ~20 min | both |
 | [0093](0093-eval-found-the-agent-sending-reset-links-to-leavers.md) | 2026-11-04 | The first full eval run caught the agent sending password reset links to two leavers whose accounts were still enabled | #20 Eval harness in CI | ~1 hour | both |
 | [0094](0094-eval-repeat-3-run-failed-zammad-seed-timeout-under-load.md) | 2026-11-04 | The repeat 3 eval run failed before ticket 1: the Zammad seed timed out while the Docker VM was overloaded (cause not confirmed) | #20 Eval harness in CI | ~12 min | no |
+| [0095](0095-eval-v1-scored-30-of-50-and-most-misses-were-the-tickets.md) | 2026-11-07 | Eval v1 scored 30 of 50: two real agent faults, and most of the other misses were wrong tickets | #21 Eval v1 to final | ~3.5 hours | both |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.

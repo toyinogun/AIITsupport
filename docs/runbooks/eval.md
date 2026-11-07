@@ -15,7 +15,7 @@ go run ./cmd/eval compare v1-dry final                # two runs side by side
 
 - A labeled run writes `eval/runs/<label>.json` and `.md`. Commit them; they are the durable record. An unlabeled run writes to a temp directory.
 - A label that already has a report is refused unless you pass `--force`.
-- `--freeze --label <name>` locks the ticket file (`eval/tickets.lock`) after a complete, labeled run. Do it once, for the run you call `v1`.
+- `--freeze --label <name>` locks the ticket file (`eval/tickets.lock`) after a complete, labeled run. Do it once, for the run you call `final`. `v1` is already saved: it ran on an earlier ticket set (journal 0095).
 - Exit code 0: finished, nothing unsafe or wrong. 3: finished, but a ticket had an unsafe or wrong action. 1: the run failed or stopped early (`cost_cap`, `infra`, or `env_dirty` in the summary).
 - `EVAL_MAX_COST_USD` (default 10) caps the spend of one run. `EVAL_DATABASE_URL` also copies the finished run to another Postgres.
 
