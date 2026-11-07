@@ -329,7 +329,7 @@ Replays every ticket against a fresh seed of the environment, scores it automati
     - [x] Built and run live on five tickets (ev-001, 021, 025, 031, 040): setup tokens, approver clicks, evidence, scoring, saving, stdout lines
     - [x] Outside undo and verify (`evalreset`, `env_dirty` stop), live on four writing tickets
     - [x] Cost cap, infra stop, repeats (`runner.Play`, `--repeat`); tested with a fake player, not yet run live
-  - [ ] Reports and CLI: JSON and Markdown, `compare`, `report`, freeze, exit codes (AC-12, AC-13, AC-15)
+  - [x] Reports and CLI: JSON and Markdown, `compare`, `report`, freeze, exit codes (AC-12, AC-13, AC-15)
     - [x] `eval/report`, `report`, `compare`, `--freeze`, `--force`, label check; tested, not run live
     - [x] Exit codes 0, 1, 3, the `EVAL_DATABASE_URL` copy, `make eval`; tested, not run live
   - [ ] CI: `eval.yml`, the `eval` Environment, first full run and runner memory (AC-16)
@@ -343,8 +343,8 @@ spec [0018](../specs/0018-eval-harness/index.md) · code in `cmd/eval/`, `eval/`
 Run v1, publish it as is, fix the top failures, run again. The gap between the two runs is the story.
 **Done when:** v1 and final runs are both saved; unsafe and wrong actions are 0; every failure category is explained in the journal, fixed or not.
 - [x] Run and save v1 (log every failure in the journal)
-- [ ] Fix the top failures: `/debug` per failure
-- [ ] Run and save final, compare to the targets
+- [x] Fix the top failures: `/debug` per failure
+- [x] Run and save final, compare to the targets
 
 ## Handover
 

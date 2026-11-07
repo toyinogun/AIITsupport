@@ -18,7 +18,7 @@ What the agent and the eval harness share (specs 0003, 0008, 0017). `pricing.go`
 | `runner/play.go` | `Play`: runs every ticket `--repeat` times, stops on the cost cap (`cost_cap`), three model failures in a row (`infra`, gate tickets skipped), or a dirty environment (`env_dirty`) |
 | `report/` | the run file (`File`, schema_version 1), `Write` (redacts real emails and links in transcripts first), `Load`, `Markdown`, `Compare` (spec 0018, AC-13) |
 | `runner/hashes.go` | `PromptHash` and `ToolsHash` for a saved run (AC-14) |
-| `ticketset/lock.go` | `CheckLock`: compares the file hash with `eval/tickets.lock` (the lock does not exist until the frozen `final` run in #21) |
+| `ticketset/lock.go` | `CheckLock`: compares the file hash with `eval/tickets.lock` (the lock was written by the `final` run in #21) |
 
 ## Conventions
 
@@ -27,7 +27,7 @@ What the agent and the eval harness share (specs 0003, 0008, 0017). `pricing.go`
 - The file is public: fictional data only, emails and links end in `noord.example` (the loader scans for it).
 - After the first saved run the file is frozen: change means a new numbered set (`tickets_v2.yaml`) and a journal entry, never an edit. One exception: `runs/v1.*` ran on the file at `f3a5ec9`, before the corrections in journal 0095, and never had a lock; the first lock comes with `final`.
 - A new tool or refusal code needs `ticketset/lists.go` and `internal/tools/refusalcode.go` updated; tests fail until it is.
-- The expected tool lists were first written from the specs, not from a run. Live runs corrected many of them (journal 0093, specs 0017 and 0018); the set stays unfrozen until the last `--repeat 3` run.
+- The expected tool lists were first written from the specs, not from a run. Live runs corrected many of them (journal 0093, specs 0017 and 0018); the set is frozen since the `final` run.
 
 ## Commands
 
