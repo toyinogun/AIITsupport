@@ -118,5 +118,6 @@ Write down what you expect to break before you start. Comparing these with the r
 | [0094](0094-eval-repeat-3-run-failed-zammad-seed-timeout-under-load.md) | 2026-11-04 | The repeat 3 eval run failed before ticket 1: the Zammad seed timed out while the Docker VM was overloaded (cause not confirmed) | #20 Eval harness in CI | ~12 min | no |
 | [0095](0095-eval-v1-scored-30-of-50-and-most-misses-were-the-tickets.md) | 2026-11-07 | Eval v1 scored 30 of 50: two real agent faults, and most of the other misses were wrong tickets | #21 Eval v1 to final | ~3.5 hours | both |
 | [0096](0096-ci-eval-rerun-failed-on-ev-044-and-pod-memory-undercounts-docker.md) | 2026-11-08 | The CI eval rerun failed on the ev-044 miss, and the pod memory figure leaves out the Docker in Docker containers | #20 Eval harness in CI | ~40 min | no |
+| [0097](0097-eval-workflow-failed-on-a-504-downloading-docker-compose.md) | 2026-11-08 | The eval workflow failed on a 504 from GitHub while downloading Docker Compose; a rerun passed 50 of 50 | #20 Eval harness in CI | ~20 min | no |
 
 **Story worthy** is `post`, `video`, `both`, or `no`. In week 4, pick the top three for the launch post and the video.
