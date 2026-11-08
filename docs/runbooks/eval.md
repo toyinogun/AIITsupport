@@ -28,7 +28,7 @@ CI runs `.github/workflows/eval.yml` after a merge to `main` that touches the pr
 3. Add the environment secret `ANTHROPIC_API_KEY`. Use a key with its own spend limit.
 4. Run the workflow once from **Actions, eval, Run workflow** (optionally with a model id) and check the job summary and the `eval-*` artifact.
 
-The workflow runs on the `k3sprox` runners (see [the CI runner runbook](ci-runner.md)). The Zammad stack is about ten containers, so watch the pod's memory on the first run and write the number down here: _not measured yet_.
+The workflow runs on the `k3sprox` runners (see [the CI runner runbook](ci-runner.md)). The Zammad stack is about ten containers. Measured on 2026-11-08 (run 42455583966): the containers in the `dind` sidecar peaked at about 3.7 GiB together, about 4 minutes in, while Zammad seeded (Elasticsearch 1.6 GiB, scheduler 0.9 GiB, rails 0.6 GiB), plus up to 0.5 GiB for the runner container. Plan for about 4.5 GiB free on the node. `kubectl top pod` does not see those containers (it showed 0.7 GiB at the same moment), and the pod's 6 GiB limit does not cap them, so measure from inside the sidecar: `kubectl exec -n arc-runners <runner pod> -c dind -- docker stats --no-stream` (journal 0096).
 
 ## When a run goes wrong
 

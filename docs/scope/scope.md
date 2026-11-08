@@ -322,21 +322,23 @@ spec [0017](../specs/0017-eval-ticket-set/index.md) · code in `eval/ticketset/`
 Replays every ticket against a fresh seed of the environment, scores it automatically, and runs on every prompt or tool change.
 **Done when:** one command runs all 50 and prints resolution rate, correct escalation, unsafe actions, wrong actions, time to resolve, and cost per ticket; CI runs it on prompt or tool changes; each run is saved.
 - [x] Design it (spec): `/architect eval harness`
-- [ ] Build it: `/develop eval harness`
+- [x] Build it: `/develop eval harness`
   - [x] Tracer thread: config, Graph override settings, log keys, containers, tool server child, one ticket scored (AC-2, AC-3, AC-17, AC-20)
   - [x] Scoring and saving: `eval/score`, the migration, hashes, run and result rows (AC-4, AC-5, AC-10, AC-11, AC-14); the runner calls them in step 4
-  - [ ] All 50 tickets: identities, setup, approver clicks, database clone per attempt, outside undo, stops, repeats (AC-1, AC-6 to AC-9, AC-18, AC-19)
+  - [x] All 50 tickets: identities, setup, approver clicks, database clone per attempt, outside undo, stops, repeats (AC-1, AC-6 to AC-9, AC-18, AC-19)
     - [x] Built and run live on five tickets (ev-001, 021, 025, 031, 040): setup tokens, approver clicks, evidence, scoring, saving, stdout lines
     - [x] Outside undo and verify (`evalreset`, `env_dirty` stop), live on four writing tickets
-    - [x] Cost cap, infra stop, repeats (`runner.Play`, `--repeat`); tested with a fake player, not yet run live
+    - [x] Cost cap, infra stop, repeats (`runner.Play`, `--repeat`); repeats run live (`final`, 150 attempts); cost cap and infra stop tested with a scripted model (as the spec says) and tripped live on purpose during `/check verify` on 2026-11-08 (`cost_cap` at $0.513 of a $0.50 cap, `infra` with a bad API key)
+    - [x] All 50 run live: `v1` (one each) and `final` (`--repeat 3`), journals 0093 to 0095
   - [x] Reports and CLI: JSON and Markdown, `compare`, `report`, freeze, exit codes (AC-12, AC-13, AC-15)
-    - [x] `eval/report`, `report`, `compare`, `--freeze`, `--force`, label check; tested, not run live
-    - [x] Exit codes 0, 1, 3, the `EVAL_DATABASE_URL` copy, `make eval`; tested, not run live
-  - [ ] CI: `eval.yml`, the `eval` Environment, first full run and runner memory (AC-16)
+    - [x] `eval/report`, `report`, `compare`, `--freeze`, `--force`, label check; `--freeze` used live by `final`
+    - [x] Exit codes 0, 1, 3, the `EVAL_DATABASE_URL` copy, `make eval`; 3 seen live (`v1`), 0 seen live (CI run 42402540179)
+  - [x] CI: `eval.yml`, the `eval` Environment, first full run and runner memory (AC-16)
     - [x] `eval.yml`, its test, `docs/runbooks/eval.md`, the canary test
-    - [ ] Create the `eval` Environment and secret in GitHub, first full run, runner memory
-- [ ] Verify it: `/check verify eval harness`
-- [ ] Test it: `/test eval harness`
+    - [x] Create the `eval` Environment and secret in GitHub, first full run (run 42402540179 on `main`: 50 of 50, 0 unsafe, 0 wrong, $0.59, about 17 minutes)
+    - [x] Runner memory: about 3.7 GiB in the Docker containers plus 0.5 GiB for the runner, measured with `docker stats` inside the sidecar (run 42455583966), in `docs/runbooks/eval.md` (journal 0096)
+- [x] Verify it: `/check verify eval harness` (2026-11-08: all 20 criteria met; live runs with the cost cap, infra, and env_dirty stops tripped on purpose)
+- [x] Test it: `/test eval harness` (2026-11-08: added the AC-19 binary boundary, open outcome, nearest rank, approval wait, and approver tests)
 spec [0018](../specs/0018-eval-harness/index.md) · code in `cmd/eval/`, `eval/`, `internal/seed/evalreset/`, `.github/workflows/eval.yml`
 
 ### 21. Eval v1 to final

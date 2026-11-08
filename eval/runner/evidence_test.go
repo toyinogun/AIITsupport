@@ -25,6 +25,19 @@ func TestGateTextSeen(t *testing.T) {
 	}
 }
 
+// covers: AC-6 (spec 0018). An owner card names its approver, so the click
+// comes from that owner; an IT card names none, so the fixed IT approver
+// clicks.
+func TestApproverOfACard(t *testing.T) {
+	owner := cardRow{Approver: "UEV0000007"}
+	if got := owner.approverOr(itApproverID); got != "UEV0000007" {
+		t.Errorf("owner card clicked as %q, want the stored owner", got)
+	}
+	if got := (cardRow{}).approverOr(itApproverID); got != itApproverID {
+		t.Errorf("IT card clicked as %q, want the fixed IT approver %q", got, itApproverID)
+	}
+}
+
 func TestMailAndStaffID(t *testing.T) {
 	m := directory.Model{Users: []directory.User{{Username: "a.b", Mail: "a.b@noord.example"}, {Username: "c.d", Mail: "c.d@noord.example"}}}
 	if mail, ok := Mail(m, "c.d"); !ok || mail != "c.d@noord.example" {
