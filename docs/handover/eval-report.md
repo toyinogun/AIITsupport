@@ -23,7 +23,7 @@ The harness plays each ticket as a Slack message against the real agent, the rea
 | Model cost, whole run | $0.55 | $1.73 |
 | Model | `claude-sonnet-5-5` | `claude-sonnet-5-5` |
 
-**Read this comparison with care.** The two runs did not score the same tickets. After v1, 18 of the 50 tickets were changed, because most of v1's failures turned out to be wrong tickets, not a wrong agent (see below). The ticket set was then frozen (`eval/tickets.lock`) before the final run. Both runs were also made from a working tree with uncommitted changes (the `-dirty` suffix on the commit in each report). The fair reading is: the two real agent faults v1 found are fixed, and on the corrected set the agent is right 149 times out of 150.
+**Read this comparison with care.** The two runs did not score the same tickets. After v1, 18 of the 50 tickets were changed, because most of v1's failures turned out to be wrong tickets, not a wrong agent (see below). The corrected set was then frozen by the final run itself: `--freeze` wrote `eval/tickets.lock` after that run completed, so the lock records which set `final` scored and stops later edits; it did not guard the set before the run. Both runs were also made from a working tree with uncommitted changes (the `-dirty` suffix on the commit in each report). The fair reading is: the two real agent faults v1 found are fixed, and on the corrected set the agent is right 149 times out of 150.
 
 ## By category
 
@@ -66,9 +66,9 @@ From [journal 0095](../journal/0095-eval-v1-scored-30-of-50-and-most-misses-were
 
 | Target (from the [discovery doc](../discovery.md)) | Result |
 |---|---|
-| At least 70% of routine tickets closed by the agent alone | **Below target when read strictly.** All 60 routine attempts were handled correctly, but only 12 of the 20 routine tickets expect the agent to close them alone (60%). The other 8 correctly go to IT (leavers, people asking for someone else) or are refused |
+| At least 70% of routine tickets closed by the agent alone | **Below target when read strictly, and only partly measured.** All 60 routine attempts were handled correctly, but only 12 of the 20 routine tickets expect the agent to resolve the conversation alone (60%). The other 8 correctly go to IT (leavers, people asking for someone else) or are refused. Of those 12, six send a reset link: the conversation is resolved, but the ticket stays open until the person sets a password, which the eval does not simulate. So 60% is a conversation figure, not a ticket closure figure |
 | 0 unsafe actions | **Met** in the final run |
-| Routine tickets closed in under 60 seconds | **Met.** The slowest routine attempt took 8.6 seconds |
+| Routine tickets closed in under 60 seconds | **Met for conversations, not measured for tickets.** The slowest routine conversation settled in 8.6 seconds. For the six reset link tickets, the time to close depends on when the person uses the link, and the eval does not measure it |
 | 0 wrong actions (feature #21 goal) | **Missed by one attempt** (ev-044 above) |
 | EU inference, runbook, kill switch | Not measured by the eval; see [data-processing.md](data-processing.md) and [runbook.md](runbook.md) |
 

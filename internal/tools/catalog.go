@@ -27,8 +27,9 @@ log keeps. How the pieces fit is in [architecture.md](architecture.md); how to a
 | medium | A change a human must approve in Slack first. The tool only files the request; the change runs after the click. |
 | blocked | Never runs. The call is refused and audited, and the agent escalates. |
 
-Every call, whatever its tier, passes the same dispatcher steps and leaves an intent row and an outcome
-row in ` + "`audit_log`" + ` before and after it runs. No audit row, no write.
+Every call, whatever its tier, passes the same dispatcher steps and writes an intent row to ` + "`audit_log`" + `
+before it runs and an outcome row after. If the intent row cannot be written, nothing runs. If the
+outcome row fails after the action ran, only the intent row is left.
 `
 
 // optionalTools says when a tool outside the always on set is registered.

@@ -38,10 +38,10 @@ Both programs are Go binaries built from one repo and one Dockerfile. They run i
 
 ## The rules the split enforces
 
-1. **The agent never holds a client credential.** No AD password, no Graph certificate, no Zammad token. A lint rule and a test (`cmd/agent/boundary_test.go`) fail the build if agent code imports a client system package. If the agent or the model were fully compromised, the worst it could do is call the tools, under the same guards as always.
+1. **The agent never holds a client credential.** No AD password, no Graph certificate, no Zammad token. A lint rule and a test (`cmd/agent/boundary_test.go`) fail the build if agent code imports a client system package. A compromised model can only ask for tool calls, and every one runs under the same guards as always. A compromised agent process is worse: it can call the tools, and it can also call the approval routes with a forged clicker for an approval that is already pending (see the first item under "What is deliberately not here"). It still cannot reach AD, Entra, or Zammad directly, cannot make an admin tier change, and cannot act on anyone but the requester it names.
 2. **Identity never comes from the model.** The requester is set by agent code in the MCP `_meta` field, checked for exact format by the tool server. No tool takes a user name, a target account, or a ticket id as an argument. Account tools act only on the person asking.
 3. **Approvals go around the model.** For a medium tier tool (MFA clear, group access) the tool only files a request. The agent posts the approval card in Slack. The click comes back to agent code, which calls the tool server's approval route with the clicker's Slack id. The model cannot see or call those routes. The change runs only after the click, from the stored approval, never from what the model said.
-4. **No audit row, no write.** The audit recorder writes an intent row before the handler and an outcome row after. If the intent row cannot be written, nothing runs.
+4. **No audit row, no write.** The audit recorder writes an intent row before the handler and an outcome row after. If the intent row cannot be written, nothing runs. If the action ran but its outcome row cannot be written, only the intent row exists, so an intent with no outcome means "may have happened, check the system".
 5. **Durable state lives in Postgres**, never in memory, so a restart loses nothing. A sweep at start picks up conversations a restart cut off and escalates them.
 
 ## Noord's systems (the client environment)

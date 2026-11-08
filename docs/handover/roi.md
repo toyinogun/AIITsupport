@@ -11,7 +11,7 @@ This page estimates what the assistant saves and costs Noord per month. The clie
 | A3 | Share of tickets in scope (identity, access, knowledge base questions) | 40%, so **48 tickets a month** | discovery says resets and lockouts are "a large share"; 40% is a cautious reading |
 | A4 | IT minutes per in scope ticket today | 12 minutes | includes reading, checking the account, acting, replying, and the context switch |
 | A5 | Loaded cost of IT time | €45 an hour | salary plus overhead for one IT generalist in the Netherlands, rounded |
-| A6 | What happens to in scope tickets | 55% closed by the assistant alone, 20% closed after a one click approval, 25% handed to IT | the real mix is more routine than the eval set; the eval set's own mix is used as the pessimistic case below |
+| A6 | What happens to in scope tickets | 55% closed by the assistant alone, 20% closed after a one click approval, 25% handed to IT | an assumption: the real mix is more routine than the eval set. The pessimistic case below borrows the eval set's shape, but lumps its open cases (waiting on the person's answer, or on an approval already filed) in with the handoffs, so it is a floor, not a measurement |
 | A7 | IT minutes saved per ticket | closed alone: 12; after approval: 10 (about 2 minutes to read the card and click); handed to IT: 3 (identity checked, ticket written, context attached) | from A4 |
 | A8 | Model cost per conversation | $0.035 (three times the eval's measured $0.0115 per single message ticket) | real conversations run longer than one message |
 | A9 | Exchange rate | 1 USD = 0.90 EUR | rounded |
@@ -40,7 +40,7 @@ The model is the smallest line by far. Even at ten times A8 the base case barely
 |---|---|---|---|---|
 | Low volume | 25 | base (A6) | 3.9 | about €45 |
 | **Base** | **48** | **base** | **7.5** | **about €205** |
-| Pessimistic mix | 48 | the eval set: 28% alone, 20% approval, 52% to IT (6.9 minutes saved) | 5.5 | about €120 |
+| Pessimistic mix | 48 | shaped by the eval set: 28% alone, 20% approval, 52% everything else, all given only the 3 minute handoff saving (6.9 minutes saved) | 5.5 | about €120 |
 | Double volume | 100 | base | 15.6 | about €570 |
 | Four times volume | 200 | base | 31.2 | about €1,265 |
 
@@ -64,7 +64,7 @@ One cross check: discovery says MFA re-registration alone "costs hours every wee
 
 1. **A2 and A3:** count last quarter's Zammad tickets, and how many were lockouts, resets, MFA, access, or "how do I" questions.
 2. **A4:** ask the IT person to time ten typical tickets.
-3. **A6:** after a month in production, read the real mix from the dashboard (Resolved, Escalated, Refused) and the approvals count.
+3. **A6:** after a month in production, count it from Postgres, not the dashboard (the dashboard's approvals tile shows only what is waiting now, and its Resolved count does not split resolutions with and without an approval). Count the month's `conversations` by outcome, and the `approvals` that ended `executed` in the same month, joined to their conversations on `slack_channel_id` and `slack_thread_ts`; resolved conversations with an executed approval are the "after approval" share, the rest of Resolved is "alone", and Escalated plus Refused is "to IT".
 4. **A8:** read cost per conversation from the dashboard.
 
 Then redo the base case table with those values.

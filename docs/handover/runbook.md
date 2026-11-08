@@ -44,7 +44,7 @@ Open the Grafana dashboard "Noord assistant, last 24 hours" (the address is in [
 | Look at | Healthy | Act when |
 |---|---|---|
 | Account changes mode | what you set (`read_write` or `read_only`) | **unknown**: the tool server is down or cannot reach the database |
-| Approvals waiting | empty, or younger than 30 minutes | anything older: a card was missed or Slack is down |
+| Approvals waiting | empty, or each younger than its own window: an MFA approval waits `APPROVAL_TIMEOUT` (30 minutes by default), a group access approval waits `ACCESS_APPROVAL_TIMEOUT` (8 hours by default) | one older than its window: a card was missed or Slack is down |
 | Errors by stage | zero or near zero | any `llm` (model outage or key problem), a growing `slack`, any `sweep` (a restart cut a conversation off) |
 | Escalated and Refused | steady | a sudden rise in Refused means someone is probing for admin rights |
 | Cost per conversation | near the eval's $0.01 to $0.03 | well above it: a prompt change made it loop, or a long conversation |
@@ -71,7 +71,7 @@ The assistant's instructions are one Markdown file, [internal/agent/prompt/syste
 
 Never put a rule that matters for safety only in the prompt. If the assistant must never do something, it belongs in the tool server's code (a refusal or a fence), and the prompt only explains it.
 
-**Knobs that are settings, not prompt.** In the cluster, set them by name under `agent.env` or `toolserver.env` in `deploy/clusters/<name>/values.yaml` (on a laptop, in `.env`), then run `make install CLUSTER=<name>`. Each is documented in [`.env.example`](../../.env.example), and both programs refuse to start on a value out of range:
+**Knobs that are settings, not prompt.** In the cluster, set them by name under `agent.env` or `toolserver.env` in `deploy/clusters/<name>/values.yaml` (on a laptop, in `.env`), then run `make install CLUSTER=<name>`. One exception: set retention with the top level `ticketRetentionDays` value, not under `env`, because the agent, the tool server, and the helpdesk seed (which sets Zammad's purge) must all read the same number. Each is documented in [`.env.example`](../../.env.example), and both programs refuse to start on a value out of range:
 
 | Setting | What it changes |
 |---|---|
@@ -82,14 +82,14 @@ Never put a rule that matters for safety only in the prompt. If the assistant mu
 | `APPROVAL_TIMEOUT`, `ACCESS_APPROVAL_TIMEOUT` | how long an MFA or access approval waits before it expires |
 | `TOOL_DENIED_GROUPS`, `RESET_DENIED_GROUPS`, `MFA_DENIED_GROUPS` | which groups no tool may change, and whose members never get a reset link or an MFA clear |
 | `KB_STALE_AFTER_DAYS` | when a knowledge base article counts as stale |
-| `TICKET_RETENTION_DAYS` | how long chat text and assistant tickets are kept after they end |
+| `TICKET_RETENTION_DAYS` | how long chat text and assistant tickets are kept after they end (in the cluster: `ticketRetentionDays`, see above) |
 
 ## Add a tool
 
 A new tool is a code change in `internal/tools`, reviewed like any other. The conventions are in [internal/tools/AGENTS.md](../../internal/tools/AGENTS.md); the short path:
 
 1. **Pick the tier first.** Read only: `read`. A small change to the requester's own account or ticket: `low`. Anything a human should approve: `medium`. Anything the assistant must never do: `blocked`. When unsure, go one tier higher.
-2. **Pick the handler kind**, because it decides the guards. A handler that changes a directory account takes `AccountDeps`, and that alone puts it behind the kill switch and `TOOL_WRITE_LIMIT`. Anything else takes `Deps`, which holds no writer at all.
+2. **Pick the handler kind**, because it decides the guards. For a `read` or `low` tool: a handler that changes a directory account is an `AccountHandler` on `AccountDeps`, and that alone puts it behind the kill switch and `TOOL_WRITE_LIMIT`; anything else is a `ReadHandler` on `Deps`, which holds no writer at all. A `medium` tool is different: the registry refuses to build unless it has an `Approval` hook and exactly one of two pairs, a `Precheck` with an `MFAHandler` (on `MFADeps`) or a `GroupPrecheck` with a `GroupHandler` (on `GroupDeps`). The precheck runs at call time and files the approval; the handler runs only after the click. A new kind of approval (not MFA, not group access) needs a new pair in the dispatcher first, which is a design change, not just a registry entry. A `blocked` tool has no handler.
 3. **Add one registry entry** in `registry.go` (or its own file): name, a description the model reads, the fields with their limits, and the argument and result keys the audit log may keep. Free text is never kept; the registry refuses to build if you try.
 4. **Refuse with the refusal table**, never with free text. Add a row to `refusal.go` and to `allRefusals` in `refusalcode.go`.
 5. **If it reaches a new client system**, add that package to both deny lists (`.golangci.yml` rule `agent-credential-boundary` and `cmd/agent/boundary_test.go`), so the agent can never import it.
@@ -115,12 +115,23 @@ Some secrets also need a step at the system that issued them:
 |---|---|---|
 | `ANTHROPIC_API_KEY` | the Anthropic console; revoke the old key after the release | general path |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | the Slack app settings | [slack-workspace.md](../runbooks/slack-workspace.md#rotating-or-revoking-a-token) |
-| Entra app secret or certificate (`GRAPH_*`) | the app's **Certificates & secrets** in Entra, two weeks before expiry | [entra-tenant.md](../runbooks/entra-tenant.md#9-rotate-a-client-secret) |
+| Entra app client secret (`GRAPH_CLIENT_SECRET`) | the app's **Certificates & secrets** in Entra, two weeks before expiry | [entra-tenant.md](../runbooks/entra-tenant.md#9-rotate-a-client-secret) |
+| Entra app certificate (`GRAPH_CERT_FILE`) | see the steps below this table | below |
 | `ZAMMAD_TOKEN` | generated by the installer in the demo; at a real client, a new token for the assistant's Zammad user, then delete the old one | general path |
 | `TOOLSERVER_TOKEN` | any long random value; both programs read it, and both restart | general path |
 | `GRAFANA_ADMIN_PASSWORD` | general path, then restart Grafana | [observability.md](../runbooks/observability.md#the-grafana-admin-password) |
 | Samba account passwords (`LDAP_BIND_PASSWORD`, `RESET_LDAP_BIND_PASSWORD`) | only by resetting the demo directory | [deploy.md](../runbooks/deploy.md#reset-the-demo-directory) |
 | Backup bucket keys (`BACKUP_S3_*`) | Cloudflare R2, a token scoped to the one bucket | general path |
+
+**Rotating the Entra certificate.** The cluster's tool server signs in to Graph with a certificate when `GRAPH_CERT_FILE` is set (a PEM holding the certificate and its private key, sealed as `graph-client.pem`). Entra allows several certificates on one app, so you can overlap them:
+
+1. Make a new key and certificate, and combine them into one PEM file.
+2. Upload the new public certificate to the tool server app's **Certificates & secrets**, next to the old one.
+3. Point `GRAPH_CERT_FILE` in `secrets.env` at the new PEM and run `make install CLUSTER=<name>`. Only the tool server restarts.
+4. Check that MFA still works: the dashboard shows no new `graph_*` errors, or run `make entra-mfa NAME=<a demo user>` from a laptop with `GRAPH_CLIENT_CERT` in `.env` pointing at the new PEM (and `GRAPH_CLIENT_SECRET` empty; never set both).
+5. Delete the old certificate in Entra.
+
+Do it well before the old one expires. An expired certificate makes every MFA clear fail until you finish these steps.
 
 If you think a secret leaked, rotate it first and read the audit log second. The tool server never logs a secret, and the agent never holds a client system one.
 
