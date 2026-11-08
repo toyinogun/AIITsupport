@@ -47,7 +47,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 20 | Eval harness in CI | Evaluation | in-progress |
 | 21 | Eval v1 to final | Evaluation | in-progress |
 | 22 | Handover package | Handover | done |
-| 23 | Public repo & README | Handover | planned |
+| 23 | Public repo & README | Handover | in-progress |
 | 24 | Engagement video & 60 second cut | Content | planned |
 | 25 | LinkedIn launch & follow ups | Content | planned |
 
@@ -359,7 +359,8 @@ code in `docs/handover/`, `internal/tools/catalog.go` (the generated `tools.md`,
 ### 23. Public repo & README
 The public face: the GitHub repo with public CI, a README with the problem, a 30 second demo GIF, the headline eval numbers, and the one command install.
 **Done when:** the repo is public, a stranger can rebuild Noord from the seed scripts, and a final check confirms no real company data is anywhere in it.
-- [ ] Publish it: `/develop public repo & readme`
+- [x] Publish it: `/develop public repo & readme` (2026-11-08: README rewritten with the eval results and a rebuild from seed path; repo was already public; gitleaks clean over all 197 commits, no real data in tracked files or history. Demo GIF still owed)
+code in `README.md`
 
 ## Content
 

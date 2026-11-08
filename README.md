@@ -7,9 +7,10 @@
 [![CI](https://github.com/toyinogun/AIITsupport/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/toyinogun/AIITsupport/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
-![Status](https://img.shields.io/badge/status-slices%201%20to%206%20built-orange)
+![Eval](https://img.shields.io/badge/eval-149%2F150%20passed%2C%200%20unsafe-brightgreen)
+![Status](https://img.shields.io/badge/status-handed%20over-blue)
 
-[The problem](#the-problem) · [How it works](#how-it-works) · [Safety by design](#safety-by-design) · [Quick start](#quick-start) · [Roadmap](#roadmap) · [Docs](#documentation)
+[Results](#results) · [The problem](#the-problem) · [How it works](#how-it-works) · [Safety by design](#safety-by-design) · [Quick start](#quick-start) · [Install](#install-into-a-cluster) · [Docs](#documentation)
 
 </div>
 
@@ -19,6 +20,28 @@ This repo is a mock Forward Deployed Engineer engagement. An AI agent is deploye
 
 > [!NOTE]
 > Noord Logistics, its staff, and its directory are entirely fictional. Every name, address, and credential in this repo is made up for local development.
+
+<!-- Demo GIF (about 30 seconds): a locked out user unlocked from Slack, then a refused Domain Admins request.
+     Record it, save it as docs/assets/demo.gif, and replace this comment with:
+<p align="center"><img src="docs/assets/demo.gif" alt="A Noord user is unlocked from Slack, then a request for Domain Admins is refused and escalated" width="720"></p>
+-->
+
+## Results
+
+A fixed set of 50 test tickets, played as Slack messages against the real agent, the real tool server, the real model, and throwaway Samba AD, Zammad, and Postgres. Scores come from the audit log, not from the reply text.
+
+| | v1 | final |
+|---|---|---|
+| Attempts | 50 (1 per ticket) | 150 (3 per ticket) |
+| Passed | 30 (60%) | **149 (99.3%)** |
+| Unsafe actions | 2 | **0** |
+| Wrong actions | 8 | 1 |
+| Time to resolve, p50 / p95 | 6.9 s / 8.3 s | 6.5 s / 9.0 s |
+| Model cost per attempt, mean | $0.011 | $0.012 |
+
+The first run caught a real fault: the agent sent password reset links to two people who had left, because leavers stay enabled in AD and the only hint sat in a field the tool layer never read ([journal 0093](docs/journal/0093-eval-found-the-agent-sending-reset-links-to-leavers.md)). Most of the other v1 misses were wrong tickets, not a wrong agent, so 18 tickets were corrected before the final run. That means the two runs did not score the same set. The adversarial tickets (admin rights, acting for someone else) passed every time in both runs.
+
+Two of the five success criteria are not fully met, and the handover says so: routine resolution is 60% by a strict reading (target 70%), and model inference is not EU bound. The full breakdown, every failure, and the one final miss are in the [eval report](docs/handover/eval-report.md).
 
 ## The problem
 
@@ -64,7 +87,7 @@ flowchart LR
     class AD,E,Z client;
 ```
 
-All six ticket slices run end to end through this path: unlocks, privileged request refusal and escalation, reset links, MFA re-registration with approval, access requests via the group owner, and knowledge base answers. The one command install, observability, and the eval are next (see the [roadmap](#roadmap)).
+All six ticket slices run end to end through this path: unlocks, privileged request refusal and escalation, reset links, MFA re-registration with approval, access requests via the group owner, and knowledge base answers. Traces go to Tempo through OpenTelemetry, with a Grafana ops dashboard. The deeper walk through is the [architecture doc](docs/handover/architecture.md), and every tool with its risk tier is in [tools.md](docs/handover/tools.md), generated from the code so it cannot drift.
 
 Two Go binaries, one module:
 
@@ -126,16 +149,20 @@ git clone https://github.com/toyinogun/AIITsupport.git
 cd AIITsupport && make hooks
 ```
 
-Start Postgres, run the migrations, and run both binaries (each serves `/healthz` for now). The first run creates `.env` from `.env.example`; no API keys are needed yet.
+### Rebuild Noord from the seed files
 
-```bash
-make dev
-```
+Everything Noord has is rebuilt from files in [`seed/`](seed/): the directory from [`seed/directory/noord.yaml`](seed/directory/noord.yaml), the helpdesk and its knowledge base from [`seed/helpdesk/`](seed/helpdesk/). No API keys are needed for this part. The first `make` run creates `.env` from `.env.example`.
 
-In a second terminal, build Noord's directory from scratch and seed it (under two minutes):
+Build a fresh Samba AD directory and seed it (under two minutes):
 
 ```bash
 make directory-reset
+```
+
+Build a fresh Zammad helpdesk with its tickets and knowledge base (about two minutes, then open http://127.0.0.1:58080):
+
+```bash
+make helpdesk-reset
 ```
 
 Try a seeded user who arrives locked out, then lock one yourself:
@@ -147,6 +174,28 @@ make directory-login NAME=yara.schouten
 ```bash
 make directory-lock NAME=jan.devries
 ```
+
+Entra is optional. If you set up your own test tenant ([runbook](docs/runbooks/entra-tenant.md)) and fill the `SEED_GRAPH_*` values in `.env`, `make noord-reset` rebuilds the directory, syncs Entra, and rebuilds the helpdesk in one go. Without them, the Entra step skips itself.
+
+### Run it
+
+Start Postgres, run the migrations, and run both binaries:
+
+```bash
+make dev
+```
+
+With no Slack tokens in `.env`, the agent starts and waits. To talk to it, create the Slack app from the [Slack workspace runbook](docs/runbooks/slack-workspace.md), then put `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, and `ANTHROPIC_API_KEY` in `.env` and run `make dev` again.
+
+### Run the eval
+
+The same 50 tickets behind the [results](#results), against throwaway containers (needs Docker and `ANTHROPIC_API_KEY`; the v1 pass cost $0.55 in model calls):
+
+```bash
+make eval ARGS="--label mine --repeat 1"
+```
+
+Compare your run to the published one with `go run ./cmd/eval compare final mine`. The [eval runbook](docs/runbooks/eval.md) has the rest.
 
 ### Install into a cluster
 
@@ -188,23 +237,27 @@ Every target is described by its `## target:` comment in the [Makefile](Makefile
 cmd/
   agent/          Slack facing agent (no client credentials)
   toolserver/     MCP tool server, the only path into client systems
-  seed/           Rebuilds the Noord directory, dev certs, lock and login helpers
+  seed/           Rebuilds Noord (directory, Entra, helpdesk), migrations, the cluster installer
+  eval/           Plays the eval tickets and writes the reports
 internal/
+  agent/  llm/    The bounded tool use loop and the swappable model client
+  tools/          Tool registry, risk tiers, the dispatcher pipeline, kill switch
   audit/          Append only audit recorder and guarded approvals
+  ldap/ graph/ zammad/   The only clients for Noord's systems (tool server side)
   config/         Every setting, declared once and validated at startup
   db/             Connection pool; queries/ is sqlc output, never hand edited
-  seed/           Directory model, validation, and LDAPS seeding
-  logging/  server/  telemetry/
-db/
-  migrations/     goose SQL migrations, embedded in the binary
-  queries/        Plain SQL that sqlc turns into typed Go
-seed/directory/   noord.yaml and the Samba image
-docs/             Discovery, scope, specs, journal, reviews
+  seed/ install/  Seeders and the one command installer
+  logging/  telemetry/  server/  ...
+db/               goose migrations and the SQL that sqlc turns into typed Go
+seed/             noord.yaml, the Samba image, the helpdesk tickets and KB
+eval/             tickets.yaml (frozen by tickets.lock), prices, and the saved runs
+deploy/           The charts and cluster folders ArgoCD installs
+docs/             Discovery, scope, specs, handover, runbooks, journal, reviews
 ```
 
-## Roadmap
+## How it was built
 
-Built in tracer bullet order: prove the whole pipe on one real ticket first, then thicken one strand at a time. The live plan is [docs/scope/scope.md](docs/scope/scope.md).
+In tracer bullet order: prove the whole pipe (Slack to agent to tool server to AD to ticket to audit log) on one real ticket first, then thicken one strand at a time. Every decision is a spec in [docs/specs/](docs/specs/), and everything that broke along the way, nearly 100 entries, is in the [build journal](docs/journal/README.md). The plan, with each feature's status, is [docs/scope/scope.md](docs/scope/scope.md).
 
 - [x] Discovery, stack and architecture, coding standards, CI
 - [x] Data model: append only audit log, approvals, conversations, usage, eval runs
@@ -213,15 +266,18 @@ Built in tracer bullet order: prove the whole pipe on one real ticket first, the
 - [x] **Slice 1:** tool server with risk tiers, and a locked out user unlocked from Slack end to end
 - [x] **Slice 2:** privileged request refusal and escalation, PII redaction and retention
 - [x] **Slices 3 to 6:** reset links, MFA with approval, access requests via group owner, KB answers
-- [ ] One command GitOps install (in progress), tracing, and an ops dashboard
-- [ ] 50 ticket eval in CI, v1 and final results published here
-- [ ] Handover package: architecture doc, runbook, eval report, data processing note, ROI estimate
+- [x] One command GitOps install, tracing, and an ops dashboard
+- [x] 50 ticket eval in CI, v1 and final results published
+- [x] Handover package: architecture doc, runbook, eval report, data processing note, ROI estimate
+- [ ] Engagement video and write up
 
 ## Documentation
 
 | Doc | What is in it |
 |---|---|
+| [Handover package](docs/handover/README.md) | Start here: architecture, tools and risk tiers, eval report, runbook, data processing note, ROI estimate |
 | [Discovery](docs/discovery.md) | The client, the pain points, and the success criteria everything is measured against |
+| [Runbooks](docs/runbooks/) | Deploy, eval, observability, Slack, Entra, password resets, MFA approvals, retention, the CI runner |
 | [Scope](docs/scope/scope.md) | Every feature, its status, and the timeline |
 | [Specs](docs/specs/) | One folder per decision: the spec, its rationale, and how it is verified |
 | [Build journal](docs/journal/README.md) | Everything that broke, why, and how it was fixed |
