@@ -54,7 +54,7 @@ CI builds and pushes the four images on every push to the default branch. Then:
 make release CLUSTER=<name> SHA=<full sha>
 ```
 
-It checks that all four images exist, writes `image.tag` in the cluster's `values.yaml`, commits, and pushes. ArgoCD rolls the pods. An unknown commit or a missing image stops it with nothing written.
+It checks that all four images exist, writes `image.tag` in the cluster's `values.yaml`, commits, and pushes. Then run `make install CLUSTER=<name>` so the cluster moves to it; install alone never changes the pinned tag (journal 0086). An unknown commit or a missing image stops it with nothing written.
 
 ## Pause and resume
 

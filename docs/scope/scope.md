@@ -46,7 +46,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 19 | Eval ticket set | Evaluation | done |
 | 20 | Eval harness in CI | Evaluation | in-progress |
 | 21 | Eval v1 to final | Evaluation | in-progress |
-| 22 | Handover package | Handover | planned |
+| 22 | Handover package | Handover | done |
 | 23 | Public repo & README | Handover | planned |
 | 24 | Engagement video & 60 second cut | Content | planned |
 | 25 | LinkedIn launch & follow ups | Content | planned |
@@ -350,10 +350,11 @@ Run v1, publish it as is, fix the top failures, run again. The gap between the t
 
 ## Handover
 
-### 22. Handover package
+### 22. Handover package · done
 What an FDE leaves behind so the client's IT person can run, tune, and switch off the agent alone.
 **Done when:** the architecture doc, the tool and risk tier spec (in sync with code), the eval report (v1 vs final, every failure category), the runbook (deploy, monitor, tune prompts, add a tool, rotate secrets, switch to read only), the data processing note, and the ROI estimate with every assumption stated all exist.
-- [ ] Write it: `/develop handover package`
+- [x] Write it: `/develop handover package` (2026-11-08)
+code in `docs/handover/`, `internal/tools/catalog.go` (the generated `tools.md`, kept in sync by `TestCatalogMatchesHandoverDoc`)
 
 ### 23. Public repo & README
 The public face: the GitHub repo with public CI, a README with the problem, a 30 second demo GIF, the headline eval numbers, and the one command install.
