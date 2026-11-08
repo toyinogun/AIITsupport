@@ -328,7 +328,7 @@ Replays every ticket against a fresh seed of the environment, scores it automati
   - [x] All 50 tickets: identities, setup, approver clicks, database clone per attempt, outside undo, stops, repeats (AC-1, AC-6 to AC-9, AC-18, AC-19)
     - [x] Built and run live on five tickets (ev-001, 021, 025, 031, 040): setup tokens, approver clicks, evidence, scoring, saving, stdout lines
     - [x] Outside undo and verify (`evalreset`, `env_dirty` stop), live on four writing tickets
-    - [x] Cost cap, infra stop, repeats (`runner.Play`, `--repeat`); repeats run live (`final`, 150 attempts); cost cap and infra stop tested with a scripted model, as the spec says, never tripped live
+    - [x] Cost cap, infra stop, repeats (`runner.Play`, `--repeat`); repeats run live (`final`, 150 attempts); cost cap and infra stop tested with a scripted model (as the spec says) and tripped live on purpose during `/check verify` on 2026-11-08 (`cost_cap` at $0.513 of a $0.50 cap, `infra` with a bad API key)
     - [x] All 50 run live: `v1` (one each) and `final` (`--repeat 3`), journals 0093 to 0095
   - [x] Reports and CLI: JSON and Markdown, `compare`, `report`, freeze, exit codes (AC-12, AC-13, AC-15)
     - [x] `eval/report`, `report`, `compare`, `--freeze`, `--force`, label check; `--freeze` used live by `final`

@@ -27,7 +27,9 @@ var harnessPkgs = []string{
 // binaryDeps lists every package one binary under cmd/ pulls in.
 func binaryDeps(t *testing.T, dir string) []string {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-e", ".")
+	// No -e: a package that fails to load must fail the test, not leave a
+	// partial dependency list that passes it.
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off")
 	out, err := cmd.Output()
