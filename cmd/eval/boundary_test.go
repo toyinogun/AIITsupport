@@ -31,7 +31,9 @@ func binaryDeps(t *testing.T, dir string) []string {
 	// partial dependency list that passes it.
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", ".")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off")
+	// The proxy stays on so another binary's dependencies can be fetched on a
+	// cold cache; -mod=readonly still keeps go.mod untouched.
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "GOWORK=off", "GOTOOLCHAIN=local")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("go list -deps in %s: %v", dir, err)
