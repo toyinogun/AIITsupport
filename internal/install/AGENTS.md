@@ -9,11 +9,11 @@ The one command cluster installer behind `make install CLUSTER=<name>` (`seed in
 | File | Owns |
 |---|---|
 | `install.go` | `Run` and its steps in order (preflight, platform, certs, generate, seal, commit and push, apply, overlays, wait, report), `Options`, `ExitError` and the exit codes |
-| `table.go` | `LoadTable`: the Secret table `deploy/helm/noord/files/secrets.yaml` (which Secret each workload reads, each key's source), `Inputs`, `Enabled`, `Required` |
-| `secrets.go` | `Build` (plaintext per Secret, in memory only), `Generate` (create a missing value once, or read it back from the live Secret), `randomValue` |
+| `table.go` | `LoadTable`: the Secret table `deploy/helm/noord/files/secrets.yaml` (which Secret each workload reads, each key's source), `Inputs`, `Enabled`, `Required`, `Conditions` (demo, reset), `Key.Mounted` |
+| `secrets.go` | `Build` (plaintext per Secret, in memory only, from `secrets.env` and `Sources`), `Generate` (create a missing value once, or read it back from the live Secret), `randomValue` |
 | `seal.go` | `ReadSealed`, `WriteSealed`, `Reseal`: reseal a key only when its value differs from the live Secret |
 | `directory.go` | the demo components (`components`), the observability Applications (`withObservability`, spec 0016; their Secrets belong to the agent part), the `certs` step (CA and Samba server pair in `~/.noord/<cluster>/`), the `overlays` step (`noord-seed-overlays`, applied straight to the cluster) |
-| `cluster.go` | `OpenFolder`, `Values` (the part of a cluster's `values.yaml` the installer reads), `SetCACertificate` |
+| `cluster.go` | `OpenFolder`, `Values` (the part of a cluster's `values.yaml` the installer reads, with `ResetEnabled` and `ResetHost`), `SetCACertificate` |
 | `env.go` | `EnvFile`: parse and write `secrets.env` (mode 0600, errors name the line, never a value) |
 | `ops.go` | the day two commands: `Release`, `Pause`, `Resume`, `Uninstall`, `SealKeyBackup`, and the key backup notice `install` prints (AC-19 to AC-22) |
 | `fresh.go` | the fresh cluster path: the `argocd` step (installs the pinned chart only when `argocd-server` is missing), the demo memory check, the pull request push path (exit 3), `Record` use in sealing |
@@ -21,7 +21,7 @@ The one command cluster installer behind `make install CLUSTER=<name>` (`seed in
 | `git.go` | `Changed`, `Unexpected`, `Track`, `Commit` (only `values.yaml` and `sealed-values.yaml`, hooks off), `Push` |
 | `images.go` | `Registry.Exists`: anonymous checks that the four images exist for `image.tag` |
 | `kube.go` | `Runner`, `ExecRunner`, `Kube` (every `kubectl` call names its context), `CmdError` |
-| `chart_test.go` | renders the client part with `helm template` and checks the helpdesk Job's Rails environment and that no plain `Secret` renders (skips without `helm`) |
+| `chart_test.go` | renders each part with `helm template` and checks the helpdesk Job's Rails environment, that no plain `Secret` renders, the reset Ingress, the mounted Graph certificate, and the `seed-entra` Job's wave (skips without `helm`) |
 
 ## Conventions
 
@@ -29,6 +29,8 @@ The one command cluster installer behind `make install CLUSTER=<name>` (`seed in
 - Preflight changes nothing and exits 2 (`ExitPreflight`) with a message that names the problem, never a value; any later step failure exits 1 naming the step. One `INSTALL_TIMEOUT` bounds everything after preflight.
 - The Secret table is shared with the chart: the installer builds and seals exactly the keys the chart renders. Adding a key means editing `files/secrets.yaml`, `internal/config` (a `secret` or `private` field), `.env.example`, and `deploy/clusters/_template/secrets.env`; the table tests fail on any drift (AC-7).
 - A key with `rails: true` is read by the Zammad image's Rails, not by our loader, so the AC-7 test leaves it out.
+- A key with `reset: true|false` applies only when the cluster's `reset.enabled` matches, like `demo` (`Conditions`). `derive: tailnet_url` with `host: reset` is `https://<ResetHost>.<TAILNET>`. `fromFile: NAME` seals the content of the local file that `secrets.env` setting names (absolute, or under the clone); such a key is `Mounted`: the chart mounts it as a file, never as env, and the AC-7 test leaves it out.
+- Preflight refuses `GRAPH_CERT_FILE` together with `GRAPH_CLIENT_SECRET`, and a certificate file it cannot read (AC-24).
 - A generated value is made once with `crypto/rand` (letters and digits, at least one upper, lower, and digit, so it meets Samba's rule and needs no URL escaping) and written back to `secrets.env`. A value lost from `secrets.env` is read back from the live Secret, never made again.
 - The installer commits only `deploy/clusters/<name>/values.yaml` and `sealed-values.yaml`, with `LEFTHOOK=0`, and pushes to the upstream branch. Preflight refuses any other change in the tree, so keep unrelated work off the branch you install from.
 - Every external command goes through `Runner`; tests pass a fake runner, a fake `Live`, and a fake registry, never a real cluster.
